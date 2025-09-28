@@ -5,8 +5,8 @@
 | Story ID | Status | Completed On | Notes |
 | --- | --- | --- | --- |
 | 0.1 | Done | 2025-09-28 | pytest installed locally; env template test green |
-| 0.2 |  |  |  |
-| 0.3 |  |  |  |
+| 0.2 | Done | 2025-09-28 | Backend + frontend tooling bootstrap completed |
+| 0.3 | Done | 2025-09-28 | Configuration loader and structured logging implemented |
 | 1.1 |  |  |  |
 | 1.2 |  |  |  |
 | 1.3 |  |  |  |
@@ -110,24 +110,33 @@
 - Given a missing required variable when `Settings()` loads, then a `ValidationError` is raised and the logger records a clear error per the Architecture.md Error Handling Strategy.
 - Given `structlog` configured when `logger.bind(correlation_id=...)` is used in any module, then log output includes JSON-formatted records with shared context (timestamp, level, name, correlation_id).
 **Subtask Checklist:**
-- [ ] Implement `Settings` class in `backend/app/core/config.py` using `pydantic_settings.BaseSettings` pulling values from environment with defaults where appropriate (e.g., `DATABASE_URL=sqlite+aiosqlite:///./data/db.sqlite`).
-- [ ] Provide helper functions to return typed settings and an env validation CLI (`python -m backend.app.core.config --check`).
-- [ ] Implement `configure_logging()` in `backend/app/core/logging.py` using `structlog` and standard library logging integration.
-- [ ] Ensure logging setup respects Architecture.md Patterns – Error Handling (correlation IDs, exception rendering).
-- [ ] Call `configure_logging()` during FastAPI startup hook placeholder (e.g., in `backend/app/api/main.py`).
-- [ ] Write `backend/tests/unit/test_config.py` covering happy path, missing variables, default overrides (use `monkeypatch`).
-- [ ] Write `backend/tests/unit/test_logging.py` ensuring structured logs include bound context fields.
-- [ ] Update `Makefile` `test` target to include unit tests.
-- [ ] Run `pytest backend/tests/unit/test_config.py backend/tests/unit/test_logging.py` and ensure success.
+- [x] Implement `Settings` class in `backend/app/core/config.py` using `pydantic_settings.BaseSettings` pulling values from environment with defaults where appropriate (e.g., `DATABASE_URL=sqlite+aiosqlite:///./data/db.sqlite`).
+- [x] Provide helper functions to return typed settings and an env validation CLI (`python -m backend.app.core.config --check`).
+- [x] Implement `configure_logging()` in `backend/app/core/logging.py` using `structlog` and standard library logging integration.
+- [x] Ensure logging setup respects Architecture.md Patterns – Error Handling (correlation IDs, exception rendering).
+- [x] Call `configure_logging()` during FastAPI startup hook placeholder (e.g., in `backend/app/api/main.py`).
+- [x] Write `backend/tests/unit/test_config.py` covering happy path, missing variables, default overrides (use `monkeypatch`).
+- [x] Write `backend/tests/unit/test_logging.py` ensuring structured logs include bound context fields.
+- [x] Update `Makefile` `test` target to include unit tests.
+- [x] Run `pytest backend/tests/unit/test_config.py backend/tests/unit/test_logging.py` and ensure success.
 **Testing Requirements:**
 - Unit Tests via `pytest` (maintain ≥80% coverage for `backend/app/core`).
 - Definition of Done: All ACs met, unit tests passing, linting per project standards.
 **Story Wrap Up (To be filled in AFTER agent execution):**
-- **Agent Model Used:** 
-- **Agent Credit or Cost:** 
-- **Date/Time Completed:** 
-- **Commit Hash:** 
-- **Change Log:**
+- **Agent Model Used:** Claude Sonnet 4 (claude-sonnet-4-20250514)
+- **Agent Credit or Cost:** N/A (local execution)
+- **Date/Time Completed:** 2025-09-28T18:30:00Z
+- **Commit Hash:** _pending user commit_
+- **Change Log:** Completed configuration loader and structured logging foundation:
+  - Implemented Settings class with Pydantic BaseSettings for environment variable management
+  - Added comprehensive configuration validation with CLI tool (python -m backend.app.core.config --check)
+  - Implemented structured logging with structlog and correlation ID support
+  - Created JSON and console formatters for development and production environments
+  - Added correlation ID middleware for request tracing
+  - Created comprehensive unit test suites (27 tests) covering all functionality
+  - Updated requirements.txt with new dependencies (pydantic-settings, structlog, pytest)
+  - All tests passing: make test ✅, make validate ✅
+  - Ready for Story 1.1 (RSS Feed Plugin Framework)
 
 ---
 **Story ID:** 1.1
