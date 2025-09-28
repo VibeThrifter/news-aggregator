@@ -11,6 +11,7 @@
 | 0.3 | Done | 2025-09-28 | Configuration loader and structured logging implemented |
 | 1.1 | Done | 2025-09-28 | RSS Feed Plugin Framework implemented with NOS & NU.nl readers |
 | 1.2 | Done | 2025-09-28 | Article Fetching, Extraction, and Normalization Pipeline implemented |
+| 1.2.1 | Done | 2025-09-28 | Consent-aware fetch pipeline implemented (profiles + cookies) |
 | 1.3 |  |  |  |
 | 2.1 |  |  |  |
 | 2.2 |  |  |  |
@@ -182,6 +183,36 @@
   - Ready for Story 1.2 (Article Fetching, Extraction, and Normalization Pipeline)
 
 ---
+**Story ID:** 1.2.1
+**Epic ID:** Epic 1 – Ingest & Preprocessing Backbone
+**Title:** Implement Source-Aware Article Fetch Pipeline with Consent Handling
+**Objective:** Ensure full article content can be retrieved from privacy-gated or paywalled sources by adding configurable consent handling, cookie persistence, and parser fallbacks.
+**Background/Context:**
+- Source: docs/PRD.md (Epic 1 – Ingest pipeline needs full-text for clustering/LLM).
+- Reference: docs/architecture.md (Ingestion layer; Source Profiles & Consent Handling).
+- Target Paths: `backend/app/ingestion/fetcher.py`, `backend/app/ingestion/__init__.py`, `backend/app/services/ingest_service.py`, new `backend/app/config/source_profiles.py`, docs updates (architecture, README).
+**Acceptance Criteria (AC):**
+- Given sources requiring privacy consent (e.g., NU.nl), when the fetcher runs, it performs the configured consent/cookie negotiation and retrieves the full article content.
+- Given a source marked as `requires_js: true`, then the fetcher falls back to the configured dynamic renderer (stub/strategy).
+- Given a source-specific profile, when the profile changes (e.g., new consent endpoint), then updating the profile file is sufficient without code changes.
+- Given cookies acquired during consent, they are persisted and reused until expiry to minimize manual steps.
+- Given a fetch failure after all strategies, the pipeline records a structured failure event and continues processing other articles.
+**Subtask Checklist:**
+- [x] Design `source_profiles.yaml` describing feed URL, fetch strategy, consent endpoints, parser preference, retries per source.
+- [x] Implement loader (`backend/app/config/source_profiles.py`) that validates YAML against a schema (Pydantic).
+- [x] Extend `fetch_article_html` to accept a `SourceProfile` and execute strategies: simple fetch, consent flow, cookie persistence, dynamic fallback hook.
+- [x] Persist consent cookies in `data/cookies/<source>.json` with expiry; auto-renew when expired.
+- [x] Update `IngestService` to pass the appropriate profile when fetching each article.
+- [x] Add fallback parser options (Trafilatura default; BeautifulSoup/Readability as configured).
+- [x] Extend integration tests with mocked consent flows (e.g., federation of responses).
+- [x] Update docs (architecture Project Structure, ingestion description, README quickstart) with instructions for adding new sources/profiles.
+- [x] MANUAL STEP: Document instructions for handmatig toevoegen van consent cookies (README update met stappen om browsercookies te exporteren en in `data/cookies/<source>.json` te plaatsen).
+**Testing Requirements:**
+- Integration tests with mocked HTTP responses verifying consent flow, cookie persistence, and fallback parsing.
+- Unit tests for profile loader validation.
+- Definition of Done: ACs met, tests green, documentation updated.
+
+---
 **Story ID:** 1.2
 **Epic ID:** Epic 1 – Ingest & Preprocessing Backbone
 **Title:** Build Article Fetching, Extraction, and Normalization Pipeline
@@ -246,11 +277,12 @@
 - Unit & Integration Tests via `pytest` (mock heavy models where possible to keep runtime acceptable; maintain coverage target).
 - Definition of Done: ACs met, tests passing, persisted vectorizer verified.
 **Story Wrap Up (To be filled in AFTER agent execution):**
-- **Agent Model Used:** 
-- **Agent Credit or Cost:** 
-- **Date/Time Completed:** 
-- **Commit Hash:** 
-- **Change Log:**
+- **Agent Model Used:** OpenAI GPT-5 Codex (CLI)
+- **Agent Credit or Cost:** N/A (local execution)
+- **Date/Time Completed:** 2025-09-28T21:50:00Z
+- **Commit Hash:** _pending user commit_
+- **Change Log:** Added consent-aware fetch pipeline, source profile loader, cookie persistence, fallback parser, updated docs, cookie refresh script, and new tests.
+- **Tests:** `PYTHONPATH=. .venv/bin/pytest backend/tests/unit/test_source_profiles.py backend/tests/integration/test_fetcher_consent.py backend/tests/integration/test_article_ingestion.py`
 
 ---
 **Story ID:** 2.1

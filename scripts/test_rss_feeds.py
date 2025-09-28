@@ -36,6 +36,7 @@ from backend.app.ingestion import (
     fetch_article_html,
     parse_article_html,
 )
+from backend.app.ingestion import SourceProfile, load_source_profiles
 
 LOGGER = structlog.get_logger(__name__)
 
@@ -92,11 +93,13 @@ async def _get_article_content(
     client: httpx.AsyncClient,
     *,
     limit: int,
+    profile: Optional[SourceProfile],
 ) -> str | None:
     try:
         html = await fetch_article_html(
             item.url,
             client=client,
+            profile=profile,
             logger=LOGGER.bind(article_url=item.url),
         )
     except ArticleFetchError as exc:
@@ -136,6 +139,7 @@ async def main(argv: Sequence[str] | None = None) -> int:
         configure_logging(json_format=False)
 
     service = IngestService()
+    profiles = load_source_profiles()
     selected: Iterable[str] | None = args.readers
 
     tasks: list[tuple[str, asyncio.Task[list[FeedItem]]]] = []
@@ -173,11 +177,13 @@ async def main(argv: Sequence[str] | None = None) -> int:
         print(f"\n=== {reader_id} ({service.readers[reader_id].feed_url}) ===")
         for item in items[: args.limit]:
             content: str | None = None
+            profile = profiles.get(reader_id)
             if content_client is not None:
                 content = await _get_article_content(
                     item,
                     content_client,
                     limit=args.content_limit,
+                    profile=profile,
                 )
             print(
                 _format_item(

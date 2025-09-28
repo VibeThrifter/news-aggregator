@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from textwrap import shorten
 from typing import Optional
 
@@ -68,3 +69,27 @@ def parse_article_html(html: str, *, url: Optional[str] = None) -> ArticleParseR
         summary = _fallback_summary(text)
 
     return ArticleParseResult(text=text, summary=summary)
+
+
+class _HTMLStripper(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self._chunks: list[str] = []
+
+    def handle_data(self, data: str) -> None:  # pragma: no cover - simple extractor
+        if data:
+            self._chunks.append(data)
+
+    def get_text(self) -> str:
+        return " ".join(chunk.strip() for chunk in self._chunks if chunk.strip())
+
+
+def naive_extract_text(html: str) -> str:
+    """Simplistic fallback extractor for sources where Trafilatura fails."""
+
+    stripper = _HTMLStripper()
+    try:
+        stripper.feed(html)
+    except Exception:  # pragma: no cover - defensive fallback
+        return ""
+    return stripper.get_text()

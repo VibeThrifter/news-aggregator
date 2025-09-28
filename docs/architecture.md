@@ -328,8 +328,9 @@ sequenceDiagram
 │   │   │   ├── nos.py             # NOS implementation
 │   │   │   └── nunl.py            # NU.nl implementation
 │   │   ├── ingestion/
-│   │   │   ├── fetcher.py         # HTTP fetching & caching
-│   │   │   └── parser.py          # Trafilatura wrapper
+│   │   │   ├── fetcher.py         # HTTP fetching & consent-aware pipeline
+│   │   │   ├── parser.py          # Trafilatura wrapper
+│   │   │   └── profiles.py        # Source profile definitions
 │   │   ├── nlp/
 │   │   │   ├── preprocess.py      # Tokenization, stopwords, normalization
 │   │   │   ├── embeddings.py      # Sentence-transformers adapter
@@ -393,10 +394,13 @@ sequenceDiagram
 │   ├── context-events.md
 │   └── architecture.md
 ├── scripts/                        # Losse hulpscripts (bv. RSS probes)
-│   └── test_rss_feeds.py
+│   ├── test_rss_feeds.py
+│   └── refresh_cookies.py
 ├── data/                           # Local data/cache folder
+│   ├── cookies/                    # Persisted consent/session cookies per source
 │   ├── vector_index.bin
 │   └── exports/
+├── source_profiles.yaml            # Source-specific fetch/consent configuration
 ├── infra/
 │   ├── docker-compose.yml          # Local stack (SQLite, backend, frontend)
 │   ├── dev.Dockerfile
@@ -410,6 +414,38 @@ sequenceDiagram
 ```
 
 > Algemene hulpscripts (zoals `scripts/test_rss_feeds.py`) bieden snelle checks zonder volledige pipeline.
+
+
+### Source Profiles & Consent Handling
+
+To support sources with different access requirements, the ingestion layer relies on `source_profiles.yaml`. Each profile defines:
+
+- `feed_url`: primary RSS/JSON endpoint.
+- `fetch_strategy`: `simple`, `consent_cookie`, `dynamic_render`, etc.
+- `consent_endpoint` + params for providers met privacy gates (e.g., DPG Media).
+- `user_agent`, `headers`, `parser` preference (trafilatura, readability/naive fallback).
+- `probe_url` (optioneel): vaste URL voor cookie-refresh; anders wordt de feed gebruikt.
+- `requires_js`: toggle voor headless-browser fallback.
+- `cookie_ttl_minutes`: controls when stored cookies expire.
+
+The fetcher executes a pipeline per profile:
+
+1. Attempt direct fetch (with configured UA/cookies).
+2. If redirected to consent, follow profile instructions to obtain consent cookies, persist them under `data/cookies/<source>.json`, then retry.
+3. Apply parser fallback as configured.
+4. Optionally invoke dynamic renderer hook for JS-only pages.
+5. Emit structured log with outcome (success, consent failure, parser failure).
+
+When adding a new source:
+
+1. Append profile entry to `source_profiles.yaml`.
+2. Place consent/cookie instructions (if any).
+3. Run `scripts/refresh_cookies.py --source <id>` to refresh cookies (uses feed entries when `probe_url` ontbreekt).
+4. Verifieer via `scripts/test_rss_feeds.py --reader <id> --show-content`.
+
+The architecture remains provider-agnostic: updating profile entries avoids touching ingestion code.
+
+> Manual override: als een consent flow faalt, kopieer de vereiste cookies via de browser en plaats ze in `data/cookies/<source>.json` (zelfde structuur als automatisch opgeslagen payload).
 
 ## Testing Requirements and Framework
 

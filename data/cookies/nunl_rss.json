@@ -1,0 +1,62 @@
+{
+  "stored_at": "2025-09-28T20:59:32.987214+00:00",
+  "ttl_minutes": 180,
+  "cookies": [
+    {
+      "name": "xAuthId",
+      "value": "50d231d3-6c87-4e5d-be5f-89840f8b32b7",
+      "domain": "myprivacy.dpgmedia.nl",
+      "path": "/",
+      "expires": null
+    },
+    {
+      "name": "authId",
+      "value": "50d231d3-6c87-4e5d-be5f-89840f8b32b7",
+      "domain": "myprivacy.dpgmedia.nl",
+      "path": "/",
+      "expires": null
+    },
+    {
+      "name": "authId",
+      "value": "50d231d3-6c87-4e5d-be5f-89840f8b32b7",
+      "domain": ".nu.nl",
+      "path": "/",
+      "expires": null
+    },
+    {
+      "name": "nunl_device_id",
+      "value": "hq5n7e9dtt5qmfr153whxk9x",
+      "domain": "www.nu.nl",
+      "path": "/",
+      "expires": 1766869172
+    },
+    {
+      "name": "nunl_id",
+      "value": "um7nte2vft5stf18bd7q13qd",
+      "domain": "www.nu.nl",
+      "path": "/",
+      "expires": 1766869172
+    },
+    {
+      "name": "last_visit_timestamp",
+      "value": "1759093175",
+      "domain": "www.nu.nl",
+      "path": "/",
+      "expires": 1759697972
+    },
+    {
+      "name": "ak_bmsc",
+      "value": "580C1D51A91216C95DE5BF376F0BFE9D~000000000000000000000000000000~YAAQqf1IF2r1wniZAQAAlVYfkh1di02BNNre0TuCac39uiyrEnMkcSbx9elUN5LBagKlVePe5yZQjxuFZFeOoxyja8ntOIWG6WgAV7SviuyrfHK/fNo0TPYUbmX3hO+pqVJOeqz2ItNYFxWBhY76P/VtHaHtpPW9SH2Mtgif+PstcCfhX+15fzKVOylwmZ0SpMBpAC2bcDg4VRuniVGyIrIYqrWg5XR5wejXehtfU/C8MjtHyao1PLTfjt4hmPjzWOxkQIxdi/B//ftSvtoyuNU1Gz40L5EFRsWfv42AcECr1mbFXWLtmmA6aHGupO6i3B5wQk68yX3JPJimPWEGpD1W04I4Uch7VKilBPQ3luWSuyMjj8VfjxWZGuwu9Q==",
+      "domain": ".www.nu.nl",
+      "path": "/",
+      "expires": null
+    },
+    {
+      "name": "bm_sv",
+      "value": "64306365D1349B7DE35A74A3B5CF5011~YAAQuv1IF3y+DGKZAQAAL7Mfkh30peulnVMQVgx342Z06xLFO580Bti23LZVDTGRlsws1tvHjmRaY7NzIfpItOWCg5s7BjeiGy1c0mYx2885WDwPZ6c3um7+Qla+cZpcOk7HDmVDTgJYdl4k7oA+OjmfXd1dQqPRxFz3Qlz5pmR6cLzutvYAu3CN9Uhd5JyCQAYEwLLxhdaPKznwUg+r5SWfhnhtRNUr/1+PYw0oA+o+DKpAwf1wayjNM9tOamY=~1",
+      "domain": ".www.nu.nl",
+      "path": "/",
+      "expires": 1759100348
+    }
+  ]
+}

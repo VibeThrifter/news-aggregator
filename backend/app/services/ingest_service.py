@@ -21,7 +21,16 @@ from backend.app.db.session import get_sessionmaker
 from backend.app.feeds.base import FeedItem, FeedReader, FeedReaderError
 from backend.app.feeds.nos import NosRssReader
 from backend.app.feeds.nunl import NuRssReader
-from backend.app.ingestion import ArticleFetchError, ArticleParseError, fetch_article_html, parse_article_html
+from backend.app.ingestion import (
+    ArticleFetchError,
+    ArticleParseError,
+    ArticleParseResult,
+    SourceProfile,
+    fetch_article_html,
+    load_source_profiles,
+    naive_extract_text,
+    parse_article_html,
+)
 from backend.app.repositories import ArticleRepository
 
 logger = structlog.get_logger()
@@ -39,6 +48,8 @@ class IngestService:
 
         self.settings = get_settings()
         self.readers: Dict[str, FeedReader] = {}
+        self.reader_profiles: Dict[str, SourceProfile] = {}
+        self.profiles_catalog = load_source_profiles()
         self.session_factory = session_factory or get_sessionmaker()
         self._register_readers()
 
@@ -46,13 +57,17 @@ class IngestService:
         """Register available feed readers with their configured URLs."""
         try:
             # Register NOS RSS reader
-            nos_reader = NosRssReader(self.settings.rss_nos_url)
+            nos_profile = self._resolve_profile("nos_rss", default_url=self.settings.rss_nos_url)
+            nos_reader = NosRssReader(str(nos_profile.feed_url or self.settings.rss_nos_url))
             self.readers[nos_reader.id] = nos_reader
+            self.reader_profiles[nos_reader.id] = nos_profile
             logger.info("Registered feed reader", reader_id=nos_reader.id, url=self.settings.rss_nos_url)
 
             # Register NU.nl RSS reader
-            nunl_reader = NuRssReader(self.settings.rss_nunl_url)
+            nunl_profile = self._resolve_profile("nunl_rss", default_url=self.settings.rss_nunl_url)
+            nunl_reader = NuRssReader(str(nunl_profile.feed_url or self.settings.rss_nunl_url))
             self.readers[nunl_reader.id] = nunl_reader
+            self.reader_profiles[nunl_reader.id] = nunl_profile
             logger.info("Registered feed reader", reader_id=nunl_reader.id, url=self.settings.rss_nunl_url)
 
             logger.info("Feed reader registration complete", total_readers=len(self.readers))
@@ -133,6 +148,22 @@ class IngestService:
 
         return results
 
+    def _resolve_profile(self, reader_id: str, *, default_url: str) -> SourceProfile:
+        profile = self.profiles_catalog.get(reader_id)
+        if profile is None:
+            profile = SourceProfile(
+                id=reader_id,
+                feed_url=default_url,
+                fetch_strategy="simple",
+                user_agent=None,
+                parser="trafilatura",
+                cookie_ttl_minutes=0,
+            )
+        elif not profile.feed_url:
+            profile = profile.model_copy(update={"feed_url": default_url})
+        return profile
+
+
     async def _poll_reader_and_ingest(
         self,
         reader: FeedReader,
@@ -141,9 +172,11 @@ class IngestService:
         """Fetch feed items and run them through the article ingestion pipeline."""
 
         items = await self._poll_single_reader(reader, correlation_id)
+        profile = self.reader_profiles.get(reader.id)
         ingestion_stats = await self.process_feed_items(
             reader_id=reader.id,
             items=items,
+            profile=profile,
             correlation_id=correlation_id,
         )
         return items, ingestion_stats
@@ -202,6 +235,7 @@ class IngestService:
         *,
         reader_id: str,
         items: List[FeedItem],
+        profile: Optional[SourceProfile],
         correlation_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Run items through fetch → parse → persist sequence."""
@@ -226,6 +260,7 @@ class IngestService:
                 repo=repo,
                 items=items,
                 reader_id=reader_id,
+                profile=profile,
                 correlation_id=correlation_id,
             ):
                 stats[result] += 1
@@ -246,18 +281,24 @@ class IngestService:
         repo: ArticleRepository,
         items: List[FeedItem],
         reader_id: str,
+        profile: Optional[SourceProfile],
         correlation_id: Optional[str],
     ) -> AsyncGenerator[str, None]:
         logger_ctx = logger.bind(reader_id=reader_id, correlation_id=correlation_id)
+        headers = {"User-Agent": (profile.user_agent if profile and profile.user_agent else "News360Ingest/0.1")}
+        if profile and profile.headers:
+            headers.update(profile.headers)
+
         async with httpx.AsyncClient(
             timeout=20.0,
-            headers={"User-Agent": "News360Ingest/0.1"},
+            headers=headers,
             follow_redirects=True,
         ) as client:
             for item in items:
                 try:
                     html = await fetch_article_html(
                         item.url,
+                        profile=profile,
                         client=client,
                         logger=logger_ctx.bind(article_url=item.url),
                     )
@@ -273,13 +314,34 @@ class IngestService:
                 try:
                     parsed = parse_article_html(html, url=item.url)
                 except ArticleParseError:
-                    logger_ctx.warning(
-                        "article_parse_failed_skip",
-                        url=item.url,
-                        guid=item.guid,
-                    )
-                    yield "parse_failures"
-                    continue
+                    if profile and profile.parser and profile.parser != "trafilatura":
+                        fallback_text = naive_extract_text(html)
+                        if fallback_text:
+                            summary = fallback_text[:320] or (item.summary or "")
+                            parsed = ArticleParseResult(text=fallback_text, summary=summary)
+                            logger_ctx.info(
+                                "article_parse_fallback",
+                                parser=profile.parser,
+                                url=item.url,
+                                guid=item.guid,
+                            )
+                        else:
+                            logger_ctx.warning(
+                                "article_parse_failed_skip",
+                                url=item.url,
+                                guid=item.guid,
+                                reason="fallback_empty",
+                            )
+                            yield "parse_failures"
+                            continue
+                    else:
+                        logger_ctx.warning(
+                            "article_parse_failed_skip",
+                            url=item.url,
+                            guid=item.guid,
+                        )
+                        yield "parse_failures"
+                        continue
 
                 persistence = await repo.upsert_from_feed_item(item, parsed)
                 if persistence.created:

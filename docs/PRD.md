@@ -224,6 +224,9 @@ news-aggregator/
 - **Styling**
   - Minimalistisch, modern; Tailwind tokens; lichte/donkere varianten optioneel.
 
+
+> Consent/cookie handling: bronnen met privacy gates vereisen configureerbare login/consent flows (zie Story 1.2.1).
+
 ## High-Level Architecture
 
 ```mermaid

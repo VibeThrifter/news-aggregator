@@ -75,7 +75,15 @@ python scripts/test_rss_feeds.py --reader nos_rss --show-summary
 python scripts/test_rss_feeds.py --reader nos_rss --show-content --content-limit 1200
 ```
 
+Voor bronnen met consent/cookie walls kun je automatisch cookies opslaan via:
+
+```bash
+python scripts/refresh_cookies.py --source nunl_rss
+```
+
 Het script leest de feed-URL's uit je `.env` en schrijft niets weg naar de database; het is puur bedoeld als connectiviteitstest.
+
+> ℹ️ Consentprofielen beheer je via `source_profiles.yaml`. Zie docs/architecture.md voor configuratie en het cookie-refresh script.
 
 4. Navigeer naar http://127.0.0.1:8000 en voer een zoekterm in (bv. "boerenprotest"). Kies optioneel om te clusteren via KMeans (algoritmisch) of per mediumtype via de radiobuttons. Met een valide Mistral-sleutel genereert de UI per cluster een naam en beschrijving op basis van de artikelen.
    Voor cli-output:

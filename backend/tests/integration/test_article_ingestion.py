@@ -62,7 +62,12 @@ async def test_article_persisted_with_clean_text(monkeypatch, ingest_service, sa
 
     monkeypatch.setattr("backend.app.services.ingest_service.fetch_article_html", fake_fetch)
 
-    stats = await ingest_service.process_feed_items(reader_id="nos_rss", items=[sample_feed_item])
+    profile = ingest_service.reader_profiles.get("nos_rss")
+    stats = await ingest_service.process_feed_items(
+        reader_id="nos_rss",
+        items=[sample_feed_item],
+        profile=profile,
+    )
 
     assert stats == {
         "ingested": 1,
@@ -86,8 +91,9 @@ async def test_duplicate_urls_are_skipped(monkeypatch, ingest_service, sample_fe
 
     monkeypatch.setattr("backend.app.services.ingest_service.fetch_article_html", fake_fetch)
 
-    await ingest_service.process_feed_items(reader_id="nos_rss", items=[sample_feed_item])
-    stats = await ingest_service.process_feed_items(reader_id="nos_rss", items=[sample_feed_item])
+    profile = ingest_service.reader_profiles.get("nos_rss")
+    await ingest_service.process_feed_items(reader_id="nos_rss", items=[sample_feed_item], profile=profile)
+    stats = await ingest_service.process_feed_items(reader_id="nos_rss", items=[sample_feed_item], profile=profile)
 
     assert stats["duplicates"] == 1
 
@@ -104,7 +110,8 @@ async def test_fetch_failures_do_not_crash_pipeline(monkeypatch, ingest_service,
 
     monkeypatch.setattr("backend.app.services.ingest_service.fetch_article_html", fake_fetch)
 
-    stats = await ingest_service.process_feed_items(reader_id="nos_rss", items=[sample_feed_item])
+    profile = ingest_service.reader_profiles.get("nos_rss")
+    stats = await ingest_service.process_feed_items(reader_id="nos_rss", items=[sample_feed_item], profile=profile)
 
     assert stats["fetch_failures"] == 1
 

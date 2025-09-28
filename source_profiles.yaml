@@ -1,0 +1,19 @@
+sources:
+  nos_rss:
+    feed_url: https://feeds.nos.nl/nosnieuwsalgemeen
+    fetch_strategy: simple
+    user_agent: News360Fetcher/1.0 (+https://github.com/news-aggregator)
+    parser: trafilatura
+    cookie_ttl_minutes: 0
+  nunl_rss:
+    feed_url: https://www.nu.nl/rss/Algemeen
+    probe_url: https://www.nu.nl/binnenland/6370612/grote-vechtpartij-bij-restaurant-in-scheveningen-agent-raakt-gewond.html
+    fetch_strategy: consent_cookie
+    user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0 Safari/537.36
+    parser: trafilatura
+    cookie_ttl_minutes: 180
+    consent:
+      endpoint: https://www.nu.nl/privacy-gate/accept
+      method: GET
+      params:
+        redirectUri: "{article_url}"
