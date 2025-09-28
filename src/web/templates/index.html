@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8" />
+    <title>Nieuws Pluriformiteit POC</title>
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+    <header>
+        <h1>360° Nieuws Perspectieven</h1>
+        <p class="tagline">Voer een gebeurtenis in en bekijk hoe Nederlandse media erover berichten.</p>
+        <form method="post" class="search-form">
+            <input type="text" name="query" placeholder="Voorbeeld: boerenprotest" value="{{ query }}" required />
+            <div class="mode-toggle">
+                <label>
+                    <input type="radio" name="mode" value="algorithm" {% if mode != 'medium' %}checked{% endif %} />
+                    Algorithmisch
+                </label>
+                <label>
+                    <input type="radio" name="mode" value="medium" {% if mode == 'medium' %}checked{% endif %} />
+                    Op mediumtype
+                </label>
+            </div>
+            <button type="submit">Cluster nieuws</button>
+        </form>
+    </header>
+    <main>
+        {% if clusters %}
+            <section class="clusters">
+                {% for cluster in clusters %}
+                <article class="cluster-card">
+                    <h2>{{ cluster.label }}</h2>
+                    <p class="cluster-description">{{ cluster.description }}</p>
+                    <div class="cluster-meta">
+                        <span class="badge">Politieke mix: {{ cluster.political_mix }}</span>
+                        <span class="badge {% if cluster.method != 'kmeans' %}warning{% else %}secondary{% endif %}">Methode: {{ cluster.method }}</span>
+                        {% if cluster.dominant_medium %}
+                        <span class="badge secondary">Dominante mediumsoort: {{ cluster.dominant_medium }}</span>
+                        {% endif %}
+                    </div>
+                    <ul class="source-list">
+                        {% for source in cluster.sources %}
+                        <li>
+                            <div class="source-header">
+                                <a href="{{ source.url }}" target="_blank" rel="noopener">{{ source.source_name }}</a>
+                                <span class="badge subtle">{{ source.source_type }}</span>
+                                <span class="badge subtle">{{ source.political_spectrum }}</span>
+                            </div>
+                            <p><strong>{{ source.title }}</strong></p>
+                            <p class="source-summary">{{ source.summary }}</p>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% if cluster.keywords %}
+                    <div class="word-cloud">
+                        {% set max_weight = cluster.keywords[0][1] if cluster.keywords[0][1] > 0 else 1 %}
+                        {% for term, weight in cluster.keywords %}
+                        {% set scale = 0.85 + (weight / max_weight) * 0.9 %}
+                        <span class="word-cloud-term" style="font-size: {{ '%.2f' % scale }}rem;">{{ term }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </article>
+                {% endfor %}
+            </section>
+        {% else %}
+            <p>Geen artikelen gevonden voor deze zoekopdracht.</p>
+        {% endif %}
+    </main>
+    <footer>
+        <p>Deze proof-of-concept groepeert nieuws, sociale media en alternatieve bronnen voor pluriforme duiding.</p>
+    </footer>
+</body>
+</html>
