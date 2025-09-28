@@ -11,8 +11,8 @@ We kiezen voor een service-georiënteerde monoliet: één codebase met gescheide
 
 | Technology | Version | Description |
 | ---------- | ------- | ----------- |
-| Python | 3.11 | Primaire taal voor backend, pipelines en tooling |
-| Poetry | 1.8 | Dependency- en environmentbeheer |
+| Python | 3.12 | Primaire taal voor backend, pipelines en tooling |
+| venv + pip | stdlib | Virtual environment met requirements.txt dependency management |
 | FastAPI | 0.111 | REST API layer met async support |
 | Uvicorn | 0.30 | ASGI-server voor FastAPI |
 | APScheduler | 3.10 | In-process scheduler voor periodieke ingestietaken |
@@ -452,13 +452,13 @@ sequenceDiagram
 ## Initial Project Setup (Manual Steps)
 
 - **Story 0 – Setup Taken**
-  1. Clone repo & installeer Poetry/Node 20.
-  2. `poetry install` + `npm install` in `frontend/`.
+  1. Clone repo & installeer Python 3.12/Node 20.
+  2. `make setup` (creeert .venv, installeert requirements.txt + npm dependencies).
   3. Kopieer `.env.example` → `.env`; vul `MISTRAL_API_KEY`, scheduler interval, embedding modelnaam.
-  4. Initialiseert database: `poetry run alembic upgrade head` (maakt SQLite + schema).
-  5. Download spaCy model: `poetry run python -m spacy download nl_core_news_lg`.
-  6. Prime TF-IDF model: `poetry run python backend/scripts/build_tfidf.py --bootstrap`.
-  7. Start dev stack: `docker compose up` (backend + frontend + watcher) of afzonderlijk via `make dev`.
+  4. Initialiseert database: `source .venv/bin/activate && alembic upgrade head` (maakt SQLite + schema).
+  5. Download spaCy model: `source .venv/bin/activate && python -m spacy download nl_core_news_lg` (wanneer NER geimplementeerd).
+  6. Prime TF-IDF model: `source .venv/bin/activate && python backend/scripts/build_tfidf.py --bootstrap` (wanneer ML geimplementeerd).
+  7. Start dev stack: `make dev` (backend + frontend) of afzonderlijk via `make backend-dev`.
 
 ## Infrastructure and Deployment
 

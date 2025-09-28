@@ -4,21 +4,62 @@ Deze proof-of-concept demonstreert hoe een event-gedreven nieuwsscraper Nederlan
 
 ## Installatie en gebruik
 
-1. Python 3.11 aanbevolen. Installeer dependencies:
+### Snelle setup (aanbevolen)
+
+```bash
+# Installeer Python 3.12 en Node.js 20+ als deze nog niet beschikbaar zijn
+make check-deps
+
+# Installeer alle dependencies (backend + frontend)
+make setup
+
+# Start development servers
+make dev    # Backend: http://localhost:8000, Frontend: http://localhost:3000
+```
+
+### Handmatige setup
+
+1. **Backend (Python 3.12):**
    ```bash
-   python -m venv .venv && source .venv/bin/activate
+   # Maak virtual environment
+   python3.12 -m venv .venv && source .venv/bin/activate
    pip install -r requirements.txt
    ```
-2. Kopieer `.env.example` naar `.env` en vul de placeholders in:
+
+2. **Frontend (Node.js 20+):**
+   ```bash
+   cd frontend && npm install
+   ```
+
+3. **Configuratie:**
    ```bash
    cp .env.example .env  # zorg ervoor dat dit bestand niet wordt gecommit
    ```
-   Het voorbeeldbestand bevat alle variabelen die de backend verwacht (RSS-feeds, scheduler-interval, databasepad, LLM-provider). Voeg minimaal je `MISTRAL_API_KEY` toe voor live LLM-samenvattingen en pas optioneel de feed-URL's of logging aan.
-   Raadpleeg [docs/architecture.md](docs/architecture.md) (sectie *Initial Project Setup*) voor aanvullende instructies en aanbevolen waarden.
-3. Start de webinterface:
+   Het voorbeeldbestand bevat alle variabelen die de backend verwacht (RSS-feeds, scheduler-interval, databasepad, LLM-provider). Voeg minimaal je `MISTRAL_API_KEY` toe voor live LLM-samenvattingen.
+
+   Raadpleeg [docs/architecture.md](docs/architecture.md) voor aanvullende setup instructies.
+
+4. **Start servers:**
    ```bash
-   uvicorn src.web.app:app --reload
+   # Backend only
+   make backend-dev    # of: source .venv/bin/activate && uvicorn src.web.app:app --reload
+
+   # Frontend only
+   make frontend-dev   # of: cd frontend && npm run dev
    ```
+
+### Beschikbare commando's
+
+Gebruik `make help` voor alle beschikbare targets. Belangrijkste commando's:
+
+```bash
+make setup          # Installeer alle dependencies
+make dev           # Start beide servers
+make test          # Run tests
+make lint          # Run linting
+make validate      # Controleer setup
+make clean         # Cleanup gegenereerde bestanden
+```
 4. Navigeer naar http://127.0.0.1:8000 en voer een zoekterm in (bv. "boerenprotest"). Kies optioneel om te clusteren via KMeans (algoritmisch) of per mediumtype via de radiobuttons. Met een valide Mistral-sleutel genereert de UI per cluster een naam en beschrijving op basis van de artikelen.
    Voor cli-output:
    ```bash

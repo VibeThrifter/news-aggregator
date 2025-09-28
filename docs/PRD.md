@@ -43,7 +43,7 @@ De 360° Nieuwsaggregator levert één modulair, uitbreidbaar platform dat Ned
 
 ### Epic 0: Provisioning & Ops Setup
 - **Story 0.1:** Configureer `.env` met RSS-interval, Mistral API key.
-- **Story 0.2:** Zet virtualenv/Poetry op, installeer dependencies, init Git.
+- **Story 0.2:** Zet Python 3.12 virtual environment op, installeer dependencies via requirements.txt, init Git.
 - **Story 0.3:** Bouw logging- en config-utility (YAML/ENV loader).
 
 ### Epic 1: Ingest & Preprocessing Backbone
@@ -114,10 +114,10 @@ De 360° Nieuwsaggregator levert één modulair, uitbreidbaar platform dat Ned
 
 | Technology | Version | Description |
 | ---------- | ------- | ----------- |
-| Python | 3.10+ | Hoofdtaal backend & pipelines |
-| FastAPI | 0.115+ | REST API & background tasks |
-| Uvicorn | 0.30+ | ASGI server |
-| Poetry / Pipenv | latest | Dependency management |
+| Python | 3.12 | Hoofdtaal backend & pipelines |
+| FastAPI | 0.109+ | REST API & background tasks |
+| Uvicorn | 0.25+ | ASGI server |
+| venv + pip | stdlib | Virtual environment met requirements.txt |
 | feedparser | latest | RSS-ingestie |
 | Trafilatura / Newspaper3k | latest | HTML→tekst extractie |
 | sentence-transformers | 2.7+ | Embeddings (MiniLM) |
