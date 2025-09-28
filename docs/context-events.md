@@ -1,5 +1,7 @@
 algoritme dat je lokaal kunt draaien voor **event detection in een nieuwsstream** (zoals uit NOS en NU.nl RSS). Dit wordt een soort *design document* waarin alles stap voor stap staat: de datastructuren, de pipeline, de wiskunde, en de keuzes die dit schaalbaar en accuraat maken.
 
+> ℹ️ Handige hulpscripts vind je in `/scripts`, waaronder `test_rss_feeds.py` om RSS-bronnen snel te testen zonder de pipeline te draaien.
+
 ---
 
 # 📘 Volledige Methode voor Event Detection in Nieuwsstreams

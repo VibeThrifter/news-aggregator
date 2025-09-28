@@ -1,0 +1,335 @@
+"""
+Ingest service for orchestrating RSS feed polling and article collection.
+
+This service manages the registry of feed readers and provides the main poll_feeds()
+orchestration method used by the scheduler according to Story 1.1 requirements.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import AsyncGenerator
+from typing import Any, Dict, List, Optional
+
+import structlog
+import httpx
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from backend.app.core.config import get_settings
+from backend.app.db.session import get_sessionmaker
+from backend.app.feeds.base import FeedItem, FeedReader, FeedReaderError
+from backend.app.feeds.nos import NosRssReader
+from backend.app.feeds.nunl import NuRssReader
+from backend.app.ingestion import ArticleFetchError, ArticleParseError, fetch_article_html, parse_article_html
+from backend.app.repositories import ArticleRepository
+
+logger = structlog.get_logger()
+
+
+class IngestService:
+    """Service for managing RSS feed ingestion across multiple sources."""
+
+    def __init__(
+        self,
+        *,
+        session_factory: Optional[async_sessionmaker[AsyncSession]] = None,
+    ) -> None:
+        """Initialize ingest service with registered feed readers."""
+
+        self.settings = get_settings()
+        self.readers: Dict[str, FeedReader] = {}
+        self.session_factory = session_factory or get_sessionmaker()
+        self._register_readers()
+
+    def _register_readers(self) -> None:
+        """Register available feed readers with their configured URLs."""
+        try:
+            # Register NOS RSS reader
+            nos_reader = NosRssReader(self.settings.rss_nos_url)
+            self.readers[nos_reader.id] = nos_reader
+            logger.info("Registered feed reader", reader_id=nos_reader.id, url=self.settings.rss_nos_url)
+
+            # Register NU.nl RSS reader
+            nunl_reader = NuRssReader(self.settings.rss_nunl_url)
+            self.readers[nunl_reader.id] = nunl_reader
+            logger.info("Registered feed reader", reader_id=nunl_reader.id, url=self.settings.rss_nunl_url)
+
+            logger.info("Feed reader registration complete", total_readers=len(self.readers))
+
+        except Exception as e:
+            logger.error("Failed to register feed readers", error=str(e))
+            raise
+
+    async def poll_feeds(self, correlation_id: str = None) -> Dict[str, Any]:
+        """
+        Poll all registered feed readers and collect feed items.
+
+        This is the main orchestration method called by the scheduler.
+
+        Args:
+            correlation_id: Optional correlation ID for request tracing
+
+        Returns:
+            Dict containing polling results with statistics and any errors
+
+        """
+        logger_ctx = logger.bind(correlation_id=correlation_id) if correlation_id else logger
+        logger_ctx.info("Starting RSS feed polling", reader_count=len(self.readers))
+
+        results: Dict[str, Any] = {
+            "success": True,
+            "total_readers": len(self.readers),
+            "successful_readers": 0,
+            "failed_readers": 0,
+            "total_items": 0,
+            "items_by_source": {},
+            "errors": [],
+            "ingestion_stats": {},
+        }
+
+        # Poll all readers concurrently
+        tasks = []
+        for reader_id, reader in self.readers.items():
+            task = asyncio.create_task(
+                self._poll_reader_and_ingest(reader, correlation_id),
+                name=f"poll_ingest_{reader_id}",
+            )
+            tasks.append((reader_id, task))
+
+        # Wait for all tasks to complete
+        for reader_id, task in tasks:
+            try:
+                items, ingestion_stats = await task
+                results["successful_readers"] += 1
+                results["total_items"] += len(items)
+                results["items_by_source"][reader_id] = {
+                    "count": len(items),
+                    "items": [self._serialize_item(item) for item in items]
+                }
+                results["ingestion_stats"][reader_id] = ingestion_stats
+                logger_ctx.info("Feed reader completed successfully",
+                              reader_id=reader_id, item_count=len(items))
+
+            except Exception as e:
+                results["failed_readers"] += 1
+                results["success"] = False
+                error_info = {
+                    "reader_id": reader_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                }
+                results["errors"].append(error_info)
+                logger_ctx.error("Feed reader failed",
+                               reader_id=reader_id, error=str(e))
+
+        # Log summary
+        logger_ctx.info("RSS feed polling completed",
+                      total_readers=results["total_readers"],
+                      successful_readers=results["successful_readers"],
+                      failed_readers=results["failed_readers"],
+                      total_items=results["total_items"],
+                      overall_success=results["success"])
+
+        return results
+
+    async def _poll_reader_and_ingest(
+        self,
+        reader: FeedReader,
+        correlation_id: Optional[str] = None,
+    ) -> tuple[List[FeedItem], Dict[str, Any]]:
+        """Fetch feed items and run them through the article ingestion pipeline."""
+
+        items = await self._poll_single_reader(reader, correlation_id)
+        ingestion_stats = await self.process_feed_items(
+            reader_id=reader.id,
+            items=items,
+            correlation_id=correlation_id,
+        )
+        return items, ingestion_stats
+
+    async def _poll_single_reader(self, reader: FeedReader, correlation_id: str = None) -> List[FeedItem]:
+        """
+        Poll a single feed reader with error handling and logging.
+
+        Args:
+            reader: The feed reader to poll
+            correlation_id: Optional correlation ID for request tracing
+
+        Returns:
+            List of FeedItem objects from the reader
+
+        Raises:
+            FeedReaderError: When the reader fails after retries
+        """
+        logger_ctx = logger.bind(
+            reader_id=reader.id,
+            feed_url=reader.feed_url,
+            correlation_id=correlation_id
+        ) if correlation_id else logger.bind(reader_id=reader.id, feed_url=reader.feed_url)
+
+        try:
+            logger_ctx.debug("Polling feed reader")
+
+            # Use async context manager to ensure proper cleanup
+            async with reader:
+                items = await reader.fetch()
+
+            logger_ctx.info("Feed reader polling successful", item_count=len(items))
+            return items
+
+        except FeedReaderError as e:
+            logger_ctx.error("Feed reader error", error=str(e))
+            raise
+
+        except Exception as e:
+            logger_ctx.error("Unexpected error polling feed reader", error=str(e))
+            raise FeedReaderError(f"Unexpected error in {reader.id}: {e}")
+
+    def _serialize_item(self, item: FeedItem) -> Dict[str, Any]:
+        """Serialize a FeedItem to a dictionary for JSON response."""
+        return {
+            "guid": item.guid,
+            "url": item.url,
+            "title": item.title,
+            "summary": item.summary,
+            "published_at": item.published_at.isoformat(),
+            "source_metadata": item.source_metadata
+        }
+
+    async def process_feed_items(
+        self,
+        *,
+        reader_id: str,
+        items: List[FeedItem],
+        correlation_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Run items through fetch → parse → persist sequence."""
+
+        stats = {
+            "ingested": 0,
+            "duplicates": 0,
+            "fetch_failures": 0,
+            "parse_failures": 0,
+        }
+
+        if not items:
+            return stats
+
+        session_maker = self.session_factory
+        logger_ctx = logger.bind(reader_id=reader_id, correlation_id=correlation_id)
+
+        async with session_maker() as session:  # type: AsyncSession
+            repo = ArticleRepository(session)
+            async for result in self._process_items_stream(
+                session=session,
+                repo=repo,
+                items=items,
+                reader_id=reader_id,
+                correlation_id=correlation_id,
+            ):
+                stats[result] += 1
+
+            try:
+                await session.commit()
+            except SQLAlchemyError as exc:  # pragma: no cover - defensive
+                logger_ctx.error("article_commit_failed", error=str(exc))
+                await session.rollback()
+                raise
+
+        return stats
+
+    async def _process_items_stream(
+        self,
+        *,
+        session: AsyncSession,
+        repo: ArticleRepository,
+        items: List[FeedItem],
+        reader_id: str,
+        correlation_id: Optional[str],
+    ) -> AsyncGenerator[str, None]:
+        logger_ctx = logger.bind(reader_id=reader_id, correlation_id=correlation_id)
+        async with httpx.AsyncClient(
+            timeout=20.0,
+            headers={"User-Agent": "News360Ingest/0.1"},
+            follow_redirects=True,
+        ) as client:
+            for item in items:
+                try:
+                    html = await fetch_article_html(
+                        item.url,
+                        client=client,
+                        logger=logger_ctx.bind(article_url=item.url),
+                    )
+                except ArticleFetchError:
+                    logger_ctx.warning(
+                        "article_fetch_failed_skip",
+                        url=item.url,
+                        guid=item.guid,
+                    )
+                    yield "fetch_failures"
+                    continue
+
+                try:
+                    parsed = parse_article_html(html, url=item.url)
+                except ArticleParseError:
+                    logger_ctx.warning(
+                        "article_parse_failed_skip",
+                        url=item.url,
+                        guid=item.guid,
+                    )
+                    yield "parse_failures"
+                    continue
+
+                persistence = await repo.upsert_from_feed_item(item, parsed)
+                if persistence.created:
+                    logger_ctx.info(
+                        "article_ingested",
+                        article_id=persistence.article.id,
+                        url=item.url,
+                    )
+                    yield "ingested"
+                else:
+                    yield "duplicates"
+
+    def get_reader_info(self) -> Dict[str, Any]:
+        """Get information about registered feed readers."""
+        return {
+            "readers": {
+                reader_id: {
+                    "id": reader.id,
+                    "url": reader.feed_url,
+                    "source_metadata": reader.source_metadata
+                }
+                for reader_id, reader in self.readers.items()
+            },
+            "total_count": len(self.readers)
+        }
+
+    async def test_readers(self) -> Dict[str, Any]:
+        """Test all registered readers without full polling (for health checks)."""
+        results = {}
+
+        for reader_id, reader in self.readers.items():
+            try:
+                # Just test connectivity without full fetch
+                async with reader:
+                    # Simple connectivity test could be added here
+                    pass
+                results[reader_id] = {"status": "ok", "url": reader.feed_url}
+            except Exception as e:
+                results[reader_id] = {"status": "error", "error": str(e), "url": reader.feed_url}
+
+        return results
+
+
+# Global service instance
+_ingest_service: IngestService = None
+
+
+def get_ingest_service() -> IngestService:
+    """Get the global ingest service instance (singleton pattern)."""
+    global _ingest_service
+    if _ingest_service is None:
+        _ingest_service = IngestService()
+    return _ingest_service

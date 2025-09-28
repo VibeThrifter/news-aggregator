@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>NOS Nieuws Algemeen</title>
+    <link>https://nos.nl</link>
+    <description>Het laatste nieuws van NOS</description>
+    <language>nl-NL</language>
+    <lastBuildDate>Mon, 28 Sep 2025 12:00:00 +0200</lastBuildDate>
+
+    <item>
+      <title>Kabinet presenteert nieuwe klimaatmaatregelen</title>
+      <link>https://nos.nl/artikel/2525901-kabinet-presenteert-nieuwe-klimaatmaatregelen</link>
+      <description>Het kabinet heeft vandaag een pakket nieuwe klimaatmaatregelen gepresenteerd om de CO2-uitstoot verder te verminderen.</description>
+      <pubDate>Mon, 28 Sep 2025 10:30:00 +0200</pubDate>
+      <guid isPermaLink="false">nos-2525901</guid>
+      <dc:creator>NOS Redactie</dc:creator>
+      <category>Binnenland</category>
+    </item>
+
+    <item>
+      <title>Europese Unie stelt nieuwe sancties in tegen Rusland</title>
+      <link>https://nos.nl/artikel/2525902-eu-stelt-nieuwe-sancties-in-tegen-rusland</link>
+      <description>De Europese Unie heeft besloten tot nieuwe sancties tegen Rusland vanwege de aanhoudende oorlog in Oekraïne.</description>
+      <pubDate>Mon, 28 Sep 2025 09:15:00 +0200</pubDate>
+      <guid isPermaLink="false">nos-2525902</guid>
+      <dc:creator>NOS Buitenland</dc:creator>
+      <category>Buitenland</category>
+    </item>
+
+    <item>
+      <title>Inflatie daalt naar laagste niveau in twee jaar</title>
+      <link>https://nos.nl/artikel/2525903-inflatie-daalt-naar-laagste-niveau-in-twee-jaar</link>
+      <description>De inflatie in Nederland is in september gedaald naar 2,1 procent, het laagste niveau sinds 2023.</description>
+      <pubDate>Mon, 28 Sep 2025 08:00:00 +0200</pubDate>
+      <guid isPermaLink="false">nos-2525903</guid>
+      <dc:creator>NOS Economie</dc:creator>
+      <category>Economie</category>
+    </item>
+
+  </channel>
+</rss>

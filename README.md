@@ -60,6 +60,23 @@ make lint          # Run linting
 make validate      # Controleer setup
 make clean         # Cleanup gegenereerde bestanden
 ```
+### Handige scripts
+
+Alle losse hulpscripts staan in `/scripts/`. Gebruik bijvoorbeeld `test_rss_feeds.py` om snel te controleren of de RSS-readers antwoord geven:
+
+```bash
+# Test alle readers en toon de eerste vijf items
+python scripts/test_rss_feeds.py --limit 5
+
+# Beperk tot de NOS-feed en print de summary mee
+python scripts/test_rss_feeds.py --reader nos_rss --show-summary
+
+# Toon ook de volledige (geëxtraheerde) artikeltekst, max 1200 tekens
+python scripts/test_rss_feeds.py --reader nos_rss --show-content --content-limit 1200
+```
+
+Het script leest de feed-URL's uit je `.env` en schrijft niets weg naar de database; het is puur bedoeld als connectiviteitstest.
+
 4. Navigeer naar http://127.0.0.1:8000 en voer een zoekterm in (bv. "boerenprotest"). Kies optioneel om te clusteren via KMeans (algoritmisch) of per mediumtype via de radiobuttons. Met een valide Mistral-sleutel genereert de UI per cluster een naam en beschrijving op basis van de artikelen.
    Voor cli-output:
    ```bash

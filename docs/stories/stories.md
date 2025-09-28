@@ -1,5 +1,7 @@
 # Implementation Stories
 
+> Hulpscripts voor manuele checks staan in `/scripts` (bv. `test_rss_feeds.py` voor RSS-verificatie).
+
 ## Completion Tracker
 
 | Story ID | Status | Completed On | Notes |
@@ -7,8 +9,8 @@
 | 0.1 | Done | 2025-09-28 | pytest installed locally; env template test green |
 | 0.2 | Done | 2025-09-28 | Backend + frontend tooling bootstrap completed |
 | 0.3 | Done | 2025-09-28 | Configuration loader and structured logging implemented |
-| 1.1 |  |  |  |
-| 1.2 |  |  |  |
+| 1.1 | Done | 2025-09-28 | RSS Feed Plugin Framework implemented with NOS & NU.nl readers |
+| 1.2 | Done | 2025-09-28 | Integration pipeline persisted articles; pytest backend/tests/integration/test_article_ingestion.py (PYTHONPATH=.) |
 | 1.3 |  |  |  |
 | 2.1 |  |  |  |
 | 2.2 |  |  |  |
@@ -152,22 +154,32 @@
 - Given the NOS and NU.nl feeds when the reader encounters duplicate `guid` or URLs, then duplicates are filtered before returning.
 - Given a network or parsing failure when fetching a feed, then the reader logs the error with context and retries once using exponential backoff without crashing the scheduler job.
 **Subtask Checklist:**
-- [ ] Define an abstract `FeedReader` base class in `backend/app/feeds/base.py` with methods `id`, `source_metadata`, and `fetch()`.
-- [ ] Implement `NosRssReader` and `NuRssReader` using `feedparser` with HTTPX fallback, normalizing to a shared dataclass or Pydantic model.
-- [ ] Register available readers in `backend/app/services/ingest_service.py` and expose a `poll_feeds()` orchestration method.
-- [ ] Add retry logic (e.g., `tenacity`) per Architecture.md Error Handling Strategy.
-- [ ] Create sample RSS fixtures in `backend/tests/fixtures/rss/` and unit tests covering parsing, dedupe, error logging.
-- [ ] Update scheduler stub in `backend/app/core/scheduler.py` to call `poll_feeds()`.
-- [ ] Run unit tests `pytest backend/tests/unit/test_feeds.py`.
+- [x] Define an abstract `FeedReader` base class in `backend/app/feeds/base.py` with methods `id`, `source_metadata`, and `fetch()`.
+- [x] Implement `NosRssReader` and `NuRssReader` using `feedparser` with HTTPX fallback, normalizing to a shared dataclass or Pydantic model.
+- [x] Register available readers in `backend/app/services/ingest_service.py` and expose a `poll_feeds()` orchestration method.
+- [x] Add retry logic (e.g., `tenacity`) per Architecture.md Error Handling Strategy.
+- [x] Create sample RSS fixtures in `backend/tests/fixtures/rss/` and unit tests covering parsing, dedupe, error logging.
+- [x] Update scheduler stub in `backend/app/core/scheduler.py` to call `poll_feeds()`.
+- [x] Run unit tests `pytest backend/tests/unit/test_feeds.py`.
 **Testing Requirements:**
 - Unit Tests via `pytest` (mock HTTP requests, use fixtures).
 - Definition of Done: ACs met, tests passing, logging verified via assertions.
 **Story Wrap Up (To be filled in AFTER agent execution):**
-- **Agent Model Used:** 
-- **Agent Credit or Cost:** 
-- **Date/Time Completed:** 
-- **Commit Hash:** 
-- **Change Log:**
+- **Agent Model Used:** Claude Sonnet 4 (claude-sonnet-4-20250514)
+- **Agent Credit or Cost:** N/A (local execution)
+- **Date/Time Completed:** 2025-09-28T18:45:00Z
+- **Commit Hash:** _pending user commit_
+- **Change Log:** Completed RSS Feed Plugin Framework implementation:
+  - Created abstract FeedReader base class with FeedItem data model and error handling
+  - Implemented NosRssReader and NuRssReader with feedparser and HTTPX
+  - Added tenacity retry logic with exponential backoff for network errors
+  - Created IngestService for orchestrating feed polling across multiple sources
+  - Built NewsAggregatorScheduler with APScheduler integration
+  - Added comprehensive unit tests (20 tests) covering all functionality
+  - Created RSS fixtures for testing with sample NOS and NU.nl feeds
+  - All tests passing: pytest backend/tests/unit/test_feeds.py ✅
+  - Dependencies added: feedparser, tenacity, python-dateutil, apscheduler, pytest-asyncio
+  - Ready for Story 1.2 (Article Fetching, Extraction, and Normalization Pipeline)
 
 ---
 **Story ID:** 1.2
@@ -183,22 +195,22 @@
 - Given a duplicate URL already stored when the ingest pipeline executes, then the repository skips insertion and logs a dedupe notice without raising an exception.
 - Given an article fetch that fails (timeout, 404), then the pipeline records the failure in logs and returns a recoverable error that does not halt other items.
 **Subtask Checklist:**
-- [ ] Implement `fetch_article_html` in `backend/app/ingestion/fetcher.py` using async HTTPX with timeout and retries, respecting Architecture.md Error Handling Strategy.
-- [ ] Implement `parse_article_html` in `backend/app/ingestion/parser.py` using Trafilatura, returning normalized text and summary.
-- [ ] Extend `article_repo.py` with `upsert_from_feed_item` that enforces URL uniqueness and stores metadata/summary/content.
-- [ ] Orchestrate ingest in `services/ingest_service.py` to fetch → parse → persist, integrating with Story 1.1 output.
-- [ ] Create integration test `backend/tests/integration/test_article_ingestion.py` using temporary SQLite database (via fixtures) and sample HTML to verify dedupe and error handling.
-- [ ] Update logging to include `correlation_id` from scheduler context.
-- [ ] Run `pytest backend/tests/integration/test_article_ingestion.py`.
+- [x] Implement `fetch_article_html` in `backend/app/ingestion/fetcher.py` using async HTTPX with timeout and retries, respecting Architecture.md Error Handling Strategy.
+- [x] Implement `parse_article_html` in `backend/app/ingestion/parser.py` using Trafilatura, returning normalized text and summary.
+- [x] Extend `article_repo.py` with `upsert_from_feed_item` that enforces URL uniqueness and stores metadata/summary/content.
+- [x] Orchestrate ingest in `services/ingest_service.py` to fetch → parse → persist, integrating with Story 1.1 output.
+- [x] Create integration test `backend/tests/integration/test_article_ingestion.py` using temporary SQLite database (via fixtures) and sample HTML to verify dedupe and error handling.
+- [x] Update logging to include `correlation_id` from scheduler context.
+- [x] Run `PYTHONPATH=. .venv/bin/pytest backend/tests/integration/test_article_ingestion.py`.
 **Testing Requirements:**
 - Integration Tests via `pytest` (temporary SQLite, fixture HTML).
 - Definition of Done: ACs satisfied, tests passing, linting & mypy clean.
 **Story Wrap Up (To be filled in AFTER agent execution):**
-- **Agent Model Used:** 
-- **Agent Credit or Cost:** 
-- **Date/Time Completed:** 
-- **Commit Hash:** 
-- **Change Log:**
+- **Agent Model Used:** OpenAI GPT-5 Codex (CLI)
+- **Agent Credit or Cost:** N/A (local execution)
+- **Date/Time Completed:** 2025-09-28T20:45:00Z
+- **Commit Hash:** _pending user commit_
+- **Change Log:** Implemented async article fetch/parse pipeline, SQLite persistence via SQLAlchemy repository, ingestion orchestration with structured logging, and integration tests + HTML fixtures.
 
 ---
 **Story ID:** 1.3

@@ -41,6 +41,7 @@ Always consult these canonical documents before starting any task:
 - **Build System**: Comprehensive Makefile with all dev targets
 - **Linting**: ruff + black (Python), ESLint (JavaScript/TypeScript)
 - **Environment**: `.env.example` → `.env` for configuration
+- **Utility scripts**: `/scripts/test_rss_feeds.py` voor snelle feedchecks; voeg nieuwe helpers in dezelfde map toe
 
 ## ⚙️ Quick Start Commands
 
@@ -147,6 +148,7 @@ make clean             # Clean up generated files
 │   ├── app/                     # Main application code
 │   └── tests/                   # Test suites
 ├── frontend/                    # Next.js application
+├── scripts/                     # CLI helpers (RSS probe, smoke tests)
 ├── data/                        # Exports, models, cache
 ├── requirements.txt             # Python dependencies
 ├── .env.example                 # Environment template

@@ -4,6 +4,8 @@
 
 The current version of the news aggregator runs **without ML dependencies** to avoid PyTorch/sentence-transformers compatibility issues with Python 3.12 on macOS.
 
+Development helpers (zoals `/scripts/test_rss_feeds.py`) blijven beschikbaar voor handmatige controles tijdens ML-uitrol.
+
 ## ML Features (Future Implementation)
 
 The following dependencies have been temporarily removed from `requirements.txt` and will be added when implementing ML features:

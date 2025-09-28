@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>NU.nl - Algemeen</title>
+    <link>https://www.nu.nl</link>
+    <description>Het laatste nieuws het eerst op NU.nl</description>
+    <language>nl-NL</language>
+    <lastBuildDate>Mon, 28 Sep 2025 12:00:00 +0200</lastBuildDate>
+    <atom:link href="https://www.nu.nl/rss/Algemeen" rel="self" type="application/rss+xml" />
+
+    <item>
+      <title>Tweede Kamer debatteert over nieuwe woningbouwplannen</title>
+      <link>https://www.nu.nl/politiek/6287543/tweede-kamer-debatteert-over-nieuwe-woningbouwplannen.html</link>
+      <description>De Tweede Kamer gaat vandaag debatteren over de nieuwe plannen van het kabinet om de woningbouw te versnellen. Het gaat om 100.000 extra woningen per jaar.</description>
+      <pubDate>Mon, 28 Sep 2025 11:00:00 +0200</pubDate>
+      <guid isPermaLink="true">https://www.nu.nl/politiek/6287543/tweede-kamer-debatteert-over-nieuwe-woningbouwplannen.html</guid>
+      <category>Politiek</category>
+    </item>
+
+    <item>
+      <title>Tech-bedrijven investeren miljarden in Nederlandse datacenters</title>
+      <link>https://www.nu.nl/tech/6287544/tech-bedrijven-investeren-miljarden-in-nederlandse-datacenters.html</link>
+      <description>Grote technologiebedrijven kondigen investeringen van meerdere miljarden euro's aan in Nederlandse datacenters voor AI en cloud computing.</description>
+      <pubDate>Mon, 28 Sep 2025 10:45:00 +0200</pubDate>
+      <guid isPermaLink="true">https://www.nu.nl/tech/6287544/tech-bedrijven-investeren-miljarden-in-nederlandse-datacenters.html</guid>
+      <category>Tech</category>
+    </item>
+
+    <item>
+      <title>Inflatie daalt naar laagste niveau in twee jaar</title>
+      <link>https://www.nu.nl/economie/6287545/inflatie-daalt-naar-laagste-niveau-in-twee-jaar.html</link>
+      <description>Het CBS meldt dat de inflatie in september is gedaald naar 2,1 procent. Dit is het laagste niveau sinds begin 2023 en komt door dalende energieprijzen.</description>
+      <pubDate>Mon, 28 Sep 2025 08:30:00 +0200</pubDate>
+      <guid isPermaLink="true">https://www.nu.nl/economie/6287545/inflatie-daalt-naar-laagste-niveau-in-twee-jaar.html</guid>
+      <category>Economie</category>
+    </item>
+
+  </channel>
+</rss>

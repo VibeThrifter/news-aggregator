@@ -32,6 +32,7 @@ This repository already contains the canonical planning material you must follow
 - Backend work lives under `backend/` and adheres to the modular monolith layout (ingest, NLP, events, LLM, repositories, API). Use SQLite + SQLAlchemy, hnswlib, APScheduler, etc., as defined.
 - Frontend work uses Next.js App Router with Tailwind styling, components under `frontend/components/`, and data fetching via the API helpers in `frontend/lib/api.ts`.
 - Data outputs (CSV exports, vector index, logs) must go into the `data/` folder structure described in the architecture.
+- Utility scripts live under `/scripts/` (e.g., `test_rss_feeds.py` for RSS probes); prefer adding new helpers there.
 - Every new module requires matching unit or integration tests plus updates to CI configuration when relevant.
 
 ## Quality and CI

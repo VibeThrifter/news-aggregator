@@ -392,6 +392,8 @@ sequenceDiagram
 │   ├── PRD.md
 │   ├── context-events.md
 │   └── architecture.md
+├── scripts/                        # Losse hulpscripts (bv. RSS probes)
+│   └── test_rss_feeds.py
 ├── data/                           # Local data/cache folder
 │   ├── vector_index.bin
 │   └── exports/
@@ -406,6 +408,8 @@ sequenceDiagram
 ├── Makefile
 └── README.md
 ```
+
+> Algemene hulpscripts (zoals `scripts/test_rss_feeds.py`) bieden snelle checks zonder volledige pipeline.
 
 ## Testing Requirements and Framework
 
@@ -459,6 +463,7 @@ sequenceDiagram
   5. Download spaCy model: `source .venv/bin/activate && python -m spacy download nl_core_news_lg` (wanneer NER geimplementeerd).
   6. Prime TF-IDF model: `source .venv/bin/activate && python backend/scripts/build_tfidf.py --bootstrap` (wanneer ML geimplementeerd).
   7. Start dev stack: `make dev` (backend + frontend) of afzonderlijk via `make backend-dev`.
+  8. Gebruik `python scripts/test_rss_feeds.py` voor een snelle RSS-check zonder persisteren.
 
 ## Infrastructure and Deployment
 

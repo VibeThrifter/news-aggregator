@@ -50,7 +50,7 @@ test: backend-test ## Run tests (backend only for now)
 
 backend-test: ## Run backend tests with pytest
 	@echo "🧪 Running backend tests..."
-	@. $(VENV)/bin/activate && python -m pytest backend/tests/ -v
+	@. $(VENV)/bin/activate && PYTHONPATH=. python -m pytest backend/tests/ -v
 	@echo "✅ Backend tests completed"
 
 frontend-test: ## Run frontend tests (when package.json test script exists)

@@ -199,11 +199,15 @@ news-aggregator/
 ├── docs/
 │   ├── PRD.md
 │   └── context-events.md
+├── scripts/
+│   └── test_rss_feeds.py
 ├── .env.example
 ├── pyproject.toml / requirements.txt
 ├── package.json
 └── Makefile / tasks.py
 ```
+
+> Developer hulpscripts voor ad-hoc tests staan in `/scripts/` (bijv. `test_rss_feeds.py`).
 
 ## UI/UX Overview
 - **Event Feed Page**
