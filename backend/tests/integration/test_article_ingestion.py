@@ -33,8 +33,14 @@ def session_factory(tmp_path) -> Iterator[async_sessionmaker[AsyncSession]]:
 
 
 @pytest.fixture
-def ingest_service(session_factory) -> IngestService:
-    return IngestService(session_factory=session_factory)
+def ingest_service(session_factory, monkeypatch) -> IngestService:
+    service = IngestService(session_factory=session_factory)
+
+    async def _fake_enrich(article_ids):
+        return {"processed": len(article_ids), "skipped": 0}
+
+    monkeypatch.setattr(service.enrichment_service, "enrich_by_ids", _fake_enrich)
+    return service
 
 
 @pytest.fixture
@@ -74,6 +80,8 @@ async def test_article_persisted_with_clean_text(monkeypatch, ingest_service, sa
         "duplicates": 0,
         "fetch_failures": 0,
         "parse_failures": 0,
+        "enriched": 1,
+        "enrichment_skipped": 0,
     }
 
     async with session_factory() as session:
@@ -96,6 +104,7 @@ async def test_duplicate_urls_are_skipped(monkeypatch, ingest_service, sample_fe
     stats = await ingest_service.process_feed_items(reader_id="nos_rss", items=[sample_feed_item], profile=profile)
 
     assert stats["duplicates"] == 1
+    assert stats["enriched"] == 0
 
     async with session_factory() as session:
         result = await session.execute(select(Article))
@@ -114,6 +123,7 @@ async def test_fetch_failures_do_not_crash_pipeline(monkeypatch, ingest_service,
     stats = await ingest_service.process_feed_items(reader_id="nos_rss", items=[sample_feed_item], profile=profile)
 
     assert stats["fetch_failures"] == 1
+    assert stats["enriched"] == 0
 
     async with session_factory() as session:
         result = await session.execute(select(Article))

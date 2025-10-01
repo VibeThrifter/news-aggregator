@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Dict, List
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -23,6 +24,18 @@ class ArticlePersistenceResult:
 
     article: Article
     created: bool
+
+
+@dataclass
+class ArticleEnrichmentPayload:
+    """Structure holding enrichment outputs to persist on an article."""
+
+    normalized_text: str
+    normalized_tokens: List[str]
+    embedding: bytes
+    tfidf_vector: Dict[str, float]
+    entities: List[Dict[str, object]]
+    enriched_at: datetime
 
 
 class ArticleRepository:
@@ -88,3 +101,28 @@ class ArticleRepository:
             await self.session.rollback()
             self.log.error("article_persist_failed", error=str(exc), url=feed_item.url)
             raise
+
+    async def apply_enrichment(self, article_id: int, payload: ArticleEnrichmentPayload) -> Article:
+        """Update an article row with NLP enrichment outputs."""
+
+        stmt = select(Article).where(Article.id == article_id)
+        result = await self.session.execute(stmt)
+        article = result.scalar_one_or_none()
+        if article is None:
+            raise ValueError(f"Article {article_id} not found")
+
+        article.normalized_text = payload.normalized_text
+        article.normalized_tokens = payload.normalized_tokens
+        article.embedding = payload.embedding
+        article.tfidf_vector = payload.tfidf_vector
+        article.entities = payload.entities
+        article.enriched_at = payload.enriched_at
+
+        await self.session.flush()
+        self.log.info(
+            "article_enriched",
+            article_id=article.id,
+            token_count=len(payload.normalized_tokens),
+            entity_count=len(payload.entities),
+        )
+        return article

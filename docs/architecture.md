@@ -228,12 +228,15 @@ CREATE TABLE articles (
     title TEXT,
     summary TEXT,
     content TEXT,
+    normalized_text TEXT,
+    normalized_tokens JSON,
     published_at DATETIME,
     fetched_at DATETIME,
     metadata JSON,
     embedding BLOB,
     tfidf_vector JSON,
     entities JSON,
+    enriched_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

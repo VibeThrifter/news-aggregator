@@ -49,8 +49,26 @@ class Settings(BaseSettings):
 
     # ML and AI Configuration
     embedding_model_name: str = Field(
-        default="sentence-transformers/all-MiniLM-L6-v2",
+        default="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         description="Name of the embedding model for article vectorization"
+    )
+    model_cache_dir: str = Field(
+        default="data/models",
+        description="Directory where ML models and caches are stored",
+    )
+    tfidf_cache_path: str = Field(
+        default="data/models/tfidf_vectorizer.joblib",
+        description="File path for persisted TF-IDF vectorizer",
+    )
+    tfidf_max_features: int = Field(
+        default=6000,
+        ge=500,
+        le=20000,
+        description="Maximum features retained by the TF-IDF vectorizer",
+    )
+    spacy_model_name: str = Field(
+        default="nl_core_news_lg",
+        description="spaCy model used for Dutch NLP tasks",
     )
 
     # LLM Provider Configuration
@@ -88,7 +106,8 @@ class Settings(BaseSettings):
     model_config = ConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        case_sensitive=False
+        case_sensitive=False,
+        protected_namespaces=("settings_",),
     )
 
     @property

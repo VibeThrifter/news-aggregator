@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from sqlalchemy import JSON, Column, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, DateTime, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -35,6 +35,11 @@ class Article(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     source_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_metadata: Mapped[Dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    normalized_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    normalized_tokens: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    embedding: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    tfidf_vector: Mapped[Dict[str, float] | None] = mapped_column(JSON, nullable=True)
+    entities: Mapped[list[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
@@ -45,6 +50,7 @@ class Article(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
+    enriched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper
         return f"<Article id={self.id} url={self.url!r}>"

@@ -37,6 +37,11 @@ backend-install: ## Install backend dependencies (Python/FastAPI with venv + pip
 	@. $(VENV)/bin/activate && pip install -r requirements.txt
 	@echo "✅ Backend dependencies installed"
 
+download-spacy: ## Download Dutch spaCy model required for NLP enrichment
+	@echo "📥 Downloading spaCy model nl_core_news_lg..."
+	@. $(VENV)/bin/activate && python -m spacy download nl_core_news_lg
+	@echo "✅ spaCy model ready"
+
 frontend-install: ## Install frontend dependencies (Node.js/Next.js)
 	@echo "🔧 Setting up frontend dependencies..."
 	@if [ ! -f "$(FRONTEND_DIR)/package.json" ]; then \

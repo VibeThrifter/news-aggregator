@@ -37,6 +37,11 @@ make dev    # Backend: http://localhost:8000, Frontend: http://localhost:3000
    ```
    Het voorbeeldbestand bevat alle variabelen die de backend verwacht (RSS-feeds, scheduler-interval, databasepad, LLM-provider). Voeg minimaal je `MISTRAL_API_KEY` toe voor live LLM-samenvattingen.
 
+   Download daarna het spaCy-model voor Nederlandse NER:
+   ```bash
+   source .venv/bin/activate && python -m spacy download nl_core_news_lg
+   ```
+
    Raadpleeg [docs/architecture.md](docs/architecture.md) voor aanvullende setup instructies.
 
 4. **Start servers:**

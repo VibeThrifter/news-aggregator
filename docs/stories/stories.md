@@ -12,7 +12,7 @@
 | 1.1 | Done | 2025-09-28 | RSS Feed Plugin Framework implemented with NOS & NU.nl readers |
 | 1.2 | Done | 2025-09-28 | Article Fetching, Extraction, and Normalization Pipeline implemented |
 | 1.2.1 | Done | 2025-09-28 | Consent-aware fetch pipeline implemented (profiles + cookies) |
-| 1.3 |  |  |  |
+| 1.3 | Done | 2025-09-28 | NLP enrichment pipeline live; tests green |
 | 2.1 |  |  |  |
 | 2.2 |  |  |  |
 | 2.3 |  |  |  |
@@ -264,14 +264,14 @@
 - Given repeated enrichment runs when the TF-IDF model has been persisted, then it reuses the cached vectorizer to avoid recomputation and completes within the target <1s per article.
 - Given the spaCy model missing during initialization, then enrichment aborts with a descriptive error prompting the manual download step (Story 0.1 manual instructions).
 **Subtask Checklist:**
-- [ ] Implement text normalization utilities (lowercase, stopword removal, lemmatization hooks) in `preprocess.py`.
-- [ ] Wrap sentence-transformers model loading with lazy singleton in `embeddings.py`, allowing model name override from settings.
-- [ ] Build TF-IDF vectorizer module with joblib persistence to `data/models/tfidf.pkl` and helper to update vocabulary incrementally.
-- [ ] Implement spaCy NER wrapper in `ner.py` using `nl_core_news_lg`, returning entities with type labels.
-- [ ] Create `enrich_service.py` orchestrating the sequence (load article → preprocess → embed → tfidf → NER → persist via repository layer).
-- [ ] Add unit tests for preprocessing normalization and embedding output shape (mock actual model).
-- [ ] Add integration test using in-memory SQLite verifying article enrichment end-to-end.
-- [ ] Update Makefile to include `source .venv/bin/activate && python -m spacy download nl_core_news_lg` in setup docs reference.
+- [x] Implement text normalization utilities (lowercase, stopword removal, lemmatization hooks) in `preprocess.py`.
+- [x] Wrap sentence-transformers model loading with lazy singleton in `embeddings.py`, allowing model name override from settings.
+- [x] Build TF-IDF vectorizer module with joblib persistence to `data/models/tfidf.pkl` and helper to update vocabulary incrementally.
+- [x] Implement spaCy NER wrapper in `ner.py` using `nl_core_news_lg`, returning entities with type labels.
+- [x] Create `enrich_service.py` orchestrating the sequence (load article → preprocess → embed → tfidf → NER → persist via repository layer).
+- [x] Add unit tests for preprocessing normalization and embedding output shape (mock actual model).
+- [x] Add integration test using in-memory SQLite verifying article enrichment end-to-end.
+- [x] Update Makefile to include `source .venv/bin/activate && python -m spacy download nl_core_news_lg` in setup docs reference.
 - MANUAL STEP: Ensure the spaCy model `nl_core_news_lg` is downloaded (`source .venv/bin/activate && python -m spacy download nl_core_news_lg`).
 **Testing Requirements:**
 - Unit & Integration Tests via `pytest` (mock heavy models where possible to keep runtime acceptable; maintain coverage target).
@@ -279,10 +279,10 @@
 **Story Wrap Up (To be filled in AFTER agent execution):**
 - **Agent Model Used:** OpenAI GPT-5 Codex (CLI)
 - **Agent Credit or Cost:** N/A (local execution)
-- **Date/Time Completed:** 2025-09-28T21:50:00Z
+- **Date/Time Completed:** 2025-09-28T23:25:00Z
 - **Commit Hash:** _pending user commit_
-- **Change Log:** Added consent-aware fetch pipeline, source profile loader, cookie persistence, fallback parser, updated docs, cookie refresh script, and new tests.
-- **Tests:** `PYTHONPATH=. .venv/bin/pytest backend/tests/unit/test_source_profiles.py backend/tests/integration/test_fetcher_consent.py backend/tests/integration/test_article_ingestion.py`
+- **Change Log:** Implemented NLP enrichment stack (new preprocessing/embedding/TF-IDF/NER modules, enriched article columns, ingestion hook) and refreshed docs/templates for new settings.
+- **Tests:** `. .venv/bin/activate && pytest backend/tests/unit/test_preprocess.py backend/tests/unit/test_embeddings.py backend/tests/unit/test_tfidf.py backend/tests/integration/test_enrichment_pipeline.py backend/tests/integration/test_article_ingestion.py`
 
 ---
 **Story ID:** 2.1

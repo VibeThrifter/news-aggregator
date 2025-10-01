@@ -17,7 +17,7 @@ import asyncio
 from datetime import datetime
 import sys
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Sequence, Optional
 
 import httpx
 import structlog

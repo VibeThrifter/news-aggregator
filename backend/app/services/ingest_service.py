@@ -32,6 +32,7 @@ from backend.app.ingestion import (
     parse_article_html,
 )
 from backend.app.repositories import ArticleRepository
+from backend.app.services.enrich_service import ArticleEnrichmentService
 
 logger = structlog.get_logger()
 
@@ -51,6 +52,7 @@ class IngestService:
         self.reader_profiles: Dict[str, SourceProfile] = {}
         self.profiles_catalog = load_source_profiles()
         self.session_factory = session_factory or get_sessionmaker()
+        self.enrichment_service = ArticleEnrichmentService(session_factory=self.session_factory)
         self._register_readers()
 
     def _register_readers(self) -> None:
@@ -245,6 +247,8 @@ class IngestService:
             "duplicates": 0,
             "fetch_failures": 0,
             "parse_failures": 0,
+            "enriched": 0,
+            "enrichment_skipped": 0,
         }
 
         if not items:
@@ -255,6 +259,7 @@ class IngestService:
 
         async with session_maker() as session:  # type: AsyncSession
             repo = ArticleRepository(session)
+            new_article_ids: List[int] = []
             async for result in self._process_items_stream(
                 session=session,
                 repo=repo,
@@ -263,7 +268,11 @@ class IngestService:
                 profile=profile,
                 correlation_id=correlation_id,
             ):
-                stats[result] += 1
+                status = result["status"]
+                stats[status] += 1
+                article_id = result.get("article_id")
+                if status == "ingested" and article_id is not None:
+                    new_article_ids.append(article_id)
 
             try:
                 await session.commit()
@@ -271,6 +280,11 @@ class IngestService:
                 logger_ctx.error("article_commit_failed", error=str(exc))
                 await session.rollback()
                 raise
+
+        if new_article_ids:
+            enrichment_stats = await self.enrichment_service.enrich_by_ids(new_article_ids)
+            stats["enriched"] = enrichment_stats.get("processed", 0)
+            stats["enrichment_skipped"] = enrichment_stats.get("skipped", 0)
 
         return stats
 
@@ -283,7 +297,7 @@ class IngestService:
         reader_id: str,
         profile: Optional[SourceProfile],
         correlation_id: Optional[str],
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[Dict[str, Any], None]:
         logger_ctx = logger.bind(reader_id=reader_id, correlation_id=correlation_id)
         headers = {"User-Agent": (profile.user_agent if profile and profile.user_agent else "News360Ingest/0.1")}
         if profile and profile.headers:
@@ -308,7 +322,7 @@ class IngestService:
                         url=item.url,
                         guid=item.guid,
                     )
-                    yield "fetch_failures"
+                    yield {"status": "fetch_failures", "article_id": None}
                     continue
 
                 try:
@@ -332,7 +346,7 @@ class IngestService:
                                 guid=item.guid,
                                 reason="fallback_empty",
                             )
-                            yield "parse_failures"
+                            yield {"status": "parse_failures", "article_id": None}
                             continue
                     else:
                         logger_ctx.warning(
@@ -340,7 +354,7 @@ class IngestService:
                             url=item.url,
                             guid=item.guid,
                         )
-                        yield "parse_failures"
+                        yield {"status": "parse_failures", "article_id": None}
                         continue
 
                 persistence = await repo.upsert_from_feed_item(item, parsed)
@@ -350,9 +364,9 @@ class IngestService:
                         article_id=persistence.article.id,
                         url=item.url,
                     )
-                    yield "ingested"
+                    yield {"status": "ingested", "article_id": persistence.article.id}
                 else:
-                    yield "duplicates"
+                    yield {"status": "duplicates", "article_id": persistence.article.id}
 
     def get_reader_info(self) -> Dict[str, Any]:
         """Get information about registered feed readers."""
