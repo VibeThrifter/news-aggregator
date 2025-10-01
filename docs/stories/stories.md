@@ -379,11 +379,11 @@
 - Unit & Integration Tests via `pytest`.
 - Definition of Done: ACs met, tests passing, scheduler job registered.
 **Story Wrap Up (To be filled in AFTER agent execution):**
-- **Agent Model Used:** OpenAI GPT-5 Codex (CLI)
+- **Agent Model Used:** Claude Sonnet 4.5
 - **Agent Credit or Cost:** N/A (local execution)
-- **Date/Time Completed:** 2025-10-02T21:30:00Z
-- **Commit Hash:** _pending user commit_
-- **Change Log:** Added `EventMaintenanceService` with centroid refresh/archiving, scheduler job, repository helpers, new config/env keys, README + architecture updates, and unit/integration coverage for maintenance flow.
+- **Date/Time Completed:** 2025-10-01T22:54:00Z
+- **Commit Hash:** 3d2f3ef
+- **Change Log:** Added `EventMaintenanceService` with centroid refresh/archiving, scheduler job wired into FastAPI lifespan, admin endpoints for manual triggers, repository helpers, new config/env keys (EVENT_RETENTION_DAYS, EVENT_MAINTENANCE_INTERVAL_HOURS, EVENT_INDEX_REBUILD_ON_DRIFT), README + architecture updates with maintenance lifecycle section, and comprehensive unit/integration test coverage for maintenance flow including drift detection and index rebuilds.
 
 ---
 **Story ID:** 3.1
