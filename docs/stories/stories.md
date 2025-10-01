@@ -13,8 +13,8 @@
 | 1.2 | Done | 2025-09-28 | Article Fetching, Extraction, and Normalization Pipeline implemented |
 | 1.2.1 | Done | 2025-09-28 | Consent-aware fetch pipeline implemented (profiles + cookies) |
 | 1.3 | Done | 2025-09-28 | NLP enrichment pipeline live; tests green |
-| 2.1 |  |  |  |
-| 2.2 |  |  |  |
+| 2.1 | Done | 2025-10-01 | VectorIndexService + event snapshots, hnswlib unit tests |
+| 2.2 | Done | 2025-10-01 | Hybrid scoring engine + event assignment wired into ingest |
 | 2.3 |  |  |  |
 | 3.1 |  |  |  |
 | 3.2 |  |  |  |
@@ -298,22 +298,26 @@
 - Given a new article embedding and timestamp when `query_candidates` is invoked, then it returns up to top-k event IDs filtered to those active within the configured time window (default 7 days).
 - Given the index has no entries or the query timestamp is older than the retention window, then the service returns an empty list without raising errors.
 **Subtask Checklist:**
-- [ ] Implement `VectorIndexService` encapsulating hnswlib index management (build, upsert, delete, query) with settings from `config.py`.
-- [ ] Store index metadata (dimension, ef, m) in adjacent JSON to support validation on load.
-- [ ] Integrate with repositories to rebuild index from DB when missing or corrupted.
-- [ ] Provide async-safe locking (file lock) when writing the index file.
-- [ ] Write unit tests using small-dimensional sample embeddings to validate build/load/query/empty states.
-- [ ] Document index path and parameters in `README.md` and Architecture change log if necessary.
-- [ ] Run `pytest backend/tests/unit/test_vector_index.py`.
+- [x] Implement `VectorIndexService` encapsulating hnswlib index management (build, upsert, delete, query) with settings from `config.py`.
+- [x] Store index metadata (dimension, ef, m) in adjacent JSON to support validation on load.
+- [x] Integrate with repositories to rebuild index from DB when missing or corrupted.
+- [x] Provide async-safe locking (file lock) when writing the index file.
+- [x] Write unit tests using small-dimensional sample embeddings to validate build/load/query/empty states.
+- [x] Document index path and parameters in `README.md` and Architecture change log.
+- [x] Run `pytest backend/tests/unit/test_vector_index.py`.
 **Testing Requirements:**
 - Unit Tests via `pytest` (mock filesystem using tmp_path fixtures).
 - Definition of Done: ACs met, tests pass, lint/type checks clean.
 **Story Wrap Up (To be filled in AFTER agent execution):**
-- **Agent Model Used:** 
-- **Agent Credit or Cost:** 
-- **Date/Time Completed:** 
-- **Commit Hash:** 
+- **Agent Model Used:** OpenAI GPT-5 Codex (CLI)
+- **Agent Credit or Cost:** N/A (local execution)
+- **Date/Time Completed:** 2025-10-01T11:57:30Z
+- **Commit Hash:** _pending user commit_
 - **Change Log:**
+  - Added `VectorIndexService` with persistent hnswlib index, recency filter, and file locking.
+  - Introduced `Event`/`EventArticle` SQLAlchemy models and `EventRepository` snapshots for index rebuilds.
+  - Expanded configuration (`core/config.py`, `.env.example`) with vector index parameters.
+  - Documented vector index setup in README and Architecture change log; added unit tests (`test_vector_index.py`).
 
 ---
 **Story ID:** 2.2
@@ -329,22 +333,26 @@
 - Given the highest score ≥ configured threshold when assignment runs, then the article is linked to the existing event, `event_articles` row inserted, and event metadata (`last_updated_at`, `article_count`) updated.
 - Given all candidate scores < threshold, then a new event is created with centroids initialized from the article and persisted in the database and vector index.
 **Subtask Checklist:**
-- [ ] Implement score calculation with configurable weights/thresholds in `scoring.py`, including optional time decay factor (settings-driven).
-- [ ] Extend `event_service.py` to orchestrate candidate retrieval → scoring → decision → persistence (with repository layer).
-- [ ] Update repositories to support creating events with slug generation and linking articles.
-- [ ] Ensure service emits structured logs for each assignment decision (include scores, threshold, chosen branch).
-- [ ] Write unit tests covering scoring math edge cases (perfect match, zero overlap, time decay effect).
-- [ ] Write integration test using in-memory SQLite verifying link vs new event flows and vector index upserts (mock index if needed).
-- [ ] Run `pytest backend/tests/unit/test_scoring.py backend/tests/integration/test_event_assignment.py`.
+- [x] Implement score calculation with configurable weights/thresholds in `scoring.py`, including optional time decay factor (settings-driven).
+- [x] Extend `event_service.py` to orchestrate candidate retrieval → scoring → decision → persistence (with repository layer).
+- [x] Update repositories to support creating events with slug generation and linking articles.
+- [x] Ensure service emits structured logs for each assignment decision (include scores, threshold, chosen branch).
+- [x] Write unit tests covering scoring math edge cases (perfect match, zero overlap, time decay effect).
+- [x] Write integration test using in-memory SQLite verifying link vs new event flows and vector index upserts (mock index if needed).
+- [x] Run `pytest backend/tests/unit/test_scoring.py backend/tests/integration/test_event_assignment.py`.
 **Testing Requirements:**
 - Unit & Integration Tests via `pytest`; maintain ≥80% coverage in `backend/app/events` package.
 - Definition of Done: ACs satisfied, tests green, logs inspected for structure.
 **Story Wrap Up (To be filled in AFTER agent execution):**
-- **Agent Model Used:** 
-- **Agent Credit or Cost:** 
-- **Date/Time Completed:** 
-- **Commit Hash:** 
+- **Agent Model Used:** OpenAI GPT-5 Codex (CLI)
+- **Agent Credit or Cost:** N/A (local execution)
+- **Date/Time Completed:** 2025-10-01T21:58:30Z
+- **Commit Hash:** _pending user commit_
 - **Change Log:**
+  - Added `backend/app/events/scoring.py` with configurable weights and time decay for hybrid scoring.
+  - Delivered `EventService` to orchestrate candidate retrieval, scoring decisions, and vector index updates.
+  - Extended `EventRepository` + ingest pipeline for event creation/linking with structured logs and env config knobs.
+  - Introduced unit/integration coverage plus README, `.env.example`, and architecture change-log updates.
 
 ---
 **Story ID:** 2.3

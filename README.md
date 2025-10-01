@@ -36,6 +36,11 @@ make dev    # Backend: http://localhost:8000, Frontend: http://localhost:3000
    cp .env.example .env  # zorg ervoor dat dit bestand niet wordt gecommit
    ```
    Het voorbeeldbestand bevat alle variabelen die de backend verwacht (RSS-feeds, scheduler-interval, databasepad, LLM-provider). Voeg minimaal je `MISTRAL_API_KEY` toe voor live LLM-samenvattingen.
+   Nieuwe parameters voor de event-detectielaag:
+   - `VECTOR_INDEX_PATH` en `VECTOR_INDEX_METADATA_PATH` bepalen waar de hnswlib-index op schijf staat.
+   - `VECTOR_INDEX_MAX_ELEMENTS`, `VECTOR_INDEX_M`, `VECTOR_INDEX_EF_CONSTRUCTION` en `VECTOR_INDEX_EF_SEARCH` tunen respectievelijk capaciteit en recall/latency van de ANN-index.
+   - `EVENT_CANDIDATE_TOP_K` en `EVENT_CANDIDATE_TIME_WINDOW_DAYS` sturen de recency-filter tijdens kandidaatselectie.
+   - `EVENT_SCORE_WEIGHT_*`, `EVENT_SCORE_THRESHOLD`, `EVENT_SCORE_TIME_DECAY_HALF_LIFE_HOURS` en `EVENT_SCORE_TIME_DECAY_FLOOR` bepalen hoe streng de hybride score een artikel koppelt aan een event of een nieuw event start.
 
    Download daarna het spaCy-model voor Nederlandse NER:
    ```bash

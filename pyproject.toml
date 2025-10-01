@@ -16,10 +16,10 @@ uvicorn = { version = "0.27.1", extras = ["standard"] }
 apscheduler = "3.10.4"
 sqlalchemy = "2.0.30"
 alembic = "1.13.1"
-# hnswlib = "0.7.0"  # Will be added when ML features are implemented
-# sentence-transformers = "2.7.0"  # Will be added when ML features are implemented
-# torch = "2.5.1"  # Will be added when ML features are implemented
-# spacy = "3.7.4"  # Will be added when NER features are implemented
+hnswlib = "0.7.0"
+# sentence-transformers = "2.7.0"  # Already managed in requirements.txt during MVP bootstrap
+# torch = "2.5.1"  # Optional GPU acceleration; install manually when needed
+# spacy = "3.7.4"  # Installed via requirements.txt to keep poetry sync optional
 "scikit-learn" = "1.5.1"
 trafilatura = "1.9.0"
 httpx = "0.27.0"
