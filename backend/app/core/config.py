@@ -148,6 +148,22 @@ class Settings(BaseSettings):
         le=60,
         description="Only events updated within this window are considered active",
     )
+    event_retention_days: int = Field(
+        default=14,
+        ge=1,
+        le=90,
+        description="Archive events that have been inactive beyond this many days",
+    )
+    event_maintenance_interval_hours: int = Field(
+        default=24,
+        ge=1,
+        le=168,
+        description="Interval in hours for periodic event maintenance tasks",
+    )
+    event_index_rebuild_on_drift: bool = Field(
+        default=True,
+        description="Trigger a full vector index rebuild when drift is detected",
+    )
     event_score_weight_embedding: float = Field(
         default=0.6,
         ge=0.0,

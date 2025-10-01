@@ -41,6 +41,9 @@ make dev    # Backend: http://localhost:8000, Frontend: http://localhost:3000
    - `VECTOR_INDEX_MAX_ELEMENTS`, `VECTOR_INDEX_M`, `VECTOR_INDEX_EF_CONSTRUCTION` en `VECTOR_INDEX_EF_SEARCH` tunen respectievelijk capaciteit en recall/latency van de ANN-index.
    - `EVENT_CANDIDATE_TOP_K` en `EVENT_CANDIDATE_TIME_WINDOW_DAYS` sturen de recency-filter tijdens kandidaatselectie.
    - `EVENT_SCORE_WEIGHT_*`, `EVENT_SCORE_THRESHOLD`, `EVENT_SCORE_TIME_DECAY_HALF_LIFE_HOURS` en `EVENT_SCORE_TIME_DECAY_FLOOR` bepalen hoe streng de hybride score een artikel koppelt aan een event of een nieuw event start.
+   - `EVENT_RETENTION_DAYS`, `EVENT_MAINTENANCE_INTERVAL_HOURS` en `EVENT_INDEX_REBUILD_ON_DRIFT` controleren het onderhoudsproces (archiveren van oude events, frequentie van onderhoud en automatische herbouw van de vectorindex bij drift).
+
+   De APScheduler plant nu twee achtergrondtaken: `poll_rss_feeds` voor ingest en `event_maintenance` (standaard elke 24 uur) voor centroid-herberekening, archivering en indexherstel. Pas de intervallen aan via de bovenstaande variabelen.
 
    Download daarna het spaCy-model voor Nederlandse NER:
    ```bash

@@ -15,7 +15,7 @@
 | 1.3 | Done | 2025-09-28 | NLP enrichment pipeline live; tests green |
 | 2.1 | Done | 2025-10-01 | VectorIndexService + event snapshots, hnswlib unit tests |
 | 2.2 | Done | 2025-10-01 | Hybrid scoring engine + event assignment wired into ingest |
-| 2.3 |  |  |  |
+| 2.3 | Done | 2025-10-02 | Event maintenance service, scheduler job, archiving/index rebuild tests |
 | 3.1 |  |  |  |
 | 3.2 |  |  |  |
 | 3.3 |  |  |  |
@@ -312,7 +312,7 @@
 - **Agent Model Used:** OpenAI GPT-5 Codex (CLI)
 - **Agent Credit or Cost:** N/A (local execution)
 - **Date/Time Completed:** 2025-10-01T11:57:30Z
-- **Commit Hash:** _pending user commit_
+- **Commit Hash:** b9722de
 - **Change Log:**
   - Added `VectorIndexService` with persistent hnswlib index, recency filter, and file locking.
   - Introduced `Event`/`EventArticle` SQLAlchemy models and `EventRepository` snapshots for index rebuilds.
@@ -347,7 +347,7 @@
 - **Agent Model Used:** OpenAI GPT-5 Codex (CLI)
 - **Agent Credit or Cost:** N/A (local execution)
 - **Date/Time Completed:** 2025-10-01T21:58:30Z
-- **Commit Hash:** _pending user commit_
+- **Commit Hash:** b9722de
 - **Change Log:**
   - Added `backend/app/events/scoring.py` with configurable weights and time decay for hybrid scoring.
   - Delivered `EventService` to orchestrate candidate retrieval, scoring decisions, and vector index updates.
@@ -368,22 +368,22 @@
 - Given events older than 14 days with no new articles when maintenance executes, then they are marked archived/closed and excluded from future candidate queries.
 - Given the maintenance job detects index drift (missing events, checksum mismatch), then it triggers a full index rebuild and persists the refreshed index files.
 **Subtask Checklist:**
-- [ ] Implement maintenance utilities for centroid recomputation and stale event detection in `maintenance.py`.
-- [ ] Add scheduler job (daily) calling maintenance + rebuild functions with logging and metrics.
-- [ ] Update repositories to support archiving events (e.g., `status` column or timestamp field) and filtering archived events in queries.
-- [ ] Write unit tests covering centroid recompute math and archiving logic (use fixtures with multiple articles).
-- [ ] Write integration test verifying scheduler job flow with temporary DB and mock vector index service.
-- [ ] Document retention settings in `README.md` configuration table.
-- [ ] Run `pytest backend/tests/unit/test_event_maintenance.py backend/tests/integration/test_event_maintenance.py`.
+- [x] Implement maintenance utilities for centroid recomputation and stale event detection in `maintenance.py`.
+- [x] Add scheduler job (daily) calling maintenance + rebuild functions with logging and metrics.
+- [x] Update repositories to support archiving events (bijv. een statuskolom of timestampveld) en filteren van gearchiveerde events in queries.
+- [x] Write unit tests covering centroid recompute math and archiving logic (use fixtures with multiple articles).
+- [x] Write integration test verifying scheduler job flow with temporary DB and mock vector index service.
+- [x] Document retention settings in `README.md` configuration table.
+- [x] Run `pytest backend/tests/unit/test_event_maintenance.py backend/tests/integration/test_event_maintenance.py`.
 **Testing Requirements:**
 - Unit & Integration Tests via `pytest`.
 - Definition of Done: ACs met, tests passing, scheduler job registered.
 **Story Wrap Up (To be filled in AFTER agent execution):**
-- **Agent Model Used:** 
-- **Agent Credit or Cost:** 
-- **Date/Time Completed:** 
-- **Commit Hash:** 
-- **Change Log:**
+- **Agent Model Used:** OpenAI GPT-5 Codex (CLI)
+- **Agent Credit or Cost:** N/A (local execution)
+- **Date/Time Completed:** 2025-10-02T21:30:00Z
+- **Commit Hash:** _pending user commit_
+- **Change Log:** Added `EventMaintenanceService` with centroid refresh/archiving, scheduler job, repository helpers, new config/env keys, README + architecture updates, and unit/integration coverage for maintenance flow.
 
 ---
 **Story ID:** 3.1

@@ -1,0 +1,9 @@
+{
+  "dimension": 384,
+  "max_elements": 20000,
+  "m": 16,
+  "ef_construction": 200,
+  "ef_search": 64,
+  "label_count": 0,
+  "saved_at": "2025-10-01T20:52:16.040266+00:00"
+}
