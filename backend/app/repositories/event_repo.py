@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
@@ -25,6 +26,14 @@ class EventCentroidSnapshot:
     last_updated_at: datetime
     first_seen_at: datetime
     archived_at: datetime | None
+
+
+@dataclass
+class EventMaintenanceBundle:
+    """Container grouping an event with its associated articles."""
+
+    event: Event
+    articles: List[Article]
 
 
 def _slugify(value: str) -> str:
@@ -130,6 +139,33 @@ class EventRepository:
         self.log.info("event_snapshots_loaded", count=len(snapshots))
         return snapshots
 
+    async def load_active_events_with_articles(self) -> List[EventMaintenanceBundle]:
+        """Return active events and their linked articles for maintenance tasks."""
+
+        stmt = select(Event).where(Event.archived_at.is_(None))
+        result = await self.session.execute(stmt)
+        events: List[Event] = list(result.scalars().all())
+        if not events:
+            return []
+
+        event_ids = [event.id for event in events]
+        article_stmt = (
+            select(EventArticle.event_id, Article)
+            .join(Article, Article.id == EventArticle.article_id)
+            .where(EventArticle.event_id.in_(event_ids))
+        )
+        article_rows = await self.session.execute(article_stmt)
+        grouped: Dict[int, List[Article]] = defaultdict(list)
+        for event_id, article in article_rows.all():
+            grouped[int(event_id)].append(article)
+
+        bundles = [
+            EventMaintenanceBundle(event=event, articles=grouped.get(event.id, []))
+            for event in events
+        ]
+        self.log.info("event_bundles_loaded", count=len(bundles))
+        return bundles
+
     async def update_last_updated(self, event_id: int, timestamp: datetime) -> None:
         """Update the last_updated_at field (utility for future stories)."""
 
@@ -230,8 +266,30 @@ class EventRepository:
             candidate = f"{base_slug}-{suffix}"
             suffix += 1
 
+    async def archive_events(self, event_ids: Sequence[int], timestamp: datetime) -> int:
+        """Mark the specified events as archived."""
+
+        if not event_ids:
+            return 0
+
+        stmt = select(Event).where(Event.id.in_(event_ids))
+        result = await self.session.execute(stmt)
+        events = result.scalars().all()
+
+        archived = 0
+        for event in events:
+            if event.archived_at is None:
+                event.archived_at = timestamp
+                archived += 1
+
+        if archived:
+            await self.session.flush()
+            self.log.info("event_archived", count=archived)
+        return archived
+
 
 __all__ = [
     "EventCentroidSnapshot",
+    "EventMaintenanceBundle",
     "EventRepository",
 ]

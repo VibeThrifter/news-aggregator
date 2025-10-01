@@ -457,6 +457,17 @@ The architecture remains provider-agnostic: updating profile entries avoids touc
 
 > Manual override: als een consent flow faalt, kopieer de vereiste cookies via de browser en plaats ze in `data/cookies/<source>.json` (zelfde structuur als automatisch opgeslagen payload).
 
+### Event Maintenance Lifecycle
+
+Een aparte onderhoudsservice bewaakt de kwaliteit van events en de vectorindex:
+
+- `backend/app/events/maintenance.py` bevat de `EventMaintenanceService` die alle actieve events ophaalt, centroiden opnieuw uitrekent op basis van gekoppelde artikelen en entiteiten merge't.
+- Events zonder nieuwe artikelen binnen `EVENT_RETENTION_DAYS` worden gemarkeerd met `archived_at` en direct uit de hnswlib-index verwijderd zodat ze geen kandidaten meer vormen.
+- De service vergelijkt de huidige database-snapshot met de index en voert een `VectorIndexService.rebuild()` uit zodra drift wordt gedetecteerd (extra of ontbrekende labels). Dit gedrag is aan/uit te zetten via `EVENT_INDEX_REBUILD_ON_DRIFT`.
+- APScheduler registreert `event_maintenance` (standaard iedere 24 uur, configureerbaar via `EVENT_MAINTENANCE_INTERVAL_HOURS`) als tweede achtergrondtaak naast `poll_rss_feeds`.
+
+Resultaat: centroiden blijven representatief, oude events verdwijnen automatisch uit de zoekruimte en index-corruptie wordt hersteld zonder handmatige interventie.
+
 ## Testing Requirements and Framework
 
 - **Unit Testing (pytest)**
@@ -536,3 +547,4 @@ The architecture remains provider-agnostic: updating profile entries avoids touc
 | 2025-02-14 | 0.1 | Eerste architectuurdocument voor MVP |
 | 2025-10-01 | 0.2 | Story 2.1 – VectorIndexService + EventRepository snapshots toegevoegd; .env uitgebreid met vectorindexparameters |
 | 2025-10-02 | 0.3 | Story 2.2 – Hybrid scoring module, EventService orchestration en ingest-integratie voor artikel→event toewijzing |
+| 2025-10-02 | 0.4 | Story 2.3 – EventMaintenanceService, archiveringsflow en automatische indexrebuild + nieuwe scheduler/retentie settings |

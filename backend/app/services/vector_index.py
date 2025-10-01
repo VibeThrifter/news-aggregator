@@ -150,6 +150,11 @@ class VectorIndexService:
             self._event_timestamps.pop(event_id, None)
             await self._persist_index()
 
+    def get_indexed_event_ids(self) -> set[int]:
+        """Return a copy of event identifiers currently present in the index."""
+
+        return set(self._labels)
+
     async def query_candidates(
         self,
         embedding: Sequence[float],

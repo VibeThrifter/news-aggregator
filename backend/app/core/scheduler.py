@@ -12,6 +12,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 import structlog
 
 from .config import get_settings
+from ..events.maintenance import get_event_maintenance_service
 from ..services.ingest_service import get_ingest_service
 
 logger = structlog.get_logger()
@@ -25,6 +26,7 @@ class NewsAggregatorScheduler:
         self.settings = get_settings()
         self.scheduler = AsyncIOScheduler()
         self.ingest_service = get_ingest_service()
+        self.maintenance_service = get_event_maintenance_service()
         self._is_running = False
 
     def setup_jobs(self) -> None:
@@ -40,7 +42,17 @@ class NewsAggregatorScheduler:
         )
 
         logger.info("Scheduled jobs configured",
-                   rss_interval_minutes=self.settings.scheduler_interval_minutes)
+                   rss_interval_minutes=self.settings.scheduler_interval_minutes,
+                   maintenance_interval_hours=self.settings.event_maintenance_interval_hours)
+
+        self.scheduler.add_job(
+            func=self._event_maintenance_job,
+            trigger=IntervalTrigger(hours=self.settings.event_maintenance_interval_hours),
+            id="event_maintenance",
+            name="Event Maintenance",
+            replace_existing=True,
+            max_instances=1,
+        )
 
     async def _poll_feeds_job(self) -> None:
         """Job function for RSS feed polling with correlation ID."""
@@ -65,6 +77,19 @@ class NewsAggregatorScheduler:
         except Exception as e:
             job_logger.error("RSS feed polling job failed", error=str(e))
             # Don't re-raise - let scheduler continue with next execution
+
+    async def _event_maintenance_job(self) -> None:
+        """Refresh event centroids, archive stale events, and heal the vector index."""
+
+        correlation_id = str(uuid.uuid4())
+        job_logger = logger.bind(correlation_id=correlation_id, job="event_maintenance")
+
+        try:
+            job_logger.info("Starting event maintenance job")
+            stats = await self.maintenance_service.run(correlation_id=correlation_id)
+            job_logger.info("Event maintenance job completed", **stats.as_dict())
+        except Exception as exc:  # pragma: no cover - defensive logging
+            job_logger.error("Event maintenance job failed", error=str(exc))
 
     def start(self) -> None:
         """Start the scheduler."""
@@ -110,6 +135,26 @@ class NewsAggregatorScheduler:
             return results
         except Exception as e:
             logger.error("Manual RSS feed polling failed", error=str(e), correlation_id=correlation_id)
+            return {
+                "success": False,
+                "error": str(e),
+                "correlation_id": correlation_id
+            }
+
+    async def run_event_maintenance_now(self) -> dict:
+        """Manually trigger event maintenance (for testing/admin)."""
+        correlation_id = str(uuid.uuid4())
+        logger.info("Manual event maintenance triggered", correlation_id=correlation_id)
+
+        try:
+            stats = await self.maintenance_service.run(correlation_id=correlation_id)
+            return {
+                "success": True,
+                "correlation_id": correlation_id,
+                **stats.as_dict()
+            }
+        except Exception as e:
+            logger.error("Manual event maintenance failed", error=str(e), correlation_id=correlation_id)
             return {
                 "success": False,
                 "error": str(e),
