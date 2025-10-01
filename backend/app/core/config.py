@@ -52,6 +52,12 @@ class Settings(BaseSettings):
         default="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         description="Name of the embedding model for article vectorization"
     )
+    embedding_dimension: int = Field(
+        default=384,
+        ge=64,
+        le=2048,
+        description="Dimensionality of article embeddings used throughout event detection",
+    )
     model_cache_dir: str = Field(
         default="data/models",
         description="Directory where ML models and caches are stored",
@@ -95,6 +101,88 @@ class Settings(BaseSettings):
     log_level: str = Field(
         default="INFO",
         description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
+    )
+
+    # Event Detection / Vector Index Configuration
+    vector_index_path: str = Field(
+        default="data/vector_index.bin",
+        description="Filesystem path to the persisted hnswlib index",
+    )
+    vector_index_metadata_path: str = Field(
+        default="data/vector_index.meta.json",
+        description="Path for JSON metadata describing the vector index",
+    )
+    vector_index_max_elements: int = Field(
+        default=20000,
+        ge=1024,
+        le=200000,
+        description="Initial capacity for the vector index graph",
+    )
+    vector_index_m: int = Field(
+        default=16,
+        ge=4,
+        le=64,
+        description="hnswlib M parameter controlling graph connectivity",
+    )
+    vector_index_ef_construction: int = Field(
+        default=200,
+        ge=32,
+        le=800,
+        description="hnswlib ef_construction parameter for build accuracy",
+    )
+    vector_index_ef_search: int = Field(
+        default=64,
+        ge=16,
+        le=512,
+        description="hnswlib ef_search parameter balancing latency and recall",
+    )
+    event_candidate_top_k: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Maximum number of candidate events returned per query",
+    )
+    event_candidate_time_window_days: int = Field(
+        default=7,
+        ge=1,
+        le=60,
+        description="Only events updated within this window are considered active",
+    )
+    event_score_weight_embedding: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Weight applied to embedding cosine similarity when scoring events",
+    )
+    event_score_weight_tfidf: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Weight applied to TF-IDF cosine similarity when scoring events",
+    )
+    event_score_weight_entities: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Weight applied to entity overlap when scoring events",
+    )
+    event_score_threshold: float = Field(
+        default=0.82,
+        ge=0.0,
+        le=1.0,
+        description="Minimum hybrid score required to link an article to an existing event",
+    )
+    event_score_time_decay_half_life_hours: float = Field(
+        default=48.0,
+        ge=0.0,
+        le=168.0,
+        description="Half-life in hours for time decay applied to stale events (0 disables)",
+    )
+    event_score_time_decay_floor: float = Field(
+        default=0.35,
+        ge=0.0,
+        le=1.0,
+        description="Lower bound for the time decay multiplier to prevent scores dropping to zero",
     )
 
     # CORS Configuration

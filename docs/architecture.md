@@ -123,12 +123,18 @@ flowchart TB
     Embedder --> CandidateRetriever
     TFIDFService --> CandidateRetriever
     NERService --> Scorer
-    CandidateRetriever --> Scorer --> EventManager
-    EventManager --> PromptBuilder --> LLMClient --> InsightValidator --> EventManager
-    EventManager --> EventRouter
-    EventManager --> InsightRouter
-    EventManager --> ExportRouter
+CandidateRetriever --> Scorer --> EventManager
+EventManager --> PromptBuilder --> LLMClient --> InsightValidator --> EventManager
+EventManager --> EventRouter
+EventManager --> InsightRouter
+EventManager --> ExportRouter
 ```
+
+**Key Components (Event Layer focus)**
+
+- `backend/app/services/vector_index.py` — `VectorIndexService` bewaart een hnswlib-index onder `data/vector_index.bin`, valideert metadata (`vector_index.meta.json`) en biedt recency-aware `query_candidates`-calls (top-k binnen 7 dagen, configureerbaar via `EVENT_CANDIDATE_*`).
+- `backend/app/repositories/event_repo.py` — levert `EventCentroidSnapshot` records richting de indexservice en houdt logging bij wanneer centroids ontbreken/malformed zijn.
+- `backend/app/db/models.py` — bevat nu `Event`- en `EventArticle`-tabellen met velden voor centroids, entiteiten, artikelcount en `archived_at` voor lifecyclebeheer.
 
 ## Architectural Diagrams, Data Models, Schemas
 
@@ -355,6 +361,7 @@ sequenceDiagram
 │   │   ├── services/
 │   │   │   ├── ingest_service.py  # Orchestrates feed ingest flow
 │   │   │   ├── enrich_service.py  # Handles NLP enrichment pipeline
+│   │   │   ├── vector_index.py    # Persistente hnswlib-index met recency-filter
 │   │   │   ├── event_service.py   # Event detection orchestration
 │   │   │   └── export_service.py  # CSV export assembly
 │   │   ├── api/
@@ -497,12 +504,13 @@ The architecture remains provider-agnostic: updating profile entries avoids touc
 - **Story 0 – Setup Taken**
   1. Clone repo & installeer Python 3.12/Node 20.
   2. `make setup` (creeert .venv, installeert requirements.txt + npm dependencies).
-  3. Kopieer `.env.example` → `.env`; vul `MISTRAL_API_KEY`, scheduler interval, embedding modelnaam.
-  4. Initialiseert database: `source .venv/bin/activate && alembic upgrade head` (maakt SQLite + schema).
-  5. Download spaCy model: `source .venv/bin/activate && python -m spacy download nl_core_news_lg` (wanneer NER geimplementeerd).
-  6. Prime TF-IDF model: `source .venv/bin/activate && python backend/scripts/build_tfidf.py --bootstrap` (wanneer ML geimplementeerd).
-  7. Start dev stack: `make dev` (backend + frontend) of afzonderlijk via `make backend-dev`.
-  8. Gebruik `python scripts/test_rss_feeds.py` voor een snelle RSS-check zonder persisteren.
+  3. Kopieer `.env.example` → `.env`; vul `MISTRAL_API_KEY`, scheduler interval, embedding modelnaam en de nieuwe vectorindex-parameters (`VECTOR_INDEX_*`, `EVENT_CANDIDATE_*`).
+  4. Controleer dat het pad in `VECTOR_INDEX_PATH` schrijfbaar is (default `./data/vector_index.bin`) en maak zo nodig `data/` + `data/models/` aan.
+  5. Initialiseert database: `source .venv/bin/activate && alembic upgrade head` (maakt SQLite + schema).
+  6. Download spaCy model: `source .venv/bin/activate && python -m spacy download nl_core_news_lg` (wanneer NER geimplementeerd).
+  7. Prime TF-IDF model: `source .venv/bin/activate && python backend/scripts/build_tfidf.py --bootstrap` (wanneer ML geimplementeerd).
+  8. Start dev stack: `make dev` (backend + frontend) of afzonderlijk via `make backend-dev`.
+  9. Gebruik `python scripts/test_rss_feeds.py` voor een snelle RSS-check zonder persisteren.
 
 ## Infrastructure and Deployment
 
@@ -526,3 +534,5 @@ The architecture remains provider-agnostic: updating profile entries avoids touc
 | Date | Version | Description |
 | ---- | ------- | ----------- |
 | 2025-02-14 | 0.1 | Eerste architectuurdocument voor MVP |
+| 2025-10-01 | 0.2 | Story 2.1 – VectorIndexService + EventRepository snapshots toegevoegd; .env uitgebreid met vectorindexparameters |
+| 2025-10-02 | 0.3 | Story 2.2 – Hybrid scoring module, EventService orchestration en ingest-integratie voor artikel→event toewijzing |

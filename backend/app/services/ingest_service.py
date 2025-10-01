@@ -32,6 +32,7 @@ from backend.app.ingestion import (
     parse_article_html,
 )
 from backend.app.repositories import ArticleRepository
+from backend.app.services.event_service import EventService
 from backend.app.services.enrich_service import ArticleEnrichmentService
 
 logger = structlog.get_logger()
@@ -53,6 +54,7 @@ class IngestService:
         self.profiles_catalog = load_source_profiles()
         self.session_factory = session_factory or get_sessionmaker()
         self.enrichment_service = ArticleEnrichmentService(session_factory=self.session_factory)
+        self.event_service = EventService(session_factory=self.session_factory)
         self._register_readers()
 
     def _register_readers(self) -> None:
@@ -249,6 +251,9 @@ class IngestService:
             "parse_failures": 0,
             "enriched": 0,
             "enrichment_skipped": 0,
+            "events_created": 0,
+            "events_linked": 0,
+            "events_skipped": 0,
         }
 
         if not items:
@@ -285,8 +290,34 @@ class IngestService:
             enrichment_stats = await self.enrichment_service.enrich_by_ids(new_article_ids)
             stats["enriched"] = enrichment_stats.get("processed", 0)
             stats["enrichment_skipped"] = enrichment_stats.get("skipped", 0)
+            event_stats = await self._assign_events(
+                article_ids=new_article_ids,
+                correlation_id=correlation_id,
+            )
+            stats.update(event_stats)
 
         return stats
+
+    async def _assign_events(
+        self,
+        *,
+        article_ids: List[int],
+        correlation_id: Optional[str],
+    ) -> Dict[str, int]:
+        assignments = {
+            "events_created": 0,
+            "events_linked": 0,
+            "events_skipped": 0,
+        }
+        for article_id in article_ids:
+            result = await self.event_service.assign_article(article_id, correlation_id=correlation_id)
+            if result is None:
+                assignments["events_skipped"] += 1
+            elif result.created:
+                assignments["events_created"] += 1
+            else:
+                assignments["events_linked"] += 1
+        return assignments
 
     async def _process_items_stream(
         self,

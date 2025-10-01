@@ -5,7 +5,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from sqlalchemy import JSON, Column, DateTime, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -54,3 +64,62 @@ class Article(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper
         return f"<Article id={self.id} url={self.url!r}>"
+
+
+class Event(Base):
+    """Persisted event clusters built from related articles."""
+
+    __tablename__ = "events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    slug: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
+    title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    centroid_embedding: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
+    centroid_tfidf: Mapped[Dict[str, float] | None] = mapped_column(JSON, nullable=True)
+    centroid_entities: Mapped[list[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    last_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+    article_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    spectrum_distribution: Mapped[Dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging helper
+        return f"<Event id={self.id} title={self.title!r}>"
+
+
+class EventArticle(Base):
+    """Link table between events and articles with scoring metadata."""
+
+    __tablename__ = "event_articles"
+    __table_args__ = (
+        UniqueConstraint("event_id", "article_id", name="uq_event_articles_event_article"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    article_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("articles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    similarity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    scoring_breakdown: Mapped[Dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    linked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging helper
+        return f"<EventArticle event_id={self.event_id} article_id={self.article_id}>"
