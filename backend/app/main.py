@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.config import get_settings
 from backend.app.core.scheduler import get_scheduler
-from backend.app.routers import aggregate_router
+from backend.app.routers import aggregate_router, exports_router
 from backend.app.routers.admin import router as admin_router
 
 
@@ -36,6 +36,7 @@ app.add_middleware(
 
 app.include_router(aggregate_router)
 app.include_router(admin_router)
+app.include_router(exports_router)
 
 
 @app.get("/health")
