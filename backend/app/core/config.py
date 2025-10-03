@@ -82,6 +82,50 @@ class Settings(BaseSettings):
         default="mistral",
         description="Primary LLM provider (mistral, openai)"
     )
+    llm_prompt_article_cap: int = Field(
+        default=8,
+        ge=3,
+        le=20,
+        description="Maximum number of articles included in an LLM prompt",
+    )
+    llm_prompt_max_characters: int = Field(
+        default=7000,
+        ge=2000,
+        le=20000,
+        description="Hard cap on character length for generated LLM prompts",
+    )
+    llm_model_name: str = Field(
+        default="mistral-small-latest",
+        description="Default model used for LLM insight generation",
+    )
+    llm_temperature: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=1.0,
+        description="Sampling temperature applied to LLM requests",
+    )
+    llm_api_base_url: str = Field(
+        default="https://api.mistral.ai/v1",
+        description="Base URL for the configured LLM provider API",
+    )
+    llm_api_timeout_seconds: float = Field(
+        default=45.0,
+        ge=1.0,
+        le=120.0,
+        description="Request timeout (in seconds) for LLM API calls",
+    )
+    llm_api_max_retries: int = Field(
+        default=3,
+        ge=0,
+        le=6,
+        description="Maximum retry attempts for transient LLM API failures",
+    )
+    llm_api_retry_backoff_seconds: float = Field(
+        default=2.0,
+        ge=0.0,
+        le=30.0,
+        description="Base backoff delay (seconds) between LLM retry attempts",
+    )
 
     # API Keys (optional, will be validated when needed)
     mistral_api_key: Optional[str] = Field(

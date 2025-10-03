@@ -282,7 +282,9 @@ CREATE TABLE llm_insights (
     clusters JSON,
     contradictions JSON,
     fallacies JSON,
-    generated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    raw_response TEXT,
+    generated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(event_id, provider)
 );
 ```
 
@@ -352,17 +354,20 @@ sequenceDiagram
 │   │   ├── llm/
 │   │   │   ├── prompt_builder.py  # Prompt templates & chunking
 │   │   │   ├── client.py          # Provider-agnostic adapter (Mistral default)
-│   │   │   └── schemas.py         # Pydantic models for insights
+│   │   │   ├── schemas.py         # Pydantic models for insights
+│   │   │   └── templates/
+│   │   │       └── pluriform_prompt.txt  # Static instructions injected into prompts
 │   │   ├── repositories/
 │   │   │   ├── base.py            # Generic CRUD helpers
 │   │   │   ├── article_repo.py
 │   │   │   ├── event_repo.py
-│   │   │   └── insight_repo.py
+│   │   │   └── insight_repo.py    # LLM insight persistence helpers
 │   │   ├── services/
 │   │   │   ├── ingest_service.py  # Orchestrates feed ingest flow
 │   │   │   ├── enrich_service.py  # Handles NLP enrichment pipeline
 │   │   │   ├── vector_index.py    # Persistente hnswlib-index met recency-filter
 │   │   │   ├── event_service.py   # Event detection orchestration
+│   │   │   ├── insight_service.py # Prompt→LLM→repository orchestratie
 │   │   │   └── export_service.py  # CSV export assembly
 │   │   ├── api/
 │   │   │   ├── dependencies.py
@@ -548,3 +553,7 @@ Resultaat: centroiden blijven representatief, oude events verdwijnen automatisch
 | 2025-10-01 | 0.2 | Story 2.1 – VectorIndexService + EventRepository snapshots toegevoegd; .env uitgebreid met vectorindexparameters |
 | 2025-10-02 | 0.3 | Story 2.2 – Hybrid scoring module, EventService orchestration en ingest-integratie voor artikel→event toewijzing |
 | 2025-10-02 | 0.4 | Story 2.3 – EventMaintenanceService, archiveringsflow en automatische indexrebuild + nieuwe scheduler/retentie settings |
+| 2025-10-02 | 0.5 | Story 3.1 – PromptBuilder en statische sjabloon toegevoegd, LLM promptlimieten vastgelegd in Config/README, unit tests voor promptselectie |
+| 2025-10-02 | 0.6 | Story 3.2 – Mistral LLM-client, insight service, llm_insights tabel en config/README updates |
+| 2025-10-02 | 0.7 | Story 3.3 – CSV exportservice, FastAPI routes voor `/api/v1/exports`, tests en README instructies |
+| 2025-10-02 | 0.5 | Story 3.1 – PromptBuilder en statische sjabloon toegevoegd, LLM promptlimieten vastgelegd in Config/README, unit tests voor promptselectie |

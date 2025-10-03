@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from sqlalchemy import (
     JSON,
@@ -123,3 +123,33 @@ class EventArticle(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper
         return f"<EventArticle event_id={self.event_id} article_id={self.article_id}>"
+
+
+class LLMInsight(Base):
+    """LLM-generated insights attached to an event."""
+
+    __tablename__ = "llm_insights"
+    __table_args__ = (
+        UniqueConstraint("event_id", "provider", name="uq_llm_insights_event_provider"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt_metadata: Mapped[Dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    timeline: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    clusters: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    contradictions: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    fallacies: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    raw_response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging helper
+        return f"<LLMInsight event_id={self.event_id} provider={self.provider!r}>"
