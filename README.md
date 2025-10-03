@@ -42,6 +42,8 @@ make dev    # Backend: http://localhost:8000, Frontend: http://localhost:3000
    - `EVENT_CANDIDATE_TOP_K` en `EVENT_CANDIDATE_TIME_WINDOW_DAYS` sturen de recency-filter tijdens kandidaatselectie.
    - `EVENT_SCORE_WEIGHT_*`, `EVENT_SCORE_THRESHOLD`, `EVENT_SCORE_TIME_DECAY_HALF_LIFE_HOURS` en `EVENT_SCORE_TIME_DECAY_FLOOR` bepalen hoe streng de hybride score een artikel koppelt aan een event of een nieuw event start.
    - `EVENT_RETENTION_DAYS`, `EVENT_MAINTENANCE_INTERVAL_HOURS` en `EVENT_INDEX_REBUILD_ON_DRIFT` controleren het onderhoudsproces (archiveren van oude events, frequentie van onderhoud en automatische herbouw van de vectorindex bij drift).
+   - `LLM_PROMPT_ARTICLE_CAP` en `LLM_PROMPT_MAX_CHARACTERS` sturen hoeveel artikelen en hoeveel tekens de prompt builder maximaal meeneemt richting de LLM.
+   - CSV-bestanden verschijnen automatisch in `data/exports/` wanneer je de export-endpoints aanroept.
 
    De APScheduler plant nu twee achtergrondtaken: `poll_rss_feeds` voor ingest en `event_maintenance` (standaard elke 24 uur) voor centroid-herberekening, archivering en indexherstel. Pas de intervallen aan via de bovenstaande variabelen.
 
@@ -72,6 +74,7 @@ make test          # Run tests
 make lint          # Run linting
 make validate      # Controleer setup
 make clean         # Cleanup gegenereerde bestanden
+make export-events # (optioneel) Schrijft een CSV van alle events naar data/exports/
 ```
 ### Handige scripts
 
@@ -172,3 +175,9 @@ Naast de statische demo bevat de repo nu een moderne Tavily + ChatGPT flow:
 4. Open http://localhost:3000 voor een glassmorphism interface met animaties, tijdlijn, clusters en tegenstrijdigheden.
 
 Het frontend spreekt direct de FastAPI-route aan en rendert de JSON als kaarten met een flashy gradient-achtergrond.
+
+### CSV-exports
+
+- `GET http://localhost:8000/api/v1/exports/events` levert een CSV-overzicht met alle actieve events en (wanneer beschikbaar) de laatst gegenereerde LLM-inzichten.
+- `GET http://localhost:8000/api/v1/exports/events/{event_id}` levert een detail-CSV met tijdlijn, clusters, tegenstrijdigheden en drogredenen voor één event.
+- Beide endpoints schrijven het bestand ook weg naar `data/exports/`. Houd deze map uit versiebeheer en deel exports via een gedeeld artefact indien nodig.
