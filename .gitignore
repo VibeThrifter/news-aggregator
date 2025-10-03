@@ -43,3 +43,8 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Runtime lock files
+*.lock
+!package-lock.json
+!frontend/package-lock.json

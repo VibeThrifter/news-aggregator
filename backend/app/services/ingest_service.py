@@ -208,9 +208,8 @@ class IngestService:
         try:
             logger_ctx.debug("Polling feed reader")
 
-            # Use async context manager to ensure proper cleanup
-            async with reader:
-                items = await reader.fetch()
+            # Fetch items directly - HTTP client is now lazily initialized
+            items = await reader.fetch()
 
             logger_ctx.info("Feed reader polling successful", item_count=len(items))
             return items
@@ -419,10 +418,8 @@ class IngestService:
 
         for reader_id, reader in self.readers.items():
             try:
-                # Just test connectivity without full fetch
-                async with reader:
-                    # Simple connectivity test could be added here
-                    pass
+                # Reader is ready to use without context manager
+                # HTTP client will be lazily initialized on first use
                 results[reader_id] = {"status": "ok", "url": reader.feed_url}
             except Exception as e:
                 results[reader_id] = {"status": "error", "error": str(e), "url": reader.feed_url}

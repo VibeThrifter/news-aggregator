@@ -160,7 +160,7 @@ Naast de statische demo bevat de repo nu een moderne Tavily + ChatGPT flow:
 
    De orchestrator roept Tavily aan, extraheert content via Trafilatura en stuurt een JSON-prompt naar OpenAI. Als OpenAI niet beschikbaar is of quota-issues geeft, schakelt de backend automatisch over op Mistral (mits `MISTRAL_API_KEY` gezet). Je ontvangt een `timeline`, `clusters` en `contradictions` payload.
 
-### Frontend (Next.js 14 + Tailwind + Framer Motion)
+### Frontend (Next.js 14 + Tailwind)
 
 1. Ga naar `frontend/` en installeer packages:
    ```bash
@@ -172,9 +172,17 @@ Naast de statische demo bevat de repo nu een moderne Tavily + ChatGPT flow:
    npm run dev
    ```
 3. Stel optioneel `NEXT_PUBLIC_API_BASE_URL` in (default `http://localhost:8000`).
-4. Open http://localhost:3000 voor een glassmorphism interface met animaties, tijdlijn, clusters en tegenstrijdigheden.
+4. Open http://localhost:3000 voor de eventfeed met statusbanner, responsieve kaarten en CSV-acties.
 
-Het frontend spreekt direct de FastAPI-route aan en rendert de JSON als kaarten met een flashy gradient-achtergrond.
+#### Event feed (Story 4.2)
+
+- Statusbanner bovenaan toont de laatst verwerkte eventtimestamp, actieve LLM-provider en eventcount met een handmatige refreshknop.
+- Eventkaarten geven titel, dominante tijdspanne, artikelcount en bronverdeling (spectrum-badges) weer, plus CTA's "Bekijk event" en "Download CSV".
+- Lege of fouttoestanden presenteren een duidelijke boodschap en retry-knop; tijdens het laden verschijnt een skeleton layout.
+- Responsief ontwerp: kaarten stapelen onder 768px; knoppen blijven breed genoeg voor touch-interactie.
+- Voeg later een screenshot toe in `docs/images/event-feed.png` zodra de definitieve styling is gevalideerd.
+
+Het frontend spreekt de FastAPI-route `/api/v1/events` aan via de gedeelde API-client en normaliseert JSON:API meta-informatie voor de UI.
 
 ### CSV-exports
 
