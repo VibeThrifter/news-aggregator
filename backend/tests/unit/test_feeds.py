@@ -113,11 +113,15 @@ class TestNosRssReader:
         mock_response.content = sample_rss.encode("utf-8")
         mock_response.raise_for_status = MagicMock()
 
-        with patch.object(self.reader._session, "get", return_value=mock_response) as mock_get:
+        # Mock the session property to return a mock client
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch.object(type(self.reader), "session", new_callable=lambda: property(lambda self: mock_client)):
             items = await self.reader.fetch()
 
             # Verify HTTP call
-            mock_get.assert_called_once_with(self.reader.feed_url)
+            mock_client.get.assert_called_once_with(self.reader.feed_url)
             mock_response.raise_for_status.assert_called_once()
 
             # Verify parsed items
@@ -138,28 +142,30 @@ class TestNosRssReader:
         mock_response = MagicMock()
         mock_response.status_code = 404
 
-        with patch.object(self.reader._session, "get") as mock_get:
-            mock_get.side_effect = httpx.HTTPStatusError(
-                "Not Found", request=MagicMock(), response=mock_response
-            )
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=httpx.HTTPStatusError(
+            "Not Found", request=MagicMock(), response=mock_response
+        ))
 
+        with patch.object(type(self.reader), "session", new_callable=lambda: property(lambda self: mock_client)):
             with pytest.raises(FeedReaderError, match="HTTP error fetching NOS RSS"):
                 await self.reader.fetch()
 
             # Verify retries (at least one call, retry logic tested separately)
-            assert mock_get.call_count >= 1
+            assert mock_client.get.call_count >= 1
 
     @pytest.mark.asyncio
     async def test_fetch_network_error(self):
         """Test network error handling."""
-        with patch.object(self.reader._session, "get") as mock_get:
-            mock_get.side_effect = httpx.RequestError("Connection failed")
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=httpx.RequestError("Connection failed"))
 
+        with patch.object(type(self.reader), "session", new_callable=lambda: property(lambda self: mock_client)):
             with pytest.raises(FeedReaderError, match="Network error fetching NOS RSS"):
                 await self.reader.fetch()
 
             # Verify retries (at least one call, retry logic tested separately)
-            assert mock_get.call_count >= 1
+            assert mock_client.get.call_count >= 1
 
     def test_filter_duplicates(self):
         """Test duplicate filtering by GUID and URL."""
@@ -198,12 +204,18 @@ class TestNosRssReader:
         assert self.reader._clean_html("") == ""
 
     @pytest.mark.asyncio
-    async def test_context_manager(self):
-        """Test async context manager functionality."""
-        with patch.object(self.reader._session, "aclose") as mock_close:
-            async with self.reader:
-                pass
-            mock_close.assert_called_once()
+    async def test_session_lifecycle(self):
+        """Test that session property creates HTTP client lazily."""
+        # Session is created lazily
+        assert self.reader._session is None
+
+        # Access session property
+        session = self.reader.session
+        assert session is not None
+        assert isinstance(session, httpx.AsyncClient)
+
+        # Same session returned on subsequent access
+        assert self.reader.session is session
 
 
 class TestNuRssReader:
@@ -233,7 +245,10 @@ class TestNuRssReader:
         mock_response.content = sample_rss.encode("utf-8")
         mock_response.raise_for_status = MagicMock()
 
-        with patch.object(self.reader._session, "get", return_value=mock_response):
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch.object(type(self.reader), "session", new_callable=lambda: property(lambda self: mock_client)):
             items = await self.reader.fetch()
 
             # Verify parsed items
@@ -271,15 +286,17 @@ class TestIngestService:
 
         nos_info = info["readers"]["nos_rss"]
         assert nos_info["id"] == "nos_rss"
-        assert nos_info["url"] == "https://mock-nos.nl/rss"
+        # Check that url key exists (actual feed URL)
+        assert "url" in nos_info
+        assert nos_info["url"] == "https://feeds.nos.nl/nosnieuwsalgemeen"
 
     @pytest.mark.asyncio
     async def test_poll_feeds_success(self):
         """Test successful polling of all feeds."""
-        # Mock successful fetch for all readers
+        # Mock successful fetch for all readers with valid URLs
         mock_items = [
             FeedItem(
-                guid="test1", url="url1", title="Title 1",
+                guid="test1", url="https://example.com/article1", title="Title 1",
                 summary="Summary 1", published_at=datetime.now(),
                 source_metadata={"source": "test"}
             )
@@ -289,6 +306,12 @@ class TestIngestService:
             reader.fetch = AsyncMock(return_value=mock_items)
             reader.__aenter__ = AsyncMock(return_value=reader)
             reader.__aexit__ = AsyncMock(return_value=None)
+
+        # Mock article processing to avoid actual HTTP calls
+        async def mock_process(reader_id, items, profile, **kwargs):
+            return {"ingested": len(items), "duplicates": 0, "fetch_failures": 0}
+
+        self.service.process_feed_items = AsyncMock(side_effect=mock_process)
 
         results = await self.service.poll_feeds(correlation_id="test-123")
 
@@ -305,11 +328,17 @@ class TestIngestService:
         """Test polling with one reader failing."""
         mock_items = [
             FeedItem(
-                guid="test1", url="url1", title="Title 1",
+                guid="test1", url="https://example.com/article1", title="Title 1",
                 summary="Summary 1", published_at=datetime.now(),
                 source_metadata={"source": "test"}
             )
         ]
+
+        # Mock article processing to avoid actual HTTP calls
+        async def mock_process(reader_id, items, profile, **kwargs):
+            return {"ingested": len(items), "duplicates": 0, "fetch_failures": 0}
+
+        self.service.process_feed_items = AsyncMock(side_effect=mock_process)
 
         # Mock one success, one failure
         readers = list(self.service.readers.values())
@@ -381,7 +410,10 @@ async def test_integration_feeds_with_fixtures():
     mock_response.content = sample_rss.encode("utf-8")
     mock_response.raise_for_status = MagicMock()
 
-    with patch.object(nos_reader._session, "get", return_value=mock_response):
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_response)
+
+    with patch.object(type(nos_reader), "session", new_callable=lambda: property(lambda self: mock_client)):
         items = await nos_reader.fetch()
 
     assert len(items) == 3

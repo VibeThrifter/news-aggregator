@@ -42,7 +42,7 @@ class TestSettings:
             assert settings.rss_nunl_url == "https://www.nu.nl/rss/Algemeen"
             assert settings.scheduler_interval_minutes == 15
             assert settings.database_url == "sqlite+aiosqlite:///./data/db.sqlite"
-            assert settings.embedding_model_name == "sentence-transformers/all-MiniLM-L6-v2"
+            assert settings.embedding_model_name == "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
             assert settings.llm_provider == "mistral"
             assert settings.log_level == "INFO"
             assert settings.frontend_origins == "http://localhost:3000,http://127.0.0.1:3000"

@@ -1,55 +1,48 @@
 {
-  "stored_at": "2025-10-02T23:25:48.081094+00:00",
+  "stored_at": "2025-10-03T17:20:26.508363+00:00",
   "ttl_minutes": 180,
   "cookies": [
     {
       "name": "xAuthId",
-      "value": "830167d1-6c61-49c1-8f8e-ef1c643e0050",
+      "value": "edc1774d-ae26-4879-a3e1-ad2d35e51816",
       "domain": "myprivacy.dpgmedia.nl",
       "path": "/",
       "expires": null
     },
     {
       "name": "authId",
-      "value": "830167d1-6c61-49c1-8f8e-ef1c643e0050",
+      "value": "edc1774d-ae26-4879-a3e1-ad2d35e51816",
       "domain": "myprivacy.dpgmedia.nl",
       "path": "/",
       "expires": null
     },
     {
       "name": "authId",
-      "value": "830167d1-6c61-49c1-8f8e-ef1c643e0050",
+      "value": "edc1774d-ae26-4879-a3e1-ad2d35e51816",
       "domain": ".nu.nl",
       "path": "/",
       "expires": null
     },
     {
       "name": "nunl_device_id",
-      "value": "hwv9a7q7m4nmfwyqyca2py1n",
+      "value": "r0ejrvz9qiyv6pb05t052e74",
       "domain": "www.nu.nl",
       "path": "/",
-      "expires": 1767223548
+      "expires": 1767288026
     },
     {
       "name": "nunl_id",
-      "value": "duge4wz9wwcu0a3oieqxgcym",
+      "value": "y3kpz90cquafq7efdci4kbv0",
       "domain": "www.nu.nl",
       "path": "/",
-      "expires": 1767223548
+      "expires": 1767288026
     },
     {
       "name": "last_visit_timestamp",
-      "value": "1759447552",
+      "value": "1759512028",
       "domain": "www.nu.nl",
       "path": "/",
-      "expires": 1760052348
-    },
-    {
-      "name": "liveblog-9159-last-seen-timestamp",
-      "value": "1759440815000",
-      "domain": "www.nu.nl",
-      "path": "/",
-      "expires": null
+      "expires": 1760116826
     }
   ]
 }
