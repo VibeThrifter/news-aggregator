@@ -10,7 +10,7 @@ export function AnimatedBackground() {
         animate={{
           x: [0, 40, -20, 0],
           y: [0, 20, -30, 0],
-          scale: [1, 1.1, 0.95, 1]
+          scale: [1, 1.1, 0.95, 1],
         }}
         transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
       />
@@ -19,7 +19,7 @@ export function AnimatedBackground() {
         animate={{
           x: [0, -30, 20, 0],
           y: [0, -25, 30, 0],
-          scale: [1, 0.9, 1.1, 1]
+          scale: [1, 0.9, 1.1, 1],
         }}
         transition={{ duration: 22, repeat: Infinity, ease: "easeInOut" }}
       />

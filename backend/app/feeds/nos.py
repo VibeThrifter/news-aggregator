@@ -21,12 +21,19 @@ class NosRssReader(FeedReader):
     def __init__(self, feed_url: str):
         """Initialize NOS RSS reader."""
         super().__init__(feed_url)
-        self._session = httpx.AsyncClient(
-            timeout=30.0,
-            headers={
-                "User-Agent": "News-Aggregator/1.0 (+https://github.com/yourusername/news-aggregator)"
-            }
-        )
+        self._session: httpx.AsyncClient | None = None
+
+    @property
+    def session(self) -> httpx.AsyncClient:
+        """Lazy-initialize HTTP client on first use."""
+        if self._session is None or self._session.is_closed:
+            self._session = httpx.AsyncClient(
+                timeout=30.0,
+                headers={
+                    "User-Agent": "News-Aggregator/1.0 (+https://github.com/yourusername/news-aggregator)"
+                }
+            )
+        return self._session
 
     @property
     def id(self) -> str:
@@ -64,7 +71,7 @@ class NosRssReader(FeedReader):
             self.logger.info("Fetching NOS RSS feed", feed_url=self.feed_url)
 
             # Fetch RSS content with HTTPX
-            response = await self._session.get(self.feed_url)
+            response = await self.session.get(self.feed_url)
             response.raise_for_status()
 
             # Parse with feedparser
@@ -194,11 +201,3 @@ class NosRssReader(FeedReader):
         clean_text = re.sub(r"\s+", " ", clean_text).strip()
 
         return clean_text
-
-    async def __aenter__(self):
-        """Async context manager entry."""
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit - close HTTP session."""
-        await self._session.aclose()

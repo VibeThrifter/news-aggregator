@@ -21,7 +21,9 @@ export function ClusterCard({ cluster, index }: ClusterCardProps) {
           <p className="text-sm uppercase tracking-[0.3em] text-aurora-500">{cluster.angle}</p>
           <h3 className="mt-1 text-lg font-semibold text-slate-50">Kernsamenvatting</h3>
         </div>
-        <p className="text-sm leading-relaxed text-slate-200 whitespace-pre-line">{cluster.summary}</p>
+        <p className="text-sm leading-relaxed text-slate-200 whitespace-pre-line">
+          {cluster.summary}
+        </p>
         <div className="flex flex-wrap gap-2 pt-2">
           {cluster.sources.map((source) => (
             <SourceTag key={source.url} {...source} />

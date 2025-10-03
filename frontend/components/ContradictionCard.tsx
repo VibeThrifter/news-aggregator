@@ -25,22 +25,18 @@ export function ContradictionCard({ data, index }: ContradictionCardProps) {
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-semibold text-red-100">
-              {data.source_A ? data.source_A.title : 'Bron A'}
+              {data.source_A ? data.source_A.title : "Bron A"}
             </p>
-            {data.source_A && (
-              <SourceTag title={data.source_A.title} url={data.source_A.url} />
-            )}
+            {data.source_A && <SourceTag title={data.source_A.title} url={data.source_A.url} />}
           </div>
           <p>{data.claim_A}</p>
         </div>
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-semibold text-red-100">
-              {data.source_B ? data.source_B.title : 'Bron B'}
+              {data.source_B ? data.source_B.title : "Bron B"}
             </p>
-            {data.source_B && (
-              <SourceTag title={data.source_B.title} url={data.source_B.url} />
-            )}
+            {data.source_B && <SourceTag title={data.source_B.title} url={data.source_B.url} />}
           </div>
           <p>{data.claim_B}</p>
         </div>

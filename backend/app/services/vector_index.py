@@ -283,7 +283,7 @@ class VectorIndexService:
             )
         max_elements = int(metadata.get("max_elements", self.max_elements_default))
         index = hnswlib.Index(space="cosine", dim=self.dimension)
-        index.load_index(str(self.index_path), max_elements=max_elements)
+        index.load_index(str(self.index_path), max_elements=max_elements, allow_replace_deleted=True)
         index.set_ef(self.ef_search)
         self._index = index
         self._labels = set(int(label) for label in index.get_ids_list())

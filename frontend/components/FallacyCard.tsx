@@ -26,7 +26,9 @@ export function FallacyCard({ item, index }: FallacyCardProps) {
         <p className="text-sm text-slate-200">
           <span className="font-semibold text-amber-100">Claim:</span> {item.claim}
         </p>
-        <p className="text-sm leading-relaxed text-slate-200 whitespace-pre-line">{item.explanation}</p>
+        <p className="text-sm leading-relaxed text-slate-200 whitespace-pre-line">
+          {item.explanation}
+        </p>
         <div className="flex flex-wrap gap-2 pt-2">
           {item.sources.map((source) => (
             <SourceTag key={source.url} {...source} />

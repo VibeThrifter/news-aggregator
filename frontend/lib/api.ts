@@ -45,6 +45,10 @@ function buildUrl(path: string): string {
   return `${API_BASE_URL}/${normalisedPath}`;
 }
 
+export function resolveApiUrl(path: string): string {
+  return buildUrl(path);
+}
+
 async function parseJson(response: Response): Promise<unknown> {
   const text = await response.text();
 
@@ -158,3 +162,40 @@ export const ApiClient = {
     });
   },
 };
+
+export type SpectrumDistribution =
+  | Record<string, number | { count: number }>
+  | Array<{ spectrum: string; count: number }>;
+
+export interface EventSourceBreakdownEntry {
+  source: string;
+  article_count: number;
+  spectrum?: string | null;
+}
+
+export interface EventListItem {
+  id: number;
+  slug?: string | null;
+  title: string;
+  description?: string | null;
+  first_seen_at?: string | null;
+  last_updated_at?: string | null;
+  article_count: number;
+  spectrum_distribution?: SpectrumDistribution | null;
+  source_breakdown?: EventSourceBreakdownEntry[] | null;
+}
+
+export interface EventFeedMeta extends Record<string, unknown> {
+  last_updated_at?: string | null;
+  last_updated?: string | null;
+  last_refresh_at?: string | null;
+  generated_at?: string | null;
+  llm_provider?: string | null;
+  active_provider?: string | null;
+  total_events?: number | null;
+  event_count?: number | null;
+}
+
+export function listEvents(options?: ApiFetchOptions) {
+  return ApiClient.get<EventListItem[]>("/api/v1/events", options);
+}

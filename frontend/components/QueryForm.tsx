@@ -49,14 +49,16 @@ export function QueryForm({ onResult }: QueryFormProps) {
             className="flex items-center gap-2 rounded-full bg-gradient-to-r from-aurora-500 via-aurora-600 to-aurora-700 px-5 py-2 text-sm font-semibold text-white shadow-glow transition hover:shadow-lg disabled:opacity-60"
             disabled={loading}
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
             {loading ? "Bezig..." : "Analyseer"}
           </button>
         </div>
       </form>
-      {error && (
-        <p className="mt-3 text-sm text-red-300 text-center">{error}</p>
-      )}
+      {error && <p className="mt-3 text-sm text-red-300 text-center">{error}</p>}
     </div>
   );
 }

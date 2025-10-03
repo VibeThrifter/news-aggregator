@@ -5,10 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, List
+import asyncio
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from backend.app.core.logging import get_logger
 from backend.app.db.models import Article
@@ -45,6 +47,12 @@ class ArticleRepository:
         self.session = session
         self.log = logger.bind(component="ArticleRepository")
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=0.5, min=0.5, max=2),
+        retry=retry_if_exception_type(OperationalError),
+        reraise=True
+    )
     async def upsert_from_feed_item(
         self,
         feed_item: FeedItem,

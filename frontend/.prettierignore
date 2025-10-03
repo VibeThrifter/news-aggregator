@@ -1,0 +1,6 @@
+node_modules
+.next
+news-360-frontend@0.1.0
+playwright-report
+coverage
+*.log

@@ -7,7 +7,7 @@
 .DEFAULT_GOAL := help
 
 # Python and Node.js executables
-PYTHON := python3.12
+PYTHON := python3.11
 NODE := node
 NPM := npm
 
