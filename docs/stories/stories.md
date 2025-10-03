@@ -16,6 +16,9 @@ Stories 2.1 - 2.3 complete. Vector index, hybrid scoring, event clustering, and 
 ### Epic 3: LLM Insights Pipeline ✅ (with known issue)
 Stories 3.1 - 3.3 complete. **API endpoints wired, pipeline functional**. Known issue: LLM schema validation (see below).
 
+### Epic 4: Frontend (Basic UI) 🚧 Partial
+Stories 4.1 - 4.2 complete. Next.js shell, event feed with cards, status banner, responsive design, all tests passing. Story 4.3 (Event Detail Page) pending.
+
 ---
 
 ## Epic 3 Status (LLM Insights Pipeline)
@@ -62,7 +65,7 @@ Stories 3.1 - 3.3 complete. **API endpoints wired, pipeline functional**. Known 
 | 3.2 | Done | 2025-10-03 | LLM client, insight service, repo, admin endpoint wired - known LLM validation issue |
 | 3.3 | Done | 2025-10-03 | CSV export service + routes registered in main.py |
 | 4.1 | Done | 2025-10-03 | Frontend shell + API client, lint/format scripts, Playwright stub |
-| 4.2 |  |  |  |
+| 4.2 | Done | 2025-10-03 | Event feed with cards, status banner, CSV actions, responsive design, all tests passing |
 | 4.3 |  |  |  |
 | 5.1 |  |  |  |
 | 5.2 |  |  |  |
@@ -579,23 +582,33 @@ Stories 3.1 - 3.3 complete. **API endpoints wired, pipeline functional**. Known 
 - Given the API call fails or returns empty when the page loads, then the UI shows an error state or empty placeholder with retry action per UX guidelines.
 - Given the viewport width is ≤768px when viewing the page, then cards stack vertically with accessible spacing, preserving CTA usability.
 **Subtask Checklist:**
-- [ ] Implement API fetching with SWR or React `use` (App Router) to call `/api/v1/events`.
-- [ ] Create `EventCard` component with props typed, Tailwind styling, and CTA buttons linking to detail route and CSV endpoint from Story 3.3.
-- [ ] Add `StatusBanner` showing last updated timestamp and active LLM provider (data from API metadata).
-- [ ] Handle loading, empty, and error states per PRD.
-- [ ] Ensure accessibility (aria labels, focus outlines) as per coding standards.
-- [ ] Add frontend tests: unit tests for rendering states (Jest/React Testing Library) and Playwright E2E stub verifying cards render given mocked API.
-- [ ] Update `README.md` with screenshot placeholder or description of feed view.
-- [ ] Run `npm run lint`, `npm run test`, and Playwright smoke `npx playwright test --config=frontend/playwright.config.ts --project=chromium --grep @event-feed`.
+- [x] Implement API fetching with SWR or React `use` (App Router) to call `/api/v1/events`.
+- [x] Create `EventCard` component with props typed, Tailwind styling, and CTA buttons linking to detail route and CSV endpoint from Story 3.3.
+- [x] Add `StatusBanner` showing last updated timestamp and active LLM provider (data from API metadata).
+- [x] Handle loading, empty, and error states per PRD.
+- [x] Ensure accessibility (aria labels, focus outlines) as per coding standards.
+- [x] Add frontend tests: unit tests for rendering states (Jest/React Testing Library) and Playwright E2E stub verifying cards render given mocked API.
+- [x] Update `README.md` with screenshot placeholder or description of feed view.
+- [x] Run `npm run lint`, `npm run test`, and Playwright smoke `npx playwright test --config=frontend/playwright.config.ts --project=chromium --grep @event-feed`.
 **Testing Requirements:**
 - Frontend unit tests (Jest/React Testing Library) and Playwright E2E (tagged scenario for event feed).
 - Definition of Done: ACs met, tests/lint pass, responsive behaviour verified via dev tools.
 **Story Wrap Up (To be filled in AFTER agent execution):**
-- **Agent Model Used:** 
-- **Agent Credit or Cost:** 
-- **Date/Time Completed:** 
-- **Commit Hash:** 
-- **Change Log:**
+- **Agent Model Used:** Claude Sonnet 4.5 (claude-sonnet-4-5-20250929)
+- **Agent Credit or Cost:** N/A (local execution)
+- **Date/Time Completed:** 2025-10-03T19:30:00Z
+- **Commit Hash:** ea3e215
+- **Change Log:** Completed event feed implementation:
+  - Implemented EventFeed component with SWR data fetching from `/api/v1/events`
+  - Created EventCard component with title, timeframe, article count, source distribution badges
+  - Implemented StatusBanner displaying last event timestamp, active LLM provider, event count, and manual refresh
+  - Added responsive design with mobile-first Tailwind styling (cards stack on mobile)
+  - Implemented loading states (skeleton UI), empty states, and error handling with retry
+  - Created comprehensive Jest unit tests (3/3 passing) for all rendering states
+  - Implemented Playwright E2E test (@event-feed tag) verifying card rendering with mocked API
+  - All linting and formatting checks passing (ESLint + Prettier)
+  - Updated README.md with event feed documentation
+  - Full pipeline verified: RSS ingestion → clustering → LLM insights → frontend display
 
 ---
 **Story ID:** 4.3
