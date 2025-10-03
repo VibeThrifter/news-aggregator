@@ -48,3 +48,6 @@ Thumbs.db
 *.lock
 !package-lock.json
 !frontend/package-lock.json
+
+# ML model cache (downloaded by sentence-transformers)
+data/models/

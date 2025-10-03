@@ -75,14 +75,13 @@ async def test_article_persisted_with_clean_text(monkeypatch, ingest_service, sa
         profile=profile,
     )
 
-    assert stats == {
-        "ingested": 1,
-        "duplicates": 0,
-        "fetch_failures": 0,
-        "parse_failures": 0,
-        "enriched": 1,
-        "enrichment_skipped": 0,
-    }
+    # Verify core stats (may include additional event stats)
+    assert stats["ingested"] == 1
+    assert stats["duplicates"] == 0
+    assert stats["fetch_failures"] == 0
+    assert stats["parse_failures"] == 0
+    assert stats["enriched"] == 1
+    assert stats["enrichment_skipped"] == 0
 
     async with session_factory() as session:
         result = await session.execute(select(Article))
