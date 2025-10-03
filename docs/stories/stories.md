@@ -61,7 +61,7 @@ Stories 3.1 - 3.3 complete. **API endpoints wired, pipeline functional**. Known 
 | 3.1 | Done | 2025-10-02 | Prompt builder, template, config + tests in place |
 | 3.2 | Done | 2025-10-03 | LLM client, insight service, repo, admin endpoint wired - known LLM validation issue |
 | 3.3 | Done | 2025-10-03 | CSV export service + routes registered in main.py |
-| 4.1 |  |  |  |
+| 4.1 | Done | 2025-10-03 | Frontend shell + API client, lint/format scripts, Playwright stub |
 | 4.2 |  |  |  |
 | 4.3 |  |  |  |
 | 5.1 |  |  |  |
@@ -551,16 +551,19 @@ Stories 3.1 - 3.3 complete. **API endpoints wired, pipeline functional**. Known 
 - [ ] Configure ESLint + Prettier scripts and ensure `package.json` commands exist.
 - [ ] Set up Playwright config stub for future tests.
 - [ ] Run `npm run lint` and `npm run test` (if configured) to ensure baseline passes.
-- MANUAL STEP: Create `.env.local` in `frontend/` and set `NEXT_PUBLIC_API_BASE_URL` pointing to backend dev server.
+- MANUAL STEP: Create `.env.local` or `.env` in `frontend/` and set `NEXT_PUBLIC_API_BASE_URL` pointing to backend dev server.
 **Testing Requirements:**
 - Frontend lint/test scripts: `npm run lint`; if tests present, `npm run test` (Jest/React Testing Library stub acceptable).
 - Definition of Done: ACs met, scripts succeed, UI renders base shell.
 **Story Wrap Up (To be filled in AFTER agent execution):**
-- **Agent Model Used:** 
-- **Agent Credit or Cost:** 
-- **Date/Time Completed:** 
-- **Commit Hash:** 
+- **Agent Model Used:** OpenAI GPT-5 Codex (CLI)
+- **Agent Credit or Cost:** N/A (local execution)
+- **Date/Time Completed:** 2025-10-03T09:52:53Z
+- **Commit Hash:** _pending user commit_
 - **Change Log:**
+  - Tailwind light theme + layout shell geïmplementeerd met header, statusbanner placeholder en footer
+  - API helper vernieuwd met JSON:API-lite validatie en fallback-logging voor `NEXT_PUBLIC_API_BASE_URL`
+  - ESLint/Prettier scripts en Playwright-config toegevoegd; format/lint/test scripts succesvol gedraaid
 
 ---
 **Story ID:** 4.2
