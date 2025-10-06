@@ -1,3 +1,5 @@
+"use client";
+
 import { AlertTriangle } from "lucide-react";
 import { motion } from "framer-motion";
 import type { Contradiction } from "@/lib/types";
@@ -23,24 +25,40 @@ export function ContradictionCard({ data, index }: ContradictionCardProps) {
       <p className="mt-2 text-base font-semibold text-slate-50">{data.topic}</p>
       <div className="mt-3 grid gap-3 text-sm text-slate-200">
         <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="font-semibold text-red-100">
-              {data.source_A ? data.source_A.title : "Bron A"}
-            </p>
-            {data.source_A && <SourceTag title={data.source_A.title} url={data.source_A.url} />}
+          <p className="font-semibold text-red-100">Claim A</p>
+          <p>{data.claim_a.summary}</p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            {data.claim_a.sources.map((url) => (
+              <a
+                key={url}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full border border-red-300/40 bg-red-400/10 px-2 py-0.5 text-xs text-red-100 transition hover:bg-red-400/20"
+              >
+                Bron
+              </a>
+            ))}
           </div>
-          <p>{data.claim_A}</p>
         </div>
         <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="font-semibold text-red-100">
-              {data.source_B ? data.source_B.title : "Bron B"}
-            </p>
-            {data.source_B && <SourceTag title={data.source_B.title} url={data.source_B.url} />}
+          <p className="font-semibold text-red-100">Claim B</p>
+          <p>{data.claim_b.summary}</p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            {data.claim_b.sources.map((url) => (
+              <a
+                key={url}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full border border-red-300/40 bg-red-400/10 px-2 py-0.5 text-xs text-red-100 transition hover:bg-red-400/20"
+              >
+                Bron
+              </a>
+            ))}
           </div>
-          <p>{data.claim_B}</p>
         </div>
-        <p className="text-xs uppercase tracking-widest text-red-300">Status: {data.status}</p>
+        <p className="text-xs uppercase tracking-widest text-red-300">Status: {data.verification}</p>
       </div>
     </motion.div>
   );

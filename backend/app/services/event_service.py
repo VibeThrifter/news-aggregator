@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from array import array
+import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Dict, Iterable, List, Mapping, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Dict, Iterable, List, Mapping, Optional, TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -20,8 +21,11 @@ from backend.app.events.scoring import (
     ScoreParameters,
     compute_hybrid_score,
 )
-from backend.app.repositories import EventRepository
-from backend.app.services.vector_index import VectorIndexService
+from backend.app.repositories import EventRepository, InsightRepository
+from backend.app.services.insight_service import InsightService
+
+if TYPE_CHECKING:
+    from backend.app.services.vector_index import VectorIndexService
 
 logger = get_logger(__name__)
 
@@ -117,12 +121,25 @@ class EventService:
         self,
         *,
         session_factory: async_sessionmaker[AsyncSession] | None = None,
-        vector_index: VectorIndexService | None = None,
+        vector_index: "VectorIndexService" | None = None,
+        insight_service: InsightService | None = None,
+        auto_generate_insights: bool = True,
+        insight_refresh_ttl: timedelta | None = None,
     ) -> None:
         self.settings = get_settings()
         self.session_factory = session_factory or get_sessionmaker()
-        self.vector_index = vector_index or VectorIndexService()
+        if vector_index is None:
+            from backend.app.services.vector_index import VectorIndexService as _VectorIndexService
+
+            self.vector_index = _VectorIndexService()
+        else:
+            self.vector_index = vector_index
         self.log = logger.bind(component="EventService")
+        self.auto_generate_insights = auto_generate_insights
+        self.insight_service = insight_service or (InsightService() if auto_generate_insights else None)
+        self.insight_refresh_ttl = insight_refresh_ttl or timedelta(minutes=30)
+        self._pending_insight_events: set[int] = set()
+        self._insight_tasks: dict[int, asyncio.Task[None]] = {}
 
     async def assign_article(
         self,
@@ -188,6 +205,7 @@ class EventService:
                     entity_payload=entity_payload,
                     breakdown=best_breakdown,
                     timestamp=now,
+                    correlation_id=correlation_id,
                 )
                 correlation_log.info(
                     "event_assignment_linked",
@@ -204,6 +222,7 @@ class EventService:
                 features=features,
                 entity_payload=entity_payload,
                 timestamp=now,
+                correlation_id=correlation_id,
             )
             correlation_log.info(
                 "event_assignment_created",
@@ -224,6 +243,7 @@ class EventService:
         entity_payload: List[Dict[str, Optional[str]]],
         breakdown: ScoreBreakdown,
         timestamp: datetime,
+        correlation_id: str | None,
     ) -> EventAssignmentResult:
         await repo.append_article_to_event(
             event=event,
@@ -243,6 +263,7 @@ class EventService:
                 event.last_updated_at,
                 session=session,
             )
+        await self._maybe_schedule_insight_generation(event.id, event.last_updated_at, correlation_id)
         return EventAssignmentResult(
             article_id=article.id,
             event_id=event.id,
@@ -261,6 +282,7 @@ class EventService:
         features: ArticleFeatures,
         entity_payload: List[Dict[str, Optional[str]]],
         timestamp: datetime,
+        correlation_id: str | None,
     ) -> EventAssignmentResult:
         event = await repo.create_event_skeleton(
             article=article,
@@ -290,6 +312,7 @@ class EventService:
                 event.last_updated_at,
                 session=session,
             )
+        await self._maybe_schedule_insight_generation(event.id, event.last_updated_at, correlation_id)
         return EventAssignmentResult(
             article_id=article.id,
             event_id=event.id,
@@ -298,6 +321,66 @@ class EventService:
             threshold=self.settings.event_score_threshold,
             breakdown=scoring_payload,
         )
+
+    async def _maybe_schedule_insight_generation(
+        self,
+        event_id: int,
+        last_updated_at: datetime | None,
+        correlation_id: str | None,
+    ) -> None:
+        if not self.auto_generate_insights or self.insight_service is None:
+            return
+
+        if event_id in self._pending_insight_events:
+            return
+
+        if not await self._insight_needs_refresh(event_id, last_updated_at):
+            return
+
+        self._pending_insight_events.add(event_id)
+
+        async def _run() -> None:
+            try:
+                await self.insight_service.generate_for_event(event_id, correlation_id=correlation_id)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                self.log.warning(
+                    "insight_autogen_failed",
+                    event_id=event_id,
+                    error=str(exc),
+                    correlation_id=correlation_id,
+                )
+            finally:
+                self._pending_insight_events.discard(event_id)
+                self._insight_tasks.pop(event_id, None)
+
+        task = asyncio.create_task(_run(), name=f"generate-insights-{event_id}")
+        self._insight_tasks[event_id] = task
+
+    async def _insight_needs_refresh(
+        self,
+        event_id: int,
+        last_updated_at: datetime | None,
+    ) -> bool:
+        async with self.session_factory() as session:
+            repo = InsightRepository(session)
+            insight = await repo.get_latest_insight(event_id)
+
+        if insight is None:
+            return True
+
+        if insight.generated_at is None:
+            return True
+
+        if last_updated_at is None:
+            return False
+
+        latest_generated = insight.generated_at if insight.generated_at.tzinfo else insight.generated_at.replace(tzinfo=timezone.utc)
+        refreshed_at = last_updated_at if last_updated_at.tzinfo else last_updated_at.replace(tzinfo=timezone.utc)
+
+        if refreshed_at <= latest_generated:
+            return False
+
+        return (refreshed_at - latest_generated) >= self.insight_refresh_ttl
 
 
 __all__ = ["EventService", "EventAssignmentResult"]

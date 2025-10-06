@@ -80,6 +80,7 @@ class InsightService:
                 provider=llm_result.provider,
                 model=llm_result.model,
                 prompt_metadata=prompt_metadata,
+                summary=payload_dict.get("summary"),
                 timeline=payload_dict.get("timeline", []),
                 clusters=payload_dict.get("clusters", []),
                 contradictions=payload_dict.get("contradictions", []),

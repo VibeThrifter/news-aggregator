@@ -54,6 +54,7 @@ class InsightFallacy(BaseModel):
 
 
 class InsightsPayload(BaseModel):
+    summary: str = Field(..., min_length=100, description="Comprehensive narrative summary combining all articles")
     timeline: List[InsightTimelineItem] = Field(default_factory=list)
     clusters: List[InsightCluster] = Field(default_factory=list)
     contradictions: List[InsightContradiction] = Field(default_factory=list)

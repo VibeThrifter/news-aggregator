@@ -9,6 +9,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
+import os
+
+# Limit Accelerate / vecLib threading on macOS to avoid sandboxed OpenMP crashes.
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 import hnswlib
 import numpy as np
 from filelock import FileLock

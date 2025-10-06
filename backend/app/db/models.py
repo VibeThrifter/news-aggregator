@@ -142,6 +142,7 @@ class LLMInsight(Base):
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     model: Mapped[str] = mapped_column(String(128), nullable=False)
     prompt_metadata: Mapped[Dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     timeline: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     clusters: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     contradictions: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)

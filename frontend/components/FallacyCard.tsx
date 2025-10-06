@@ -1,3 +1,5 @@
+"use client";
+
 import { motion } from "framer-motion";
 import { AlertCircle } from "lucide-react";
 import type { Fallacy } from "@/lib/types";
@@ -23,15 +25,20 @@ export function FallacyCard({ item, index }: FallacyCardProps) {
           <span className="text-xs uppercase tracking-[0.3em]">Drogreden</span>
         </div>
         <h3 className="text-lg font-semibold text-slate-50">{item.type}</h3>
-        <p className="text-sm text-slate-200">
-          <span className="font-semibold text-amber-100">Claim:</span> {item.claim}
-        </p>
         <p className="text-sm leading-relaxed text-slate-200 whitespace-pre-line">
-          {item.explanation}
+          {item.description}
         </p>
         <div className="flex flex-wrap gap-2 pt-2">
-          {item.sources.map((source) => (
-            <SourceTag key={source.url} {...source} />
+          {item.sources.map((url) => (
+            <a
+              key={url}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-full border border-amber-300/40 bg-amber-400/10 px-3 py-1 text-xs text-amber-100 transition hover:bg-amber-400/20"
+            >
+              Bron
+            </a>
           ))}
         </div>
       </div>

@@ -16,6 +16,7 @@ BELANGRIJK: Voor het veld "spectrum" moet je EXACT één van deze waarden gebrui
 Gebruik NOOIT Engelse waarden zoals "center", "left", "right", "center-left", "center-right" etc.
 
 {
+  "summary": "Een uitgebreide, vloeiende samenvatting (minimaal 200 woorden) die alle artikelen combineert tot één samenhangend verhaal. Verwerk hierin de belangrijkste feiten, verschillende perspectieven, en tegenstrijdigheden tussen bronnen. Schrijf dit als lopende tekst, niet als bullet points. Geef duidelijk aan waar bronnen het oneens zijn of verschillende interpretaties geven.",
   "timeline": [
     {
       "time": "ISO-8601 string",
@@ -74,6 +75,7 @@ Artikelcapsules (gesorteerd op relevantie en spectrumdiversiteit):
 {article_capsules}
 
 Analyseer stap voor stap:
+- Schrijf EERST een uitgebreide narratieve samenvatting (minimaal 200 woorden) die alle artikelen combineert. Verwerk hierin tegenstrijdigheden en verschillende perspectieven in lopende tekst.
 - Bepaal de belangrijkste momenten voor de tijdlijn.
 - Groepeer artikelen per invalshoek; benoem het spectrum en type bron per cluster.
 - Identificeer expliciete tegenstrijdigheden met bronvermelding.

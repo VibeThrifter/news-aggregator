@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.logging import get_logger
@@ -40,6 +40,18 @@ class InsightRepository:
         insight = result.scalar_one_or_none()
         return insight
 
+    async def get_latest_insight(self, event_id: int) -> Optional[LLMInsight]:
+        """Return the most recent insight for an event regardless of provider."""
+
+        stmt = (
+            select(LLMInsight)
+            .where(LLMInsight.event_id == event_id)
+            .order_by(desc(LLMInsight.generated_at))
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def upsert_insight(
         self,
         *,
@@ -47,6 +59,7 @@ class InsightRepository:
         provider: str,
         model: str,
         prompt_metadata: Dict[str, Any] | None,
+        summary: str | None,
         timeline: list[Dict[str, Any]],
         clusters: list[Dict[str, Any]],
         contradictions: list[Dict[str, Any]],
@@ -63,6 +76,7 @@ class InsightRepository:
         if existing:
             existing.model = model
             existing.prompt_metadata = prompt_metadata
+            existing.summary = summary
             existing.timeline = timeline
             existing.clusters = clusters
             existing.contradictions = contradictions
@@ -77,6 +91,7 @@ class InsightRepository:
                 provider=provider,
                 model=model,
                 prompt_metadata=prompt_metadata,
+                summary=summary,
                 timeline=timeline,
                 clusters=clusters,
                 contradictions=contradictions,
