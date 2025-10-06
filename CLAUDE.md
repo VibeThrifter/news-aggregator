@@ -118,10 +118,13 @@ make clean             # Clean up generated files
 ## 🚨 Important Notes
 
 ### Current Status
-- **Backend**: Fully functional with Python 3.12 + venv
-- **Frontend**: Needs initialization (Next.js 14 setup pending)
-- **ML Features**: Temporarily disabled (PyTorch compatibility)
-- **Database**: SQLite setup pending (Alembic migrations)
+- **Backend**: Fully functional with Python 3.12 + venv + SQLite database
+- **Frontend**: Next.js 14 fully implemented with dark mode UI
+- **ML Features**: Temporarily disabled (PyTorch compatibility) - using fallback embeddings
+- **Database**: SQLite with WAL mode, Alembic migrations configured
+- **LLM Insights**: Auto-generation working with Mistral API, narrative summaries included
+- **REST API**: Full JSON:API-lite endpoints for events and insights
+- **Event Detail**: Complete detail pages with timeline, clusters, contradictions, fallacies
 
 ### What NOT to Do
 - ❌ Don't install Poetry (project uses venv + pip)
