@@ -72,7 +72,7 @@ describe("EventFeed", () => {
     render(<EventFeed />);
 
     expect(screen.getByText("Voorbeeld event")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Bekijk event" })).toHaveAttribute("href", "/events/voorbeeld-event");
+    expect(screen.getByRole("link", { name: "Bekijk event" })).toHaveAttribute("href", "/event/voorbeeld-event");
     expect(screen.getByText(/Mistral/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Download CSV" })).toHaveAttribute(
       "href",

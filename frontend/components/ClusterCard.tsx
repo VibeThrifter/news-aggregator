@@ -1,3 +1,5 @@
+"use client";
+
 import { motion } from "framer-motion";
 import type { Cluster } from "@/lib/types";
 import { SourceTag } from "@/components/SourceTag";
@@ -18,7 +20,7 @@ export function ClusterCard({ cluster, index }: ClusterCardProps) {
       <div className="absolute inset-0 opacity-20 bg-gradient-to-br from-aurora-500/20 to-transparent pointer-events-none" />
       <div className="relative space-y-4">
         <div>
-          <p className="text-sm uppercase tracking-[0.3em] text-aurora-500">{cluster.angle}</p>
+          <p className="text-sm uppercase tracking-[0.3em] text-aurora-500">{cluster.label}</p>
           <h3 className="mt-1 text-lg font-semibold text-slate-50">Kernsamenvatting</h3>
         </div>
         <p className="text-sm leading-relaxed text-slate-200 whitespace-pre-line">

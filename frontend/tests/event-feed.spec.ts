@@ -34,7 +34,7 @@ test("@event-feed renders mocked event feed", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "Mock event met CSV-acties" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Bekijk event" })).toHaveAttribute("href", "/events/mock-event");
+  await expect(page.getByRole("link", { name: "Bekijk event" })).toHaveAttribute("href", "/event/mock-event");
   await expect(page.getByRole("link", { name: "Download CSV" })).toHaveAttribute(
     "href",
     expect.stringContaining("/api/v1/exports/events/101"),

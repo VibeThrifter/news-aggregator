@@ -1,3 +1,5 @@
+"use client";
+
 import { motion } from "framer-motion";
 import type { TimelineEvent } from "@/lib/types";
 
@@ -21,7 +23,7 @@ export function Timeline({ data }: TimelineProps) {
             className="flex items-start gap-3"
           >
             <span className="text-sm text-aurora-500 font-mono w-14 shrink-0">{item.time}</span>
-            <p className="text-sm text-slate-200 leading-snug">{item.event}</p>
+            <p className="text-sm text-slate-200 leading-snug">{item.headline}</p>
           </motion.div>
         ))}
       </div>

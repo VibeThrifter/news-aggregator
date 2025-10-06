@@ -184,6 +184,15 @@ Naast de statische demo bevat de repo nu een moderne Tavily + ChatGPT flow:
 
 Het frontend spreekt de FastAPI-route `/api/v1/events` aan via de gedeelde API-client en normaliseert JSON:API meta-informatie voor de UI.
 
+#### Event detail (Story 4.3)
+
+- Dynamische route `/event/[id]` (slug of numeriek ID) haalt eventdata uit `/api/v1/events/{id}` en pluriforme inzichten uit `/api/v1/insights/{id}` via de gedeelde API-client.
+- Hero toont titel, tijdframe, artikelcount, bronverdeling (spectrumchips) en metadata over LLM-provider + laatst uitgevoerde insights-run.
+- De downloadknop gebruikt het export-endpoint `/api/v1/exports/events/{id}` met het `download`-attribuut zodat de browser het CSV-bestand direct bewaart.
+- Inhoudssecties renderen tijdlijn, invalshoeken (clustergrid met spectrumlabels + bronlinks), drogredeneringen, tegenstrijdige claims en een artikellijst met spectrumlabels.
+- Wanneer insights ontbreken of leeg zijn verschijnt een waarschuwingsbanner met CTA om `POST /admin/trigger/generate-insights/{id}` te starten; resultaatmelding wordt inline getoond.
+- Unit-tests dekken componentstaten (clustergrid, artikellijst, fallbackbanner) en Playwright-scenario `@event-detail` verifieert dat timeline en clusters in de UI verschijnen op basis van gemockte API-responses.
+
 ### CSV-exports
 
 - `GET http://localhost:8000/api/v1/exports/events` levert een CSV-overzicht met alle actieve events en (wanneer beschikbaar) de laatst gegenereerde LLM-inzichten.

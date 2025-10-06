@@ -28,7 +28,11 @@ async def test_assign_links_article_to_existing_event(tmp_path: Path) -> None:
     index_path = tmp_path / "index.bin"
     metadata_path = tmp_path / "index.meta.json"
     vector_service = VectorIndexService(dimension=3, index_path=index_path, metadata_path=metadata_path)
-    service = EventService(session_factory=session_factory, vector_index=vector_service)
+    service = EventService(
+        session_factory=session_factory,
+        vector_index=vector_service,
+        auto_generate_insights=False,
+    )
 
     now = datetime.now(timezone.utc)
 
@@ -94,7 +98,11 @@ async def test_assign_creates_new_event_when_score_below_threshold(tmp_path: Pat
     index_path = tmp_path / "index2.bin"
     metadata_path = tmp_path / "index2.meta.json"
     vector_service = VectorIndexService(dimension=3, index_path=index_path, metadata_path=metadata_path)
-    service = EventService(session_factory=session_factory, vector_index=vector_service)
+    service = EventService(
+        session_factory=session_factory,
+        vector_index=vector_service,
+        auto_generate_insights=False,
+    )
 
     now = datetime.now(timezone.utc)
 

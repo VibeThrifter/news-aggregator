@@ -1,3 +1,14 @@
+import type {
+  AggregationResponse,
+  EventArticle,
+  EventDetail,
+  EventDetailMeta,
+  EventFeedMeta,
+  EventListItem,
+  EventSourceBreakdownEntry,
+  SpectrumDistribution,
+} from "@/lib/types";
+
 export interface ApiErrorPayload {
   code: string;
   message: string;
@@ -91,6 +102,7 @@ export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export type ApiFetchOptions = Omit<RequestInit, "method" | "body"> & {
   method?: HttpMethod;
   body?: BodyInit | null;
+  next?: Record<string, unknown>;
 };
 
 export async function apiFetch<T>(
@@ -163,39 +175,45 @@ export const ApiClient = {
   },
 };
 
-export type SpectrumDistribution =
-  | Record<string, number | { count: number }>
-  | Array<{ spectrum: string; count: number }>;
-
-export interface EventSourceBreakdownEntry {
-  source: string;
-  article_count: number;
-  spectrum?: string | null;
-}
-
-export interface EventListItem {
-  id: number;
-  slug?: string | null;
-  title: string;
-  description?: string | null;
-  first_seen_at?: string | null;
-  last_updated_at?: string | null;
-  article_count: number;
-  spectrum_distribution?: SpectrumDistribution | null;
-  source_breakdown?: EventSourceBreakdownEntry[] | null;
-}
-
-export interface EventFeedMeta extends Record<string, unknown> {
-  last_updated_at?: string | null;
-  last_updated?: string | null;
-  last_refresh_at?: string | null;
-  generated_at?: string | null;
-  llm_provider?: string | null;
-  active_provider?: string | null;
-  total_events?: number | null;
-  event_count?: number | null;
-}
-
 export function listEvents(options?: ApiFetchOptions) {
   return ApiClient.get<EventListItem[]>("/api/v1/events", options);
 }
+
+function encodeEventIdentifier(id: string | number): string {
+  if (typeof id === "number") {
+    return encodeURIComponent(String(id));
+  }
+  return encodeURIComponent(id);
+}
+
+export function getEventDetail(eventId: string | number, options?: ApiFetchOptions) {
+  return ApiClient.get<EventDetail>(`/api/v1/events/${encodeEventIdentifier(eventId)}`, options);
+}
+
+export function getEventInsights(eventId: string | number, options?: ApiFetchOptions) {
+  return ApiClient.get<AggregationResponse>(`/api/v1/insights/${encodeEventIdentifier(eventId)}`, options);
+}
+
+export function triggerInsightsRegeneration(eventId: string | number, options?: ApiFetchOptions) {
+  return ApiClient.post(`/admin/trigger/generate-insights/${encodeEventIdentifier(eventId)}`, undefined, options);
+}
+
+export function resolveEventExportUrl(eventId: string | number): string {
+  return resolveApiUrl(`/api/v1/exports/events/${encodeEventIdentifier(eventId)}`);
+}
+
+export type {
+  AggregationResponse,
+  Cluster,
+  ClusterSource,
+  Contradiction,
+  EventArticle,
+  EventDetail,
+  EventDetailMeta,
+  EventFeedMeta,
+  EventListItem,
+  EventSourceBreakdownEntry,
+  Fallacy,
+  SpectrumDistribution,
+  TimelineEvent,
+} from "@/lib/types";
