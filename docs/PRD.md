@@ -15,18 +15,22 @@ De 360° Nieuwsaggregator levert één modulair, uitbreidbaar platform dat Ned
 - **Functioneel**
   - RSS-ingestie van NOS en NU.nl met plug-in architectuur voor schaalbare uitbreiding.
   - Eventdetectie volgens `context-events.md` (embeddings + TF-IDF + entiteiten + ANN).
-  - Mistral LLM-analyse voor tijdlijnen, invalshoeken, drogredeneringen en tegenstrijdige claims.
-  - CSV-exports per eventfeed en per eventdetail als tussentijdse “database”.
-  - Basis-frontend voor eventfeed (gesorteerd op meest recent artikel) en eventdetailpagina.
+  - Mistral LLM-analyse voor narratieve samenvattingen, tijdlijnen, invalshoeken, drogredeneringen en tegenstrijdige claims.
+  - Automatische insight-generatie wanneer events worden gecreëerd of geüpdatet (configureerbare TTL).
+  - REST API endpoints voor events en insights (JSON:API-lite format).
+  - CSV-exports per eventfeed en per eventdetail.
+  - Basis-frontend met dark mode voor eventfeed en eventdetailpagina.
 - **Niet-functioneel**
   - Modulair, robuust ontwerp met duidelijke lagen (ingest, processing, analytics, presentatie).
   - Codekwaliteit: type hints, Pydantic-validatie, tests, logging, configuration via `.env`.
   - Performantie: eventtoewijzing <1 s; LLM-response <45 s; ingestie <2 min na feedupdate.
   - Schaalbaarheid: horizontaal uitbreidbaar; pipeline component-based.
 - **User Experience**
-  - Minimalistische UI: eventfeed, detailpagina met kaarten voor timeline/angles/fallacies/contradictions.
-  - Responsief basisdesign; duidelijke bronvermelding; CSV-download CTA’s.
-  - Statusindicatoren (laatste update, LLM-provider).
+  - Dark mode UI voor betere leesbaarheid (slate-900 achtergrond, hoge contrast).
+  - Minimalistische eventfeed met sorteerbare cards (meest recent artikel).
+  - Detailpagina toont LLM-gegenereerde narratieve samenvatting prominent, gevolgd door timeline/invalshoeken/drogredeneringen/tegenstrijdigheden.
+  - Responsief design; duidelijke bronvermelding met spectrum-badges; CSV-download CTA's.
+  - Statusindicatoren (laatste update, LLM-provider, insights-status).
 - **Integraties**
   - RSS met `feedparser`; HTML-tekstextractie via Trafilatura of Newspaper3k.
   - Embeddings (SentenceTransformers), spaCy NER, TF-IDF (scikit-learn).
@@ -79,10 +83,22 @@ De 360° Nieuwsaggregator levert één modulair, uitbreidbaar platform dat Ned
 - **Story 3.2: Mistral API Integratie**
   - Implementeer ChatCompletion call (timeout, retries, error logging).
   - Parse JSON, valideer met Pydantic-schema.
-  - Sla op in `data/event_insights.csv` met provider & timestamp.
+  - Sla op in database (llm_insights tabel) met provider & timestamp.
 - **Story 3.3: CSV Export Layer**
-  - CLI/endpoint dat gecombineerde CSV’s exporteert (events + insights).
+  - CLI/endpoint dat gecombineerde CSV's exporteert (events + insights).
   - Documenteer kolommen; lever sample templates.
+- **Story 3.4: REST API Endpoints**
+  - GET `/api/v1/events` voor eventfeed, `/api/v1/events/{id}` voor detail.
+  - GET `/api/v1/insights/{id}` voor LLM-gegenereerde analyses.
+  - JSON:API-lite response format met `data`, `meta`, `links`.
+- **Story 3.5: LLM Narrative Summary**
+  - Uitgebreide 200+ woord vloeiende samenvatting van alle artikelen.
+  - Verwerkt tegenstrijdigheden en verschillende perspectieven in lopende tekst.
+  - Automatisch gegenereerd samen met timeline/clusters/fallacies/contradictions.
+- **Story 3.6: Automatic Insight Generation**
+  - EventService triggert automatisch insights bij event creatie/update.
+  - Configureerbare refresh TTL (30 min default) voorkomt redundante calls.
+  - Asynchroon in achtergrond; blokkeert event-toewijzing niet.
 
 ### Epic 4: Frontend (Basic UI)
 - **Story 4.1: Next.js Bootstrap**
@@ -287,3 +303,5 @@ flowchart TD
 | Change | Story ID | Description |
 | ------ | -------- | ----------- |
 | Initial draft | N/A | Eerste versie PRD voor MVP |
+| REST API + Insights | 3.4, 3.5 | Added REST endpoints, narrative summaries, automatic insight generation |
+| Event Detail + Dark Mode | 4.3 | Implemented event detail page with full insights display and dark mode UI |

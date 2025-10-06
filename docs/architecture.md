@@ -205,6 +205,7 @@ erDiagram
         string provider
         string model
         json prompt_metadata
+        text summary
         json timeline
         json clusters
         json contradictions
@@ -278,6 +279,7 @@ CREATE TABLE llm_insights (
     provider TEXT NOT NULL,
     model TEXT NOT NULL,
     prompt_metadata JSON,
+    summary TEXT,
     timeline JSON,
     clusters JSON,
     contradictions JSON,
@@ -366,16 +368,17 @@ sequenceDiagram
 │   │   │   ├── ingest_service.py  # Orchestrates feed ingest flow
 │   │   │   ├── enrich_service.py  # Handles NLP enrichment pipeline
 │   │   │   ├── vector_index.py    # Persistente hnswlib-index met recency-filter
-│   │   │   ├── event_service.py   # Event detection orchestration
+│   │   │   ├── event_service.py   # Event detection + auto insight generation
 │   │   │   ├── insight_service.py # Prompt→LLM→repository orchestratie
 │   │   │   └── export_service.py  # CSV export assembly
-│   │   ├── api/
-│   │   │   ├── dependencies.py
-│   │   │   ├── routers/
-│   │   │   │   ├── events.py
-│   │   │   │   ├── insights.py
-│   │   │   │   └── exports.py
-│   │   │   └── main.py            # FastAPI app entrypoint
+│   │   ├── routers/
+│   │   │   ├── __init__.py
+│   │   │   ├── events.py          # GET /api/v1/events, /events/{id}
+│   │   │   ├── insights.py        # GET /api/v1/insights/{id}
+│   │   │   ├── exports.py         # GET /api/v1/exports/*
+│   │   │   ├── aggregate.py       # POST /api/v1/aggregate (legacy)
+│   │   │   └── admin.py           # POST /admin/trigger/*
+│   │   ├── main.py                # FastAPI app entrypoint
 │   │   └── db/
 │   │       ├── models.py          # SQLAlchemy models
 │   │       ├── session.py         # Session/engine management
@@ -396,11 +399,22 @@ sequenceDiagram
 │   │   └── event/[id]/page.tsx     # Event detail page
 │   ├── components/
 │   │   ├── EventCard.tsx
+│   │   ├── EventFeed.tsx
 │   │   ├── ClusterGrid.tsx
+│   │   ├── ClusterCard.tsx
 │   │   ├── Timeline.tsx
-│   │   └── SpectrumBadge.tsx
+│   │   ├── ArticleList.tsx
+│   │   ├── ContradictionList.tsx
+│   │   ├── ContradictionCard.tsx
+│   │   ├── FallacyList.tsx
+│   │   ├── FallacyCard.tsx
+│   │   ├── InsightsFallback.tsx
+│   │   ├── SourceTag.tsx
+│   │   └── StatusBanner.tsx
 │   ├── lib/
-│   │   └── api.ts                  # Backend client utilities
+│   │   ├── api.ts                  # Backend client utilities
+│   │   ├── types.ts                # TypeScript type definitions
+│   │   └── format.ts               # Formatting utilities (dates, spectrum badges)
 │   ├── styles/
 │   └── tests/
 │       └── event-flow.spec.ts      # Playwright scenarios
@@ -472,6 +486,20 @@ Een aparte onderhoudsservice bewaakt de kwaliteit van events en de vectorindex:
 - APScheduler registreert `event_maintenance` (standaard iedere 24 uur, configureerbaar via `EVENT_MAINTENANCE_INTERVAL_HOURS`) als tweede achtergrondtaak naast `poll_rss_feeds`.
 
 Resultaat: centroiden blijven representatief, oude events verdwijnen automatisch uit de zoekruimte en index-corruptie wordt hersteld zonder handmatige interventie.
+
+### Automatic Insight Generation
+
+`EventService` triggert automatisch LLM-insight generatie wanneer events worden gecreëerd of geüpdatet met nieuwe artikelen:
+
+- `backend/app/services/event_service.py` bevat `_maybe_schedule_insight_generation()` die asynchroon insights genereert in de achtergrond.
+- Insights worden alleen ververst als `last_updated_at` van het event nieuwer is dan `generated_at` van de laatste insight, EN het verschil groter is dan `INSIGHT_REFRESH_TTL` (default 30 minuten).
+- Dit voorkomt redundante LLM-calls terwijl events worden geüpdatet met meerdere artikelen in korte tijd.
+- Insight-generatie draait als achtergrondtaak (asyncio.Task) en blokeert de event-toewijzing niet.
+- Fouten in insight-generatie worden gelogd maar stoppen de event-pipeline niet.
+
+Configuratie via `.env`:
+- `AUTO_GENERATE_INSIGHTS=true` (default) schakelt automatische generatie in.
+- `INSIGHT_REFRESH_TTL_MINUTES=30` bepaalt de minimale tijd tussen insight-refreshes.
 
 ## Testing Requirements and Framework
 
@@ -556,4 +584,6 @@ Resultaat: centroiden blijven representatief, oude events verdwijnen automatisch
 | 2025-10-02 | 0.5 | Story 3.1 – PromptBuilder en statische sjabloon toegevoegd, LLM promptlimieten vastgelegd in Config/README, unit tests voor promptselectie |
 | 2025-10-02 | 0.6 | Story 3.2 – Mistral LLM-client, insight service, llm_insights tabel en config/README updates |
 | 2025-10-02 | 0.7 | Story 3.3 – CSV exportservice, FastAPI routes voor `/api/v1/exports`, tests en README instructies |
-| 2025-10-02 | 0.5 | Story 3.1 – PromptBuilder en statische sjabloon toegevoegd, LLM promptlimieten vastgelegd in Config/README, unit tests voor promptselectie |
+| 2025-10-05 | 0.8 | Story 3.4 – REST API endpoints toegevoegd: `/api/v1/events`, `/api/v1/events/{id}`, `/api/v1/insights/{id}` voor JSON:API-lite responses |
+| 2025-10-05 | 0.9 | Story 4.3 – Event detail page geïmplementeerd met timeline, clusters, contradictions, fallacies; dark mode UI voor readability |
+| 2025-10-05 | 1.0 | LLM Narrative Summary – Added summary TEXT field to llm_insights; automatic insight generation in EventService with 30min TTL refresh |
