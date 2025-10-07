@@ -205,6 +205,7 @@ class EventRepository:
             centroid_embedding=list(centroid_embedding),
             centroid_tfidf=dict(centroid_tfidf),
             centroid_entities=centroid_entities,
+            event_type=article.event_type,  # Inherit event type from seed article
             first_seen_at=timestamp,
             last_updated_at=timestamp,
             article_count=0,

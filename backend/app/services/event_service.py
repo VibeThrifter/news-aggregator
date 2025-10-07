@@ -177,25 +177,117 @@ class EventService:
             existing_events = await repo.get_events_by_ids([candidate.event_id for candidate in candidates])
             event_map = {event.id: event for event in existing_events}
 
+            # Load articles for each candidate event to check location/date overlap
+            from backend.app.db.models import EventArticle
+            from sqlalchemy import select as sa_select
+
+            event_ids = [e.id for e in existing_events]
+            if event_ids:
+                event_articles_stmt = (
+                    sa_select(EventArticle.event_id, Article)
+                    .join(Article, Article.id == EventArticle.article_id)
+                    .where(EventArticle.event_id.in_(event_ids))
+                )
+                event_articles_result = await session.execute(event_articles_stmt)
+                event_articles_map: Dict[int, List[Article]] = {}
+                for event_id, event_article in event_articles_result.all():
+                    if event_id not in event_articles_map:
+                        event_articles_map[event_id] = []
+                    event_articles_map[event_id].append(event_article)
+            else:
+                event_articles_map = {}
+
             best_event: Event | None = None
             best_breakdown: ScoreBreakdown | None = None
+            best_boosted_score: float = 0.0
 
             for candidate in candidates:
                 event = event_map.get(candidate.event_id)
                 if event is None:
                     continue
+
+                # EVENT TYPE CONSTRAINT: Only consider events of the same type
+                if article.event_type and event.event_type and article.event_type != event.event_type:
+                    correlation_log.debug(
+                        "event_type_mismatch",
+                        article_type=article.event_type,
+                        event_type=event.event_type,
+                        event_id=event.id,
+                    )
+                    continue
+
                 breakdown = compute_hybrid_score(
                     features,
                     _event_to_features(event),
                     params,
                     now=now,
                 )
-                if best_breakdown is None or breakdown.final > best_breakdown.final:
+
+                # Apply location/date boost if entities match
+                location_boost = 0.0
+                date_boost = 0.0
+                event_articles_list = event_articles_map.get(event.id, [])
+
+                if event_articles_list and (article.extracted_locations or article.extracted_dates):
+                    # Check if any article in the event shares locations
+                    article_locs = set(loc.lower() for loc in (article.extracted_locations or []))
+                    if article_locs:
+                        for event_art in event_articles_list:
+                            event_art_locs = set(loc.lower() for loc in (event_art.extracted_locations or []))
+                            if article_locs.intersection(event_art_locs):
+                                location_boost = 0.10
+                                break
+
+                    # Check if any article in the event shares dates
+                    article_dates = set(date.lower() for date in (article.extracted_dates or []))
+                    if article_dates:
+                        for event_art in event_articles_list:
+                            event_art_dates = set(date.lower() for date in (event_art.extracted_dates or []))
+                            if article_dates.intersection(event_art_dates):
+                                date_boost = 0.05
+                                break
+
+                boosted_score = breakdown.final + location_boost + date_boost
+
+                if location_boost > 0 or date_boost > 0:
+                    correlation_log.debug(
+                        "entity_overlap_boost",
+                        event_id=event.id,
+                        base_score=breakdown.final,
+                        location_boost=location_boost,
+                        date_boost=date_boost,
+                        boosted_score=boosted_score,
+                    )
+
+                if best_breakdown is None or boosted_score > best_boosted_score:
                     best_event = event
                     best_breakdown = breakdown
+                    best_boosted_score = boosted_score
 
             threshold = self.settings.event_score_threshold
-            if best_event is not None and best_breakdown is not None and best_breakdown.final >= threshold:
+            if best_event is not None and best_breakdown is not None and best_boosted_score >= threshold:
+                # Calculate location/date boost for the best event
+                location_boost_final = 0.0
+                date_boost_final = 0.0
+                best_event_articles = event_articles_map.get(best_event.id, [])
+
+                if best_event_articles and (article.extracted_locations or article.extracted_dates):
+                    article_locs = set(loc.lower() for loc in (article.extracted_locations or []))
+                    if article_locs:
+                        for event_art in best_event_articles:
+                            event_art_locs = set(loc.lower() for loc in (event_art.extracted_locations or []))
+                            if article_locs.intersection(event_art_locs):
+                                location_boost_final = 0.10
+                                break
+
+                    article_dates = set(date.lower() for date in (article.extracted_dates or []))
+                    if article_dates:
+                        for event_art in best_event_articles:
+                            event_art_dates = set(date.lower() for date in (event_art.extracted_dates or []))
+                            if article_dates.intersection(event_art_dates):
+                                date_boost_final = 0.05
+                                break
+
                 result = await self._append_to_existing_event(
                     session=session,
                     repo=repo,
@@ -204,6 +296,8 @@ class EventService:
                     features=features,
                     entity_payload=entity_payload,
                     breakdown=best_breakdown,
+                    location_boost=location_boost_final,
+                    date_boost=date_boost_final,
                     timestamp=now,
                     correlation_id=correlation_id,
                 )
@@ -211,6 +305,8 @@ class EventService:
                     "event_assignment_linked",
                     event_id=result.event_id,
                     score=result.score,
+                    location_boost=location_boost_final,
+                    date_boost=date_boost_final,
                     threshold=threshold,
                 )
                 return result
@@ -242,17 +338,25 @@ class EventService:
         features: ArticleFeatures,
         entity_payload: List[Dict[str, Optional[str]]],
         breakdown: ScoreBreakdown,
+        location_boost: float = 0.0,
+        date_boost: float = 0.0,
         timestamp: datetime,
         correlation_id: str | None,
     ) -> EventAssignmentResult:
+        boosted_score = breakdown.final + location_boost + date_boost
+        scoring_dict = breakdown.as_dict()
+        scoring_dict["location_boost"] = location_boost
+        scoring_dict["date_boost"] = date_boost
+        scoring_dict["boosted_final"] = boosted_score
+
         await repo.append_article_to_event(
             event=event,
             article=article,
             embedding=features.embedding,
             tfidf_vector=features.tfidf,
             entities=entity_payload,
-            similarity_score=breakdown.final,
-            scoring_breakdown=breakdown.as_dict(),
+            similarity_score=boosted_score,
+            scoring_breakdown=scoring_dict,
             timestamp=timestamp,
         )
         await session.commit()
@@ -268,9 +372,9 @@ class EventService:
             article_id=article.id,
             event_id=event.id,
             created=False,
-            score=breakdown.final,
+            score=boosted_score,
             threshold=self.settings.event_score_threshold,
-            breakdown=breakdown.as_dict(),
+            breakdown=scoring_dict,
         )
 
     async def _seed_new_event(

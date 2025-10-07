@@ -100,7 +100,21 @@ def compute_hybrid_score(
         now=now,
     )
 
-    final = _clamp(combined * decay)
+    # Apply entity penalty: if entity overlap is low (< 0.20),
+    # apply 0.90x penalty to prevent pure semantic clustering.
+    # For very low overlap (< 0.10), apply stronger 0.80x penalty.
+    entity_penalty = 1.0
+    if entity_overlap < 0.20:
+        entity_penalty = 0.90
+    if entity_overlap < 0.10:
+        entity_penalty = 0.80
+        logger.debug(
+            "entity_penalty_applied",
+            entity_overlap=entity_overlap,
+            penalty=entity_penalty,
+        )
+
+    final = _clamp(combined * decay * entity_penalty)
     return ScoreBreakdown(
         embedding=_clamp(embedding_similarity),
         tfidf=_clamp(tfidf_similarity),

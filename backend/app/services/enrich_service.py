@@ -88,12 +88,23 @@ class ArticleEnrichmentService:
                 self.log.warning("article_normalization_empty", article_id=article.id, url=article.url)
                 skipped += 1
                 continue
+            # Extract entities and enhanced features
             entities = self.entity_extractor.extract(article.content)
+            extracted_dates = self.entity_extractor.extract_dates(article.content)
+            extracted_locations = self.entity_extractor.extract_locations(article.content)
+
+            # Classify event type
+            from backend.app.nlp.classify import classify_event_type
+            event_type = classify_event_type(article.title, article.content, entities)
+
             prepared.append(
                 {
                     "article": article,
                     "normalization": normalization,
                     "entities": entities,
+                    "extracted_dates": extracted_dates,
+                    "extracted_locations": extracted_locations,
+                    "event_type": event_type,
                 }
             )
 
@@ -120,6 +131,9 @@ class ArticleEnrichmentService:
                 embedding=_serialize_embedding(embedding),
                 tfidf_vector=tfidf_vector,
                 entities=item["entities"],
+                extracted_dates=item["extracted_dates"],
+                extracted_locations=item["extracted_locations"],
+                event_type=item["event_type"],
                 enriched_at=timestamp,
             )
             await repo.apply_enrichment(item["article"].id, payload)

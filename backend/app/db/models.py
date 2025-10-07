@@ -50,6 +50,10 @@ class Article(Base):
     embedding: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     tfidf_vector: Mapped[Dict[str, float] | None] = mapped_column(JSON, nullable=True)
     entities: Mapped[list[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    # Enhanced entity extraction for better clustering
+    extracted_dates: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    extracted_locations: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    event_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
@@ -78,6 +82,7 @@ class Event(Base):
     centroid_embedding: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
     centroid_tfidf: Mapped[Dict[str, float] | None] = mapped_column(JSON, nullable=True)
     centroid_entities: Mapped[list[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    event_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     first_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
     )

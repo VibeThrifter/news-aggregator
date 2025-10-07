@@ -37,6 +37,10 @@ class ArticleEnrichmentPayload:
     embedding: bytes
     tfidf_vector: Dict[str, float]
     entities: List[Dict[str, object]]
+    # Enhanced fields for better clustering
+    extracted_dates: List[str]
+    extracted_locations: List[str]
+    event_type: str
     enriched_at: datetime
 
 
@@ -124,6 +128,9 @@ class ArticleRepository:
         article.embedding = payload.embedding
         article.tfidf_vector = payload.tfidf_vector
         article.entities = payload.entities
+        article.extracted_dates = payload.extracted_dates
+        article.extracted_locations = payload.extracted_locations
+        article.event_type = payload.event_type
         article.enriched_at = payload.enriched_at
 
         await self.session.flush()
