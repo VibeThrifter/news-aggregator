@@ -23,6 +23,7 @@ from backend.app.events.scoring import (
 )
 from backend.app.repositories import EventRepository, InsightRepository
 from backend.app.services.insight_service import InsightService
+from backend.app.llm.client import MistralClient, LLMResponse
 
 if TYPE_CHECKING:
     from backend.app.services.vector_index import VectorIndexService
@@ -59,9 +60,21 @@ def _sanitize_tfidf(raw: Mapping[str, float] | None) -> Dict[str, float]:
     return {str(token): float(value) for token, value in raw.items() if value != 0}
 
 
-def _extract_entities(raw: Iterable[dict] | None) -> tuple[set[str], List[Dict[str, Optional[str]]]]:
-    texts: set[str] = set()
+def _extract_entities(raw: Iterable[dict] | None) -> tuple[set[str], set[str], set[str], List[Dict[str, Optional[str]]]]:
+    """
+    Extract entities with type-specific separation.
+
+    Returns:
+        - all_texts: set of all entity texts (lowercase)
+        - person_texts: set of PERSON entity texts (lowercase)
+        - location_texts: set of GPE/LOC entity texts (lowercase)
+        - payload: list of entity dicts with text and label
+    """
+    all_texts: set[str] = set()
+    person_texts: set[str] = set()
+    location_texts: set[str] = set()
     payload: List[Dict[str, Optional[str]]] = []
+
     for entity in raw or []:
         if not isinstance(entity, dict):
             continue
@@ -69,16 +82,26 @@ def _extract_entities(raw: Iterable[dict] | None) -> tuple[set[str], List[Dict[s
         if not text:
             continue
         label_value = entity.get("label") or entity.get("type")
-        label = str(label_value).strip() if label_value else None
-        texts.add(text.lower())
+        label = str(label_value).strip().upper() if label_value else None
+
+        text_lower = text.lower()
+        all_texts.add(text_lower)
+
+        # Categorize by entity type
+        if label == "PERSON":
+            person_texts.add(text_lower)
+        elif label in ("GPE", "LOC"):  # Geo-political entity or location
+            location_texts.add(text_lower)
+
         payload.append({"text": text, "label": label})
-    return texts, payload
+
+    return all_texts, person_texts, location_texts, payload
 
 
 def _article_to_features(article: Article) -> tuple[ArticleFeatures, List[Dict[str, Optional[str]]]]:
     embedding = _deserialize_embedding(article.embedding)
     tfidf_vector = _sanitize_tfidf(article.tfidf_vector)
-    entity_texts, entity_payload = _extract_entities(article.entities)
+    entity_texts, person_texts, location_texts, entity_payload = _extract_entities(article.entities)
     reference_time = article.published_at or article.fetched_at
     return (
         ArticleFeatures(
@@ -86,19 +109,23 @@ def _article_to_features(article: Article) -> tuple[ArticleFeatures, List[Dict[s
             tfidf=tfidf_vector,
             entity_texts=entity_texts,
             published_at=reference_time,
+            person_entities=person_texts if person_texts else None,
+            location_entities=location_texts if location_texts else None,
         ),
         entity_payload,
     )
 
 
 def _event_to_features(event: Event) -> EventFeatures:
-    entity_texts, _ = _extract_entities(event.centroid_entities)
+    entity_texts, person_texts, location_texts, _ = _extract_entities(event.centroid_entities)
     return EventFeatures(
         centroid_embedding=event.centroid_embedding,
         centroid_tfidf=event.centroid_tfidf,
         entity_texts=entity_texts,
         last_updated_at=event.last_updated_at,
         first_seen_at=event.first_seen_at,
+        person_entities=person_texts if person_texts else None,
+        location_entities=location_texts if location_texts else None,
     )
 
 
@@ -125,6 +152,7 @@ class EventService:
         insight_service: InsightService | None = None,
         auto_generate_insights: bool = True,
         insight_refresh_ttl: timedelta | None = None,
+        llm_client: MistralClient | None = None,
     ) -> None:
         self.settings = get_settings()
         self.session_factory = session_factory or get_sessionmaker()
@@ -140,6 +168,7 @@ class EventService:
         self.insight_refresh_ttl = insight_refresh_ttl or timedelta(minutes=30)
         self._pending_insight_events: set[int] = set()
         self._insight_tasks: dict[int, asyncio.Task[None]] = {}
+        self.llm_client = llm_client or (MistralClient() if self.settings.event_llm_enabled else None)
 
     async def assign_article(
         self,
@@ -197,24 +226,98 @@ class EventService:
             else:
                 event_articles_map = {}
 
-            best_event: Event | None = None
-            best_breakdown: ScoreBreakdown | None = None
-            best_boosted_score: float = 0.0
+            # Collect all scored candidates
+            scored_candidates: List[tuple[Event, ScoreBreakdown, float]] = []
 
             for candidate in candidates:
                 event = event_map.get(candidate.event_id)
                 if event is None:
                     continue
 
-                # EVENT TYPE CONSTRAINT: Only consider events of the same type
-                if article.event_type and event.event_type and article.event_type != event.event_type:
+                # Track if types differ (will allow high-confidence cross-type matches for LLM)
+                has_type_mismatch = bool(
+                    article.event_type and event.event_type and article.event_type != event.event_type
+                )
+
+                if has_type_mismatch:
                     correlation_log.debug(
-                        "event_type_mismatch",
+                        "event_type_mismatch_flagged",
                         article_type=article.event_type,
                         event_type=event.event_type,
                         event_id=event.id,
+                        note="Will evaluate score before deciding",
                     )
-                    continue
+
+                # CRIME/ACCIDENT HARD CONSTRAINTS: Different locations or dates = different events
+                if article.event_type in ('crime',) and event.event_type in ('crime',):
+                    event_articles_list = event_articles_map.get(event.id, [])
+                    if event_articles_list:
+                        # Check location constraint: crime at different cities = different events
+                        article_locs = set(loc.lower() for loc in (article.extracted_locations or []))
+
+                        # Get all locations from event articles
+                        event_locs = set()
+                        for event_art in event_articles_list:
+                            event_locs.update(loc.lower() for loc in (event_art.extracted_locations or []))
+
+                        # If both have locations but no overlap, skip this candidate
+                        if article_locs and event_locs and not article_locs.intersection(event_locs):
+                            correlation_log.debug(
+                                "crime_location_mismatch",
+                                article_id=article.id,
+                                event_id=event.id,
+                                article_locations=list(article_locs),
+                                event_locations=list(event_locs),
+                            )
+                            continue
+
+                        # If one side has no locations, be very cautious
+                        # Require higher entity overlap (0.3+) to cluster
+                        if not article_locs or not event_locs:
+                            # Calculate entity overlap for this check
+                            # Extract entity texts from article
+                            article_entity_texts = set()
+                            if article.entities:
+                                article_entity_texts = {
+                                    ent.get("text", "").lower()
+                                    for ent in article.entities
+                                    if ent.get("text")
+                                }
+
+                            # Extract entity texts from event articles
+                            event_entity_set = set()
+                            for event_art in event_articles_list:
+                                if event_art.entities:
+                                    event_entity_set.update(
+                                        ent.get("text", "").lower()
+                                        for ent in event_art.entities
+                                        if ent.get("text")
+                                    )
+
+                            if article_entity_texts and event_entity_set:
+                                entity_overlap = len(article_entity_texts.intersection(event_entity_set)) / len(article_entity_texts.union(event_entity_set))
+                                if entity_overlap < 0.5:
+                                    correlation_log.debug(
+                                        "crime_missing_location_low_entity_overlap",
+                                        article_id=article.id,
+                                        event_id=event.id,
+                                        entity_overlap=entity_overlap,
+                                        has_article_locs=bool(article_locs),
+                                        has_event_locs=bool(event_locs),
+                                    )
+                                    continue
+
+                        # Check time constraint: crimes more than 2 days apart = likely different events
+                        if article.published_at and event.last_updated_at:
+                            days_diff = abs((article.published_at - event.last_updated_at).days)
+                            if days_diff > 2:
+                                correlation_log.debug(
+                                    "crime_time_mismatch",
+                                    article_id=article.id,
+                                    event_id=event.id,
+                                    days_diff=days_diff,
+                                )
+                                continue
 
                 breakdown = compute_hybrid_score(
                     features,
@@ -259,10 +362,82 @@ class EventService:
                         boosted_score=boosted_score,
                     )
 
-                if best_breakdown is None or boosted_score > best_boosted_score:
-                    best_event = event
-                    best_breakdown = breakdown
-                    best_boosted_score = boosted_score
+                # Type-based filtering:
+                # - If types match: accept if score meets threshold
+                # - If types differ: only accept if score > 0.70 (very high confidence)
+                #   This allows LLM to decide on cases like Trump National Guard (legal/crime/international mix)
+                if has_type_mismatch:
+                    if boosted_score >= 0.70:
+                        correlation_log.debug(
+                            "high_confidence_cross_type_match",
+                            article_type=article.event_type,
+                            event_type=event.event_type,
+                            event_id=event.id,
+                            score=boosted_score,
+                            note="Allowing LLM to decide despite type mismatch",
+                        )
+                        scored_candidates.append((event, breakdown, boosted_score))
+                    else:
+                        correlation_log.debug(
+                            "low_confidence_cross_type_skip",
+                            article_type=article.event_type,
+                            event_type=event.event_type,
+                            event_id=event.id,
+                            score=boosted_score,
+                        )
+                else:
+                    # Types match or one is None - use normal threshold
+                    scored_candidates.append((event, breakdown, boosted_score))
+
+            # Sort candidates by boosted score (highest first)
+            scored_candidates.sort(key=lambda x: x[2], reverse=True)
+
+            # Decide on best event: use LLM if enabled, otherwise take highest score
+            best_event: Event | None = None
+            best_breakdown: ScoreBreakdown | None = None
+            best_boosted_score: float = 0.0
+
+            # Filter candidates by minimum LLM threshold
+            llm_candidates = [
+                (event, score)
+                for event, breakdown, score in scored_candidates
+                if score >= self.settings.event_llm_min_score
+            ][:self.settings.event_llm_top_n]
+
+            # Use LLM for final decision if enabled and we have candidates
+            if self.settings.event_llm_enabled and self.llm_client and llm_candidates:
+                correlation_log.debug(
+                    "using_llm_for_decision",
+                    candidates_count=len(llm_candidates),
+                )
+                selected_event_id = await self._llm_select_best_event(
+                    article=article,
+                    candidates=llm_candidates,
+                    correlation_id=correlation_id,
+                )
+
+                # Find the selected event in our candidates
+                if selected_event_id:
+                    for event, breakdown, boosted_score in scored_candidates:
+                        if event.id == selected_event_id:
+                            best_event = event
+                            best_breakdown = breakdown
+                            best_boosted_score = boosted_score
+                            correlation_log.info(
+                                "llm_selected_event",
+                                event_id=selected_event_id,
+                                score=boosted_score,
+                            )
+                            break
+
+            # Fallback to highest scoring candidate if LLM didn't select or is disabled
+            if best_event is None and scored_candidates:
+                best_event, best_breakdown, best_boosted_score = scored_candidates[0]
+                correlation_log.debug(
+                    "using_score_based_decision",
+                    event_id=best_event.id,
+                    score=best_boosted_score,
+                )
 
             threshold = self.settings.event_score_threshold
             if best_event is not None and best_breakdown is not None and best_boosted_score >= threshold:
@@ -459,6 +634,107 @@ class EventService:
 
         task = asyncio.create_task(_run(), name=f"generate-insights-{event_id}")
         self._insight_tasks[event_id] = task
+
+    async def _llm_select_best_event(
+        self,
+        article: Article,
+        candidates: List[tuple[Event, float]],
+        correlation_id: str | None = None,
+    ) -> int | None:
+        """Use LLM to select the best matching event from candidates, or None for new event."""
+        if not self.llm_client or not candidates:
+            return None
+
+        # Build prompt with article and candidate events
+        article_text = f"{article.title}\n\n{article.content[:1200]}"
+        article_locations = ", ".join(article.extracted_locations or ['unknown'])
+        article_date = article.published_at.strftime('%Y-%m-%d') if article.published_at else 'unknown'
+
+        candidates_text = []
+        for idx, (event, score) in enumerate(candidates, 1):
+            event_desc = f"EVENT {idx} (score={score:.2f}):\n"
+            event_desc += f"  Title: {event.title}\n"
+            if event.description:
+                event_desc += f"  Summary: {event.description[:200]}\n"
+            event_desc += f"  Type: {event.event_type or 'unknown'}\n"
+            event_desc += f"  Articles: {event.article_count}\n"
+            event_desc += f"  Last updated: {event.last_updated_at.strftime('%Y-%m-%d') if event.last_updated_at else 'unknown'}\n"
+            candidates_text.append(event_desc)
+
+        prompt = f"""You are clustering news articles. Decide if this NEW article belongs to an existing event or should create a NEW_EVENT.
+
+NEW ARTICLE:
+Type: {article.event_type or 'unknown'}
+Location: {article_locations}
+Date: {article_date}
+Text: {article_text}
+
+CANDIDATE EVENTS:
+{chr(10).join(candidates_text)}
+
+MATCHING CRITERIA:
+✓ SAME EVENT if:
+  • Exact same incident (same victim, same accident, same political decision)
+  • Same specific people/organizations involved
+  • Same specific location (for local events like crimes, accidents)
+  • Continuation/update of the SAME story
+  • Within 1-2 days for breaking news
+
+✗ DIFFERENT EVENT if:
+  • Different victims or suspects (even if similar crime type)
+  • Different locations for local events (crimes, accidents, local news)
+  • Same general topic but distinct incidents (e.g., two separate robberies)
+  • Different specific entities/names involved
+  • More than 2 days apart for breaking news
+
+CRITICAL FOR CRIMES: Different victim names OR different cities = ALWAYS different events.
+
+Respond with ONLY:
+"EVENT_1" or "EVENT_2" or "EVENT_3" or "NEW_EVENT"
+
+Response:"""
+
+        try:
+            response: LLMResponse = await self.llm_client.generate_text(
+                prompt=prompt,
+                temperature=0.1,
+                max_tokens=50,
+            )
+
+            decision = response.content.strip().upper()
+            self.log.info(
+                "llm_event_decision",
+                article_id=article.id,
+                decision=decision,
+                candidates_count=len(candidates),
+                correlation_id=correlation_id,
+            )
+
+            # Parse LLM decision
+            if "NEW_EVENT" in decision or "NEW EVENT" in decision:
+                return None
+
+            for idx, (event, _) in enumerate(candidates, 1):
+                if f"EVENT_{idx}" in decision or f"EVENT {idx}" in decision:
+                    return event.id
+
+            # Default to None if unclear
+            self.log.warning(
+                "llm_decision_unclear",
+                article_id=article.id,
+                decision=decision,
+                correlation_id=correlation_id,
+            )
+            return None
+
+        except Exception as exc:
+            self.log.warning(
+                "llm_decision_failed",
+                article_id=article.id,
+                error=str(exc),
+                correlation_id=correlation_id,
+            )
+            return None
 
     async def _insight_needs_refresh(
         self,

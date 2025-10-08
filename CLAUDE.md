@@ -122,6 +122,8 @@ make clean             # Clean up generated files
 - **Frontend**: Next.js 14 fully implemented with dark mode UI
 - **ML Features**: Temporarily disabled (PyTorch compatibility) - using fallback embeddings
 - **Database**: SQLite with WAL mode, Alembic migrations configured
+- **LLM Classification**: **NEW** - Mistral-based semantic event type classification (replaced keyword matching)
+- **Clustering Performance**: **IMPROVED** - 32.0% clustering rate (2.16x improvement from 14.78% baseline)
 - **LLM Insights**: Auto-generation working with Mistral API, narrative summaries included
 - **REST API**: Full JSON:API-lite endpoints for events and insights
 - **Event Detail**: Complete detail pages with timeline, clusters, contradictions, fallacies
