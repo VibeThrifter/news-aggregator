@@ -69,10 +69,10 @@ Stories 5.1 - 5.3 **adapted to current architecture**. Health endpoint exists bu
 | 3.3 | Done | 2025-10-03 | CSV export service + routes registered in main.py |
 | 4.1 | Done | 2025-10-03 | Frontend shell + API client, lint/format scripts, Playwright stub |
 | 4.2 | Done | 2025-10-03 | Event feed with cards, status banner, CSV actions, responsive design, all tests passing |
-| 4.3 |  |  |  |
-| 5.1 |  |  |  |
-| 5.2 |  |  |  |
-| 5.3 |  |  |  |
+| 4.3 | Done | 2025-10-08 | Event detail page with LLM insights (timeline, clusters, contradictions, fallacies), summary in header |
+| 5.1 | Ready |  | Adapted for current architecture (health endpoint exists, needs enhancement) |
+| 5.2 | Ready |  | Adapted for Python 3.11 and existing pytest/Makefile setup |
+| 5.3 | Ready |  | Adapted to use LLM classification and existing script patterns |
 
 ---
 **Story ID:** 0.1

@@ -89,7 +89,7 @@ class Settings(BaseSettings):
         description="Maximum number of articles included in an LLM prompt",
     )
     llm_prompt_max_characters: int = Field(
-        default=7000,
+        default=15000,
         ge=2000,
         le=20000,
         description="Hard cap on character length for generated LLM prompts",
