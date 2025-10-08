@@ -20,15 +20,14 @@ Always consult these canonical documents before starting any task:
 | `docs/architecture.md` | Tech stack, patterns, project structure | Implementation & design |
 | `docs/context-events.md` | Event detection algorithm specification | ML/NLP work |
 | `docs/stories/stories.md` | **Authoritative backlog** with ready-to-execute stories | Primary task source |
-| `docs/ML_SETUP.md` | Machine learning dependencies setup | When adding PyTorch/transformers |
 
 ## 🛠 Current Technical Setup
 
-### Backend (Python 3.12)
+### Backend (Python 3.11)
 - **Framework**: FastAPI with Uvicorn
 - **Database**: SQLite with SQLAlchemy ORM
 - **Dependencies**: venv + pip with `requirements.txt`
-- **ML Status**: PyTorch/sentence-transformers **temporarily removed** due to Python 3.12 compatibility
+- **ML Stack**: PyTorch 2.2.2 + sentence-transformers 2.7.0 + hnswlib + spaCy (fully operational)
 - **Testing**: pytest with coverage target ≥80%
 
 ### Frontend (Next.js 14)
@@ -118,9 +117,9 @@ make clean             # Clean up generated files
 ## 🚨 Important Notes
 
 ### Current Status
-- **Backend**: Fully functional with Python 3.12 + venv + SQLite database
+- **Backend**: Fully functional with Python 3.11 + venv + SQLite database
 - **Frontend**: Next.js 14 fully implemented with dark mode UI
-- **ML Features**: Temporarily disabled (PyTorch compatibility) - using fallback embeddings
+- **ML Features**: Fully operational - PyTorch embeddings, vector search (hnswlib), spaCy NER
 - **Database**: SQLite with WAL mode, Alembic migrations configured
 - **LLM Classification**: **NEW** - Mistral-based semantic event type classification (replaced keyword matching)
 - **Clustering Performance**: **IMPROVED** - 32.0% clustering rate (2.16x improvement from 14.78% baseline)
@@ -130,7 +129,7 @@ make clean             # Clean up generated files
 
 ### What NOT to Do
 - ❌ Don't install Poetry (project uses venv + pip)
-- ❌ Don't add PyTorch dependencies without checking ML_SETUP.md
+- ❌ Don't upgrade Python beyond 3.11 (PyTorch compatibility)
 - ❌ Don't create features outside the story backlog
 - ❌ Don't skip testing requirements
 - ❌ Don't commit secrets or API keys
