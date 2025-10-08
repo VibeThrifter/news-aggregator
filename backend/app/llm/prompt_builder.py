@@ -127,18 +127,40 @@ class PromptBuilder:
 
         prompt_length = len(prompt)
         max_chars = self.settings.llm_prompt_max_characters
-        if prompt_length > max_chars:
-            trimmed_block, trimmed_capsules = self._trim_prompt(selected, context_block)
-            prompt = self.template
-            prompt = prompt.replace("{event_context}", context_block)
-            prompt = prompt.replace("{article_capsules}", trimmed_block)
-            selected = trimmed_capsules
-            prompt_length = len(prompt)
+
+        # Iteratively reduce article count if prompt is still too long after trimming
+        while prompt_length > max_chars and len(selected) > 1:
             if prompt_length > max_chars:
-                raise PromptBuilderError(
-                    "Prompt length exceeds configured maximum even after trimming; "
-                    "consider lowering llm_prompt_article_cap"
+                trimmed_block, trimmed_capsules = self._trim_prompt(selected, context_block)
+                prompt = self.template
+                prompt = prompt.replace("{event_context}", context_block)
+                prompt = prompt.replace("{article_capsules}", trimmed_block)
+                selected = trimmed_capsules
+                prompt_length = len(prompt)
+
+            # If still too long, reduce article count and rebuild
+            if prompt_length > max_chars and len(selected) > 1:
+                # Reduce by one article and try again
+                selected = selected[:-1]
+                capsule_block = self._format_article_capsules(selected)
+                prompt = self.template
+                prompt = prompt.replace("{event_context}", context_block)
+                prompt = prompt.replace("{article_capsules}", capsule_block)
+                prompt_length = len(prompt)
+                LOG.debug(
+                    "prompt_too_long_reducing",
+                    event_id=event_id,
+                    reduced_to=len(selected),
+                    prompt_length=prompt_length,
+                    max_chars=max_chars,
                 )
+
+        # Final check - if still too long with just 1 article, we have a problem
+        if prompt_length > max_chars:
+            raise PromptBuilderError(
+                f"Prompt length ({prompt_length}) exceeds maximum ({max_chars}) even with minimum articles; "
+                "check template size or increase llm_prompt_max_characters"
+            )
 
         LOG.info(
             "prompt_built",

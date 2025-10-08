@@ -87,6 +87,15 @@ class InsightService:
                 fallacies=payload_dict.get("fallacies", []),
                 raw_response=llm_result.raw_content,
             )
+
+            # Verify the saved insight matches the event_id (防止 race conditions)
+            if persistence.insight.event_id != event_id:
+                await session.rollback()
+                raise RuntimeError(
+                    f"Data integrity error: insight was saved for event {persistence.insight.event_id} "
+                    f"but should be for event {event_id}"
+                )
+
             await session.commit()
 
         logger.info(
