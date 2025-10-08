@@ -20,6 +20,9 @@ class ArticleFeatures:
     tfidf: Mapping[str, float]
     entity_texts: Set[str]
     published_at: datetime | None
+    # Enhanced entity tracking by type
+    person_entities: Set[str] | None = None
+    location_entities: Set[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,9 @@ class EventFeatures:
     entity_texts: Set[str]
     last_updated_at: datetime
     first_seen_at: datetime
+    # Enhanced entity tracking by type
+    person_entities: Set[str] | None = None
+    location_entities: Set[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -84,7 +90,8 @@ def compute_hybrid_score(
 
     embedding_similarity = _cosine_dense(article.embedding, event.centroid_embedding)
     tfidf_similarity = _cosine_sparse(article.tfidf, event.centroid_tfidf)
-    entity_overlap = _entity_overlap(article.entity_texts, event.entity_texts)
+    # Use weighted entity overlap that prioritizes PERSON and location matches
+    entity_overlap = _weighted_entity_overlap(article, event)
 
     combined = (
         (params.weight_embedding * embedding_similarity)
@@ -154,6 +161,7 @@ def _cosine_sparse(vec_a: Mapping[str, float] | None, vec_b: Mapping[str, float]
 
 
 def _entity_overlap(entities_a: Set[str], entities_b: Set[str]) -> float:
+    """Basic Jaccard overlap for all entities (backward compatibility)."""
     if not entities_a or not entities_b:
         return 0.0
     intersection = entities_a.intersection(entities_b)
@@ -161,6 +169,58 @@ def _entity_overlap(entities_a: Set[str], entities_b: Set[str]) -> float:
     if not union:
         return 0.0
     return len(intersection) / len(union)
+
+
+def _weighted_entity_overlap(
+    article: ArticleFeatures,
+    event: EventFeatures,
+) -> float:
+    """
+    Weighted entity matching that gives higher importance to PERSON and location entities.
+
+    Weight distribution:
+    - PERSON matches: 50% of score
+    - Location (GPE/LOC) matches: 30% of score
+    - Other entity matches: 20% of score
+
+    This ensures that articles with different key people or locations score lower.
+    """
+    total_score = 0.0
+    weight_sum = 0.0
+
+    # 1. Person entity matching (weight: 0.50)
+    person_weight = 0.50
+    if article.person_entities and event.person_entities:
+        person_intersection = article.person_entities.intersection(event.person_entities)
+        person_union = article.person_entities.union(event.person_entities)
+        if person_union:
+            person_score = len(person_intersection) / len(person_union)
+            total_score += person_weight * person_score
+            weight_sum += person_weight
+
+    # 2. Location entity matching (weight: 0.30)
+    location_weight = 0.30
+    if article.location_entities and event.location_entities:
+        location_intersection = article.location_entities.intersection(event.location_entities)
+        location_union = article.location_entities.union(event.location_entities)
+        if location_union:
+            location_score = len(location_intersection) / len(location_union)
+            total_score += location_weight * location_score
+            weight_sum += location_weight
+
+    # 3. General entity matching (weight: 0.20)
+    general_weight = 0.20
+    if article.entity_texts and event.entity_texts:
+        general_overlap = _entity_overlap(article.entity_texts, event.entity_texts)
+        total_score += general_weight * general_overlap
+        weight_sum += general_weight
+
+    # Normalize by actual weights used
+    if weight_sum > 0:
+        return total_score / weight_sum
+
+    # Fallback to basic overlap if no typed entities available
+    return _entity_overlap(article.entity_texts, event.entity_texts)
 
 
 def _time_decay(

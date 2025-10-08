@@ -244,6 +244,22 @@ class Settings(BaseSettings):
         le=1.0,
         description="Lower bound for the time decay multiplier to prevent scores dropping to zero",
     )
+    event_llm_enabled: bool = Field(
+        default=True,
+        description="Enable LLM-based final decision for event assignment from top candidates",
+    )
+    event_llm_top_n: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Number of top-scoring candidates to present to LLM for final decision",
+    )
+    event_llm_min_score: float = Field(
+        default=0.40,
+        ge=0.0,
+        le=1.0,
+        description="Minimum score required for a candidate to be considered by LLM",
+    )
 
     # CORS Configuration
     frontend_origins: str = Field(

@@ -195,8 +195,10 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
           <div className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-aurora-400">Event detail</p>
             <h1 className="text-3xl font-semibold text-white lg:text-4xl">{event.title}</h1>
-            {event.description ? (
-              <p className="max-w-3xl text-sm text-slate-200">{event.description}</p>
+            {insights?.summary ? (
+              <div className="max-w-3xl rounded-2xl border border-white/5 bg-white/[0.03] p-4">
+                <p className="text-sm leading-relaxed text-slate-200 whitespace-pre-wrap">{insights.summary}</p>
+              </div>
             ) : null}
             {eventMeta ? (
               <dl className="grid gap-3 text-xs uppercase tracking-[0.25em] text-slate-300 sm:grid-cols-2">
@@ -272,19 +274,6 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
 
       {showInsights && insights ? (
         <section className="space-y-8">
-          {insights.summary ? (
-            <div className="space-y-3">
-              <div>
-                <h2 className="text-2xl font-semibold text-white">Samenvatting</h2>
-                <p className="mt-1 text-sm text-slate-300">
-                  Uitgebreide narratieve samenvatting gebaseerd op alle artikelen, inclusief verschillende perspectieven en tegenstrijdigheden.
-                </p>
-              </div>
-              <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-glow backdrop-blur">
-                <p className="text-base leading-relaxed text-slate-200 whitespace-pre-wrap">{insights.summary}</p>
-              </div>
-            </div>
-          ) : null}
           {insights.timeline.length ? (
             <div>
               <h2 className="text-2xl font-semibold text-white">Chronologie</h2>
