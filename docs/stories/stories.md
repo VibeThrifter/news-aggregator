@@ -16,8 +16,11 @@ Stories 2.1 - 2.3 complete. Vector index, hybrid scoring, event clustering, and 
 ### Epic 3: LLM Insights Pipeline ✅ (with known issue)
 Stories 3.1 - 3.3 complete. **API endpoints wired, pipeline functional**. Known issue: LLM schema validation (see below).
 
-### Epic 4: Frontend (Basic UI) 🚧 Partial
-Stories 4.1 - 4.2 complete. Next.js shell, event feed with cards, status banner, responsive design, all tests passing. Story 4.3 (Event Detail Page) pending.
+### Epic 4: Frontend (Basic UI) ✅
+Stories 4.1 - 4.3 complete. Next.js app with event feed, event detail pages with LLM insights, responsive dark mode UI, E2E tests passing.
+
+### Epic 5: Monitoring & QA 📝 Ready (Adapted)
+Stories 5.1 - 5.3 **adapted to current architecture**. Health endpoint exists but needs enhancement. Coverage gates and CI pipeline needed. Smoke test script to be created using existing utility script patterns.
 
 ---
 
@@ -687,23 +690,26 @@ Stories 4.1 - 4.2 complete. Next.js shell, event feed with cards, status banner,
 ---
 **Story ID:** 5.1
 **Epic ID:** Epic 5 – Monitoring & QA
-**Title:** Configure Structured Logging, Metrics Hooks, and Health Endpoint
-**Objective:** Ensure observability basics: structured logs across services, optional metrics hooks, and a FastAPI health endpoint exposing component status.
+**Title:** Enhance Health Endpoint and Add Rotating File Logging
+**Objective:** Extend existing health endpoint with detailed component checks and add rotating file logging for production observability.
 **Background/Context:**
 - Source: docs/PRD.md (Epic 5 – Story 5.1).
 - Reference: docs/architecture.md (Error Handling Strategy; API Layer – routers; Sequence Diagram logging expectations).
-- Target Paths: `backend/app/core/logging.py` (extend), `backend/app/api/routers/health.py`, `backend/app/api/main.py`, `backend/tests/integration/test_health_endpoint.py`.
+- **Current State**: Basic `/health` endpoint exists returning `{"status":"ok"}`. Structured logging via `structlog` is operational with correlation IDs and component binding, but only logs to stdout.
+- Target Paths: `backend/app/core/logging.py` (extend), `backend/app/routers/health.py` (create), `backend/app/main.py`, `backend/tests/integration/test_health_endpoint.py`.
 **Acceptance Criteria (AC):**
-- Given backend startup when logging is configured, then logs include structured fields (level, module, correlation_id) and rotate to `logs/app.log` per Architecture guidance.
-- Given a GET request to `/api/v1/health` when dependencies (DB, vector index file, LLM provider config) are reachable, then the endpoint returns 200 with JSON containing component statuses and timestamps.
-- Given any dependency check fails (e.g., missing index file), then `/api/v1/health` returns 503 with the failing component listed while still responding quickly (<200ms).
+- Given backend startup when logging is configured, then logs include structured fields (level, module, correlation_id) and rotate to `logs/app.log` with 10MB max size and 5 backup files.
+- Given a GET request to `/health` when dependencies (DB, vector index file, LLM provider config, scheduler) are reachable, then the endpoint returns 200 with JSON containing component statuses, timestamps, and version info.
+- Given any dependency check fails (e.g., missing index file, DB unreachable), then `/health` returns 503 with the failing component listed while still responding quickly (<200ms).
+- Given the health endpoint when called, then it includes: database connectivity, vector index file presence (`data/vector_index.bin`), LLM API key configured, scheduler status, and Python/app version.
 **Subtask Checklist:**
-- [ ] Extend logging config to add file handler (rotating) in addition to stdout for local dev.
-- [ ] Implement health router performing database connectivity check, vector index presence check, scheduled job heartbeat, and environment validation.
-- [ ] Register health router under `/api/v1/health` in main FastAPI app.
-- [ ] Add integration test verifying 200 response when dependencies mocked healthy and 503 when vector index missing.
-- [ ] Document health endpoint usage in README (Monitoring section).
-- [ ] Run `pytest backend/tests/integration/test_health_endpoint.py`.
+- [ ] Extend `backend/app/core/logging.py` to add `RotatingFileHandler` (10MB size, 5 backups) writing to `logs/app.log` in addition to stdout.
+- [ ] Create `backend/app/routers/health.py` with detailed health checks: DB ping (async session), vector index file exists, LLM config present, scheduler running status.
+- [ ] Update existing `/health` endpoint to use new health router with component checks.
+- [ ] Add integration test `backend/tests/integration/test_health_endpoint.py` verifying 200 response when all healthy and 503 when dependencies fail.
+- [ ] Create `logs/` directory in `.gitignore` and ensure it's created on startup.
+- [ ] Document health endpoint response format and monitoring usage in README (Monitoring section).
+- [ ] Run `pytest backend/tests/integration/test_health_endpoint.py` and verify log rotation works.
 **Testing Requirements:**
 - Integration Tests via `pytest` (FastAPI TestClient) + manual log inspection.
 - Definition of Done: ACs met, tests passing, log files generated.
@@ -717,24 +723,27 @@ Stories 4.1 - 4.2 complete. Next.js shell, event feed with cards, status banner,
 ---
 **Story ID:** 5.2
 **Epic ID:** Epic 5 – Monitoring & QA
-**Title:** Establish Pytest Suite, Coverage Gates, and GitHub Actions CI
-**Objective:** Provide automated testing workflows with coverage enforcement and continuous integration pipeline aligning with project standards.
+**Title:** Add Coverage Gates and GitHub Actions CI Pipeline
+**Objective:** Add coverage enforcement to existing pytest suite and create GitHub Actions CI workflow for automated testing and linting.
 **Background/Context:**
 - Source: docs/PRD.md (Epic 5 – Story 5.2).
 - Reference: docs/architecture.md (Testing Requirements and Framework; CI/CD strategy); Patterns – Coding Standards.
-- Target Paths: `backend/pytest.ini` or `pyproject` `[tool.pytest.ini_options]`, coverage config `.coveragerc`, GitHub workflow `.github/workflows/ci.yml`, `Makefile` updates, documentation.
+- **Current State**: Pytest configured in `pyproject.toml` with test paths and asyncio mode. Makefile has `test` and `lint` targets. No coverage gates or CI/CD workflow yet.
+- **Python Version**: Project uses Python 3.11 (not 3.12) - see CLAUDE.md and requirements.
+- Target Paths: `pyproject.toml` (extend coverage config), `.coveragerc` or inline coverage config, `.github/workflows/ci.yml` (create), `Makefile` (update), documentation.
 **Acceptance Criteria (AC):**
-- Given `make test` executes locally, then pytest runs unit + integration suites with coverage report enforcing ≥80% on backend packages (`events`, `llm`, `core`).
-- Given a pull request when GitHub Actions triggers `ci.yml`, then the workflow installs dependencies, runs linting (`ruff`, `black --check`, `mypy`), executes pytest with coverage gate, and marks the run green on success.
-- Given coverage drops below threshold or tests fail, then the workflow exits non-zero and reports failure status.
+- Given `make test` executes locally, then pytest runs unit + integration suites with coverage report enforcing ≥80% on backend packages (`backend/app/services`, `backend/app/llm`, `backend/app/events`, `backend/app/nlp`).
+- Given a pull request when GitHub Actions triggers `ci.yml`, then the workflow installs Python 3.11 dependencies, runs linting (`ruff`, `black --check`), executes pytest with coverage gate, and marks the run green on success.
+- Given coverage drops below 80% threshold or tests fail, then the workflow exits non-zero and reports failure status with coverage report.
 **Subtask Checklist:**
-- [ ] Configure pytest options (addopts, test paths, markers) via `pyproject.toml` or `pytest.ini`.
-- [ ] Add `.coveragerc` specifying include paths and fail-under=80.
-- [ ] Update Makefile `test` target to run `pytest --cov=backend/app --cov-report=term-missing`.
-- [ ] Create `.github/workflows/ci.yml` running on push/pull_request with steps: checkout, setup Python 3.11, create venv, install deps from requirements.txt, run lint (ruff, black, mypy), run tests with coverage, upload artifact (optional).
-- [ ] Document CI command summary in README.
-- [ ] Validate workflow locally using `act` or running `make lint` + `make test` before committing.
-- [ ] Run `pytest` locally ensuring coverage threshold enforced.
+- [ ] Pytest options already configured in `pyproject.toml` - verify and extend if needed.
+- [ ] Add coverage configuration to `pyproject.toml` under `[tool.coverage.run]` and `[tool.coverage.report]` with `fail_under = 80`, include paths `backend/app/*`, omit tests.
+- [ ] Update Makefile `test` target to run `pytest --cov=backend/app --cov-report=term-missing --cov-fail-under=80`.
+- [ ] Create `.github/workflows/ci.yml` with: checkout, setup Python 3.11, create venv, install from requirements.txt, run backend-lint (ruff check, black --check), run backend-test with coverage, upload coverage report artifact.
+- [ ] Add frontend lint/test jobs to CI (npm install, npm run lint, npm run test).
+- [ ] Document CI pipeline and coverage requirements in README (Development → Testing section).
+- [ ] Test workflow locally: `make lint && make test` to ensure coverage gate works.
+- [ ] Commit and push to trigger first CI run.
 **Testing Requirements:**
 - Automated tests via pytest with coverage; CI pipeline run must pass.
 - Definition of Done: ACs satisfied, CI pipeline green, coverage gate enforced.
@@ -748,24 +757,31 @@ Stories 4.1 - 4.2 complete. Next.js shell, event feed with cards, status banner,
 ---
 **Story ID:** 5.3
 **Epic ID:** Epic 5 – Monitoring & QA
-**Title:** Implement End-to-End Smoke Test Script for Pipeline Verification
-**Objective:** Provide a reproducible smoke test that ingests sample feeds, processes through event detection and LLM stubs, and verifies CSV exports.
+**Title:** Create End-to-End Smoke Test Script with LLM Classification Verification
+**Objective:** Provide a reproducible smoke test that verifies the full pipeline: ingestion, NLP enrichment, LLM event classification, event clustering, insight generation, and CSV export.
 **Background/Context:**
 - Source: docs/PRD.md (Epic 5 – Story 5.3).
-- Reference: docs/architecture.md (Project Structure – `backend/scripts/smoke_test.py`; Testing Requirements – Smoke test script).
-- Target Paths: `backend/scripts/smoke_test.py`, sample data under `backend/tests/fixtures/smoke/`, documentation in README.
+- Reference: docs/architecture.md (Project Structure – scripts/; Testing Requirements – Smoke test script).
+- **Current State**: Utility scripts exist (`scripts/enrich_all.py`, `scripts/backfill_insights.py`, `scripts/test_llm_classification.py`) that can serve as patterns.
+- **Current Features**: LLM-based event type classification (crime, politics, international, etc.), location/date extraction, semantic event clustering, automatic insight generation.
+- Target Paths: `scripts/smoke_test.py`, `backend/tests/fixtures/smoke/` (create), documentation in README.
 **Acceptance Criteria (AC):**
-- Given the command `source .venv/bin/activate && python backend/scripts/smoke_test.py` when executed with bundled fixtures, then it ingests sample RSS entries, runs enrichment/event detection (using in-memory or temp DB), and generates CSV outputs under `data/exports/`.
-- Given the smoke test completes successfully, then it prints a concise summary including number of articles ingested, events created, and location of CSV files.
-- Given any step fails, then the script exits with non-zero status and emits structured error logs pointing to the failing phase.
+- Given the command `env PYTHONPATH=. .venv/bin/python scripts/smoke_test.py` when executed, then it ingests sample articles, runs NLP enrichment (embeddings, entities, TF-IDF), LLM event classification, event clustering, and insight generation using test database.
+- Given the smoke test completes successfully, then it prints summary including: articles processed, event types classified (crime/politics/etc.), events created/clustered, insights generated, CSV export location, and total runtime.
+- Given any step fails (enrichment, classification, clustering, insights), then script exits with non-zero status and structured error logs pointing to failing phase.
+- Given `--skip-llm` flag is provided, then script uses mock/stub for event classification and insights to enable offline testing.
 **Subtask Checklist:**
-- [ ] Create fixture RSS/articles data under `backend/tests/fixtures/smoke/` representing at least two events with multiple viewpoints.
-- [ ] Implement smoke test script orchestrating ingest → enrichment → event detection → insight stub (mock LLM) → export, using transaction rollback or temp directories to avoid polluting real data.
-- [ ] Allow optional flag `--skip-llm` to bypass actual API calls (use stub insights for offline runs).
-- [ ] Ensure script configures logging (reuse core logging) and prints summary at end.
-- [ ] Document usage in README (QA section) including expected runtime (<5 minutes).
-- [ ] Run the smoke test locally to confirm outputs and exit codes.
-- [ ] Add GitHub Action optional job or manual instructions referencing script.
+- [ ] Create `backend/tests/fixtures/smoke/` with sample articles JSON representing 3-4 events with different types (1 crime, 1 politics, 1 international, 1 sports/culture).
+- [ ] Implement `scripts/smoke_test.py` orchestrating: create temp DB → ingest fixtures → enrich (NER, embeddings, TF-IDF) → LLM classify event types → cluster events → generate insights → export CSV.
+- [ ] Use patterns from `scripts/backfill_insights.py` for insight generation and `scripts/test_llm_classification.py` for classification verification.
+- [ ] Add `--skip-llm` flag using environment variable to mock LLM calls (return predefined event types and insights).
+- [ ] Verify event type classification accuracy (check if crime events are tagged as 'crime', etc.).
+- [ ] Print detailed summary with metrics: enrichment success rate, event clustering rate, insight generation success.
+- [ ] Use temp SQLite database or test database to avoid polluting production data.
+- [ ] Configure structured logging and print summary to stdout.
+- [ ] Document usage in README (Development → QA section) with expected runtime (2-3 minutes) and success criteria.
+- [ ] Run smoke test locally with both `--skip-llm` and real LLM to verify both modes.
+- [ ] Add optional GitHub Actions workflow job running smoke test nightly or on-demand.
 **Testing Requirements:**
 - Manual execution of smoke script (`source .venv/bin/activate && python backend/scripts/smoke_test.py`) with success criteria; optional automated invocation in CI nightly.
 - Definition of Done: ACs met, script validated, documentation updated.
