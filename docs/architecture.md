@@ -11,7 +11,7 @@ We kiezen voor een service-georiënteerde monoliet: één codebase met gescheide
 
 | Technology | Version | Description |
 | ---------- | ------- | ----------- |
-| Python | 3.12 | Primaire taal voor backend, pipelines en tooling |
+| Python | 3.11 | Primaire taal voor backend, pipelines en tooling |
 | venv + pip | stdlib | Virtual environment met requirements.txt dependency management |
 | FastAPI | 0.111 | REST API layer met async support |
 | Uvicorn | 0.30 | ASGI-server voor FastAPI |
@@ -549,7 +549,7 @@ Configuratie via `.env`:
 ## Initial Project Setup (Manual Steps)
 
 - **Story 0 – Setup Taken**
-  1. Clone repo & installeer Python 3.12/Node 20.
+  1. Clone repo & installeer Python 3.11/Node 20.
   2. `make setup` (creeert .venv, installeert requirements.txt + npm dependencies).
   3. Kopieer `.env.example` → `.env`; vul `MISTRAL_API_KEY`, scheduler interval, embedding modelnaam en de nieuwe vectorindex-parameters (`VECTOR_INDEX_*`, `EVENT_CANDIDATE_*`).
   4. Controleer dat het pad in `VECTOR_INDEX_PATH` schrijfbaar is (default `./data/vector_index.bin`) en maak zo nodig `data/` + `data/models/` aan.
