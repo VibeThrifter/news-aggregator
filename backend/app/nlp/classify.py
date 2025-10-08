@@ -1,84 +1,100 @@
-"""Event type classification for articles."""
+"""Event type classification for articles using LLM-based semantic analysis."""
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Set
+from typing import TYPE_CHECKING
 
-# Keywords for event type classification
-EVENT_TYPE_KEYWORDS: Dict[str, Set[str]] = {
-    "politics": {
-        "kabinet", "minister", "kamer", "coalitie", "verkiezingen", "stemmen", "politiek",
-        "regering", "oppositie", "partij", "fracty", "verkiezing", "debat", "wet", "parlementair"
-    },
-    "crime": {
-        "politie", "arrestatie", "verdenking", "verdachte", "aanslag", "moord", "dood",
-        "steekpartij", "geweld", "misdrijf", "rechtbank", "gevangenis", "cel", "tbs",
-        "doodslag", "femicide", "inbraak", "overval", "schietpartij"
-    },
-    "sports": {
-        "voetbal", "eredivisie", "europa league", "champions league", "f1", "formule",
-        "verstappen", "ajax", "feyenoord", "psv", "tennis", "wielrennen", "olympisch",
-        "wedstrijd", "coach", "trainer", "doelpunt", "kampioenschap", "competitie"
-    },
-    "international": {
-        "trump", "rusland", "oekraïne", "poetin", "amerika", "china", "gaza", "israël",
-        "oorlog", "vredesplan", "sancties", "navo", "europese unie", "brexit", "conflict"
-    },
-    "business": {
-        "aex", "beurs", "aandeel", "bedrijf", "economie", "inflatie", "euro", "dollar",
-        "investering", "overnam", "faillissement", "winst", "omzet", "ceo", "markt"
-    },
-    "entertainment": {
-        "film", "muziek", "concert", "festival", "taylor swift", "album", "serie",
-        "netflix", "acteur", "zanger", "artiest", "show", "award", "nominatie"
-    },
-    "weather": {
-        "storm", "weer", "orkaan", "regen", "wind", "temperatuur", "knmi", "weerbericht",
-        "code oranje", "code rood", "weersvoorspelling", "hagel", "onweer"
-    },
-    "royal": {
-        "koning", "koningin", "prinses", "prins", "royal", "prinsenvlag", "alexia",
-        "amalia", "máxima", "willem-alexander", "hof", "paleis"
-    },
-}
+if TYPE_CHECKING:
+    from backend.app.llm.client import MistralClient
+
+from backend.app.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+# Valid event type categories
+VALID_EVENT_TYPES = [
+    "legal",
+    "politics",
+    "crime",
+    "sports",
+    "international",
+    "business",
+    "entertainment",
+    "weather",
+    "royal",
+    "other",
+]
 
 
-def classify_event_type(title: str, content: str, entities: Optional[List[Dict]] = None) -> str:
+async def classify_event_type_llm(
+    title: str,
+    content: str,
+    llm_client: "MistralClient",
+) -> str:
     """
-    Classify article into an event type based on keywords and entities.
+    Classify article into event type using LLM semantic analysis.
 
     Args:
         title: Article title
-        content: Article content (first 1000 chars used)
-        entities: Optional list of extracted entities
+        content: Article content (first 600 chars will be used)
+        llm_client: Mistral LLM client instance
 
     Returns:
-        Event type string: politics, crime, sports, international, business,
-        entertainment, weather, royal, or "other"
+        Event type string from VALID_EVENT_TYPES (defaults to "other" on error)
     """
-    # Combine title (weighted 3x) with content excerpt for classification
-    text = (title.lower() + " " + title.lower() + " " + title.lower() + " " + content[:1000].lower())
+    # Truncate content to avoid excessive token usage
+    content_excerpt = content[:600] if content else ""
 
-    # Count keyword matches for each type
-    type_scores: Dict[str, int] = {}
+    prompt = f"""Classify this Dutch news article into ONE category.
 
-    for event_type, keywords in EVENT_TYPE_KEYWORDS.items():
-        score = sum(1 for keyword in keywords if keyword in text)
-        if score > 0:
-            type_scores[event_type] = score
+Categories: legal, politics, crime, sports, international, business, entertainment, weather, royal, other
 
-    # No keywords matched - try entity-based classification
-    if not type_scores and entities:
-        entity_types = {ent.get("label") for ent in entities if ent.get("label")}
-        # GPE/LOC + no other strong signals = international
-        if ("GPE" in entity_types or "LOC" in entity_types) and len(text.split()) > 50:
-            return "international"
+Title: {title}
+Content: {content_excerpt}
 
-    # Return type with highest score, or "other" if no match
-    if not type_scores:
+Rules:
+- legal: court cases, lawsuits, legal proceedings, judges (NOT crimes)
+- crime: murders, robberies, violence, arrests, investigations
+- politics: government, elections, ministers, parliament, parties
+- sports: all sports, competitions, races, training, athletes
+- entertainment: culture, celebrities, restaurants, arts, music, film
+- royal: Dutch royal family members
+- international: foreign affairs, global events, international conflicts
+- business: economy, companies, markets, stocks, banking
+- weather: storms, forecasts, climate events, temperature
+- other: if uncertain or doesn't fit categories above
+
+Respond with ONLY the category name in lowercase, nothing else."""
+
+    try:
+        response = await llm_client.generate_text(
+            prompt=prompt,
+            temperature=0.1,  # Low temperature for consistent classification
+            max_tokens=20,
+        )
+
+        classification = response.content.strip().lower()
+
+        # Validate classification is one of the allowed types
+        if classification in VALID_EVENT_TYPES:
+            return classification
+
+        logger.warning(
+            "llm_classification_invalid",
+            classification=classification,
+            title=title[:100],
+            note="Falling back to 'other'",
+        )
         return "other"
 
-    return max(type_scores.items(), key=lambda x: x[1])[0]
+    except Exception as e:
+        logger.warning(
+            "llm_classification_failed",
+            error=str(e),
+            title=title[:100],
+            note="Falling back to 'other'",
+        )
+        return "other"
 
 
-__all__ = ["classify_event_type", "EVENT_TYPE_KEYWORDS"]
+__all__ = ["classify_event_type_llm", "VALID_EVENT_TYPES"]

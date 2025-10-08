@@ -96,6 +96,7 @@ flowchart TB
         Embedder[Embedding Service]
         TFIDFService[TF-IDF Vectorizer]
         NERService[spaCy NER]
+        EventTypeClassifier[LLM Event Type Classifier]
     end
 
     subgraph Event Layer
@@ -120,9 +121,11 @@ flowchart TB
     Preprocessor --> Embedder
     Preprocessor --> TFIDFService
     Preprocessor --> NERService
+    Preprocessor --> EventTypeClassifier
     Embedder --> CandidateRetriever
     TFIDFService --> CandidateRetriever
     NERService --> Scorer
+    EventTypeClassifier --> Scorer
 CandidateRetriever --> Scorer --> EventManager
 EventManager --> PromptBuilder --> LLMClient --> InsightValidator --> EventManager
 EventManager --> EventRouter

@@ -39,12 +39,18 @@ class ArticleEnrichmentService:
         embedder: EmbeddingService | None = None,
         tfidf_manager: TfidfVectorizerManager | None = None,
         entity_extractor: NamedEntityExtractor | None = None,
+        llm_client = None,
     ) -> None:
         self.session_factory = session_factory or get_sessionmaker()
         self.preprocessor = preprocessor or TextPreprocessor()
         self.embedder = embedder or EmbeddingService()
         self.tfidf_manager = tfidf_manager or TfidfVectorizerManager()
         self.entity_extractor = entity_extractor or NamedEntityExtractor()
+        # Import here to avoid circular dependency
+        if llm_client is None:
+            from backend.app.llm.client import MistralClient
+            llm_client = MistralClient()
+        self.llm_client = llm_client
         self.log = logger.bind(component="ArticleEnrichmentService")
 
     async def enrich_pending(self, limit: int | None = 50) -> Dict[str, int]:
@@ -91,11 +97,11 @@ class ArticleEnrichmentService:
             # Extract entities and enhanced features
             entities = self.entity_extractor.extract(article.content)
             extracted_dates = self.entity_extractor.extract_dates(article.content)
-            extracted_locations = self.entity_extractor.extract_locations(article.content)
+            extracted_locations = self.entity_extractor.extract_locations(article.content, article.title)
 
-            # Classify event type
-            from backend.app.nlp.classify import classify_event_type
-            event_type = classify_event_type(article.title, article.content, entities)
+            # Classify event type using LLM
+            from backend.app.nlp.classify import classify_event_type_llm
+            event_type = await classify_event_type_llm(article.title, article.content, self.llm_client)
 
             prepared.append(
                 {
