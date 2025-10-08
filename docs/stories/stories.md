@@ -762,7 +762,12 @@ Stories 5.1 - 5.3 **adapted to current architecture**. Health endpoint exists bu
 **Background/Context:**
 - Source: docs/PRD.md (Epic 5 – Story 5.3).
 - Reference: docs/architecture.md (Project Structure – scripts/; Testing Requirements – Smoke test script).
-- **Current State**: Utility scripts exist (`scripts/enrich_all.py`, `scripts/backfill_insights.py`, `scripts/test_llm_classification.py`) that can serve as patterns.
+- **Current State**: Utility scripts exist that can serve as patterns:
+  - `scripts/evaluate_clustering.py` - Comprehensive clustering metrics (precision, recall, type distribution)
+  - `scripts/test_llm_classification.py` - LLM classification verification patterns
+  - `scripts/backfill_insights.py` - Insight generation orchestration
+  - `scripts/test_rss_feeds.py` - Feed testing reference
+  - `scripts/test_insight_generation.py` - Basic insight test (will be superseded)
 - **Current Features**: LLM-based event type classification (crime, politics, international, etc.), location/date extraction, semantic event clustering, automatic insight generation.
 - Target Paths: `scripts/smoke_test.py`, `backend/tests/fixtures/smoke/` (create), documentation in README.
 **Acceptance Criteria (AC):**
@@ -773,21 +778,26 @@ Stories 5.1 - 5.3 **adapted to current architecture**. Health endpoint exists bu
 **Subtask Checklist:**
 - [ ] Create `backend/tests/fixtures/smoke/` with sample articles JSON representing 3-4 events with different types (1 crime, 1 politics, 1 international, 1 sports/culture).
 - [ ] Implement `scripts/smoke_test.py` orchestrating: create temp DB → ingest fixtures → enrich (NER, embeddings, TF-IDF) → LLM classify event types → cluster events → generate insights → export CSV.
-- [ ] Use patterns from `scripts/backfill_insights.py` for insight generation and `scripts/test_llm_classification.py` for classification verification.
+- [ ] Reuse patterns from existing scripts:
+  - `scripts/backfill_insights.py` (lines 17-44) - Insight generation orchestration
+  - `scripts/test_llm_classification.py` (lines 37-44) - LLM classification verification
+  - `scripts/evaluate_clustering.py` (lines 22-47) - Event/clustering metrics calculation
 - [ ] Add `--skip-llm` flag using environment variable to mock LLM calls (return predefined event types and insights).
-- [ ] Verify event type classification accuracy (check if crime events are tagged as 'crime', etc.).
-- [ ] Print detailed summary with metrics: enrichment success rate, event clustering rate, insight generation success.
+- [ ] Verify event type classification accuracy (check if crime events are tagged as 'crime', etc.) using pattern from `test_llm_classification.py`.
+- [ ] Print detailed summary with metrics: enrichment success rate, event clustering rate, insight generation success, using metrics from `evaluate_clustering.py`.
 - [ ] Use temp SQLite database or test database to avoid polluting production data.
 - [ ] Configure structured logging and print summary to stdout.
 - [ ] Document usage in README (Development → QA section) with expected runtime (2-3 minutes) and success criteria.
+- [ ] Note that `scripts/evaluate_clustering.py` remains as complementary monitoring tool for production clustering analysis.
 - [ ] Run smoke test locally with both `--skip-llm` and real LLM to verify both modes.
 - [ ] Add optional GitHub Actions workflow job running smoke test nightly or on-demand.
+- [ ] **Cleanup**: Delete obsolete `scripts/test_insight_generation.py` (55 lines) - superseded by smoke test.
 **Testing Requirements:**
-- Manual execution of smoke script (`source .venv/bin/activate && python backend/scripts/smoke_test.py`) with success criteria; optional automated invocation in CI nightly.
-- Definition of Done: ACs met, script validated, documentation updated.
+- Manual execution of smoke script (`source .venv/bin/activate && python scripts/smoke_test.py`) with success criteria; optional automated invocation in CI nightly.
+- Definition of Done: ACs met, script validated, documentation updated, obsolete scripts removed.
 **Story Wrap Up (To be filled in AFTER agent execution):**
-- **Agent Model Used:** 
-- **Agent Credit or Cost:** 
-- **Date/Time Completed:** 
-- **Commit Hash:** 
+- **Agent Model Used:**
+- **Agent Credit or Cost:**
+- **Date/Time Completed:**
+- **Commit Hash:**
 - **Change Log:**
