@@ -65,6 +65,14 @@ Gebruik NOOIT Engelse waarden zoals "center", "left", "right", "center-left", "c
       "sources": ["https://bron.nl"],
       "spectrum": "mainstream"
     }
+  ],
+  "coverage_gaps": [
+    {
+      "perspective": "string",
+      "description": "string",
+      "relevance": "string",
+      "potential_sources": ["string"]
+    }
   ]
 }
 
@@ -80,6 +88,13 @@ Analyseer stap voor stap:
 - Groepeer artikelen per invalshoek; benoem het spectrum en type bron per cluster.
 - Identificeer expliciete tegenstrijdigheden met bronvermelding.
 - Benoem mogelijke drogredeneringen of framing (met bron).
+- **Identificeer onderbelichte perspectieven** (coverage_gaps): Welke relevante invalshoeken, belanghebbenden, of contexten ontbreken in de berichtgeving? Denk aan:
+  * Stemmen van direct betrokkenen (slachtoffers, getuigen, experts uit het werkveld)
+  * Maatschappelijke groepen die impact ondervinden maar niet aan bod komen
+  * Internationale perspectieven of historische context
+  * Wetenschappelijke of technische expertise die ontbreekt
+  * Alternatieve verklaringen of oplossingsrichtingen die niet belicht worden
+  * Socio-economische of culturele dimensies die genegeerd worden
 - Controleer dat elke aangehaalde URL voorkomt in de lijst met artikelen.
 - Controleer dat alle stringwaarden Nederlands zijn.
 

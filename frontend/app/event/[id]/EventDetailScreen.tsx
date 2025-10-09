@@ -23,6 +23,7 @@ import {
 import { ArticleList } from "@/components/ArticleList";
 import { ClusterGrid } from "@/components/ClusterGrid";
 import { ContradictionList } from "@/components/ContradictionList";
+import { CoverageGapsList } from "@/components/CoverageGapsList";
 import { FallacyList } from "@/components/FallacyList";
 import { InsightsFallback } from "@/components/InsightsFallback";
 import { Timeline } from "@/components/Timeline";
@@ -98,7 +99,11 @@ function hasInsightsContent(insights: AggregationResponse | null): boolean {
     return false;
   }
   return Boolean(
-    insights.timeline.length || insights.clusters.length || insights.fallacies.length || insights.contradictions.length,
+    insights.timeline.length ||
+    insights.clusters.length ||
+    insights.fallacies.length ||
+    insights.contradictions.length ||
+    insights.coverage_gaps?.length,
   );
 }
 
@@ -319,6 +324,18 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
                 </p>
               </div>
               <ContradictionList items={insights.contradictions} />
+            </div>
+          ) : null}
+
+          {insights.coverage_gaps?.length ? (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-2xl font-semibold text-white">Onderbelichte perspectieven</h2>
+                <p className="mt-1 text-sm text-slate-300">
+                  Invalshoeken en contexten die ontbreken in de huidige berichtgeving.
+                </p>
+              </div>
+              <CoverageGapsList items={insights.coverage_gaps} />
             </div>
           ) : null}
         </section>

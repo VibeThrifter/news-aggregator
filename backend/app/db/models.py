@@ -152,6 +152,7 @@ class LLMInsight(Base):
     clusters: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     contradictions: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     fallacies: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    coverage_gaps: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     raw_response: Mapped[str | None] = mapped_column(Text, nullable=True)
     generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow

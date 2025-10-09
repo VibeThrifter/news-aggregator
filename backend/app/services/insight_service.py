@@ -85,6 +85,7 @@ class InsightService:
                 clusters=payload_dict.get("clusters", []),
                 contradictions=payload_dict.get("contradictions", []),
                 fallacies=payload_dict.get("fallacies", []),
+                coverage_gaps=payload_dict.get("coverage_gaps", []),
                 raw_response=llm_result.raw_content,
             )
 
