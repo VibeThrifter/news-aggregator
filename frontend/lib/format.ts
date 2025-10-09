@@ -96,7 +96,7 @@ export function resolveSpectrumBadges(distribution?: SpectrumDistribution | null
 
       return null;
     })
-    .filter((entry): entry is SpectrumBadge => Boolean(entry) && entry.count > 0)
+    .filter((entry): entry is SpectrumBadge => entry !== null && entry.count > 0)
     .sort((a, b) => b.count - a.count);
 }
 
