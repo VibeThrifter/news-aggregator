@@ -7,7 +7,7 @@ Deze proof-of-concept demonstreert hoe een event-gedreven nieuwsscraper Nederlan
 ### Snelle setup (aanbevolen)
 
 ```bash
-# Installeer Python 3.12 en Node.js 20+ als deze nog niet beschikbaar zijn
+# Installeer Python 3.11 en Node.js 20+ als deze nog niet beschikbaar zijn
 make check-deps
 
 # Installeer alle dependencies (backend + frontend)
@@ -19,10 +19,10 @@ make dev    # Backend: http://localhost:8000, Frontend: http://localhost:3000
 
 ### Handmatige setup
 
-1. **Backend (Python 3.12):**
+1. **Backend (Python 3.11):**
    ```bash
    # Maak virtual environment
-   python3.12 -m venv .venv && source .venv/bin/activate
+   python3.11 -m venv .venv && source .venv/bin/activate
    pip install -r requirements.txt
    ```
 
@@ -173,6 +173,85 @@ grep "correlation_id=abc-123" logs/app.log
 - Aantal backups: 5
 - Encoding: UTF-8
 - Bestanden worden automatisch geroteerd naar `app.log.1`, `app.log.2`, etc.
+
+### Testing & Coverage
+
+Het project hanteert een minimale coveragethreshold van 80% voor de backend (Story 5.2):
+
+**Lokaal testen:**
+```bash
+# Run tests met coverage enforcement (80% threshold)
+make test
+
+# Of direct met pytest:
+source .venv/bin/activate
+PYTHONPATH=. python -m pytest \
+  --cov=backend/app \
+  --cov-report=term-missing \
+  --cov-report=html:htmlcov \
+  --cov-fail-under=80 \
+  backend/tests/ -v
+
+# HTML coverage report bekijken
+open htmlcov/index.html
+```
+
+**Coverage configuratie:**
+- Threshold: ≥80% voor `backend/app/*`
+- Branch coverage: ingeschakeld
+- Rapporten: terminal (missing lines) + HTML (`htmlcov/`)
+- Exclusions: tests, migrations, abstract methods
+
+**GitHub Actions CI:**
+Het project heeft een geautomatiseerde CI-pipeline (`.github/workflows/ci.yml`) die bij elke push en pull request draait:
+
+**Backend CI jobs:**
+1. **Backend Linting** - Ruff + Black formatting checks
+2. **Backend Tests & Coverage** - Pytest met 80% coverage gate
+   - Coverage report wordt als artifact opgeslagen (30 dagen retentie)
+
+**Frontend CI jobs:**
+3. **Frontend Linting** - ESLint checks
+4. **Frontend Tests** - Jest/React Testing Library tests
+
+**CI status controleren:**
+- Alle jobs moeten slagen voordat PRs worden gemerged
+- Coverage rapporten zijn downloadbaar als artifacts
+- Pipeline draait op Python 3.11 en Node.js 20
+
+### End-to-End Smoke Test
+
+Het project bevat een comprehensive smoke test die de volledige pipeline verifieert (Story 5.3):
+
+```bash
+# Met LLM (vereist API keys)
+env PYTHONPATH=. .venv/bin/python scripts/smoke_test.py
+
+# Offline mode (zonder LLM calls)
+env PYTHONPATH=. .venv/bin/python scripts/smoke_test.py --skip-llm
+
+# Verbose output
+env PYTHONPATH=. .venv/bin/python scripts/smoke_test.py --verbose
+```
+
+**Wat wordt getest:**
+- ✅ Artikel ingestion (RSS feeds → database)
+- ✅ NLP enrichment (embeddings, entities, TF-IDF)
+- ✅ LLM event type classification (crime, politics, international, sports)
+- ✅ Event clustering (hybrid scoring met semantic similarity)
+- ✅ LLM insight generation (timeline, clusters, contradictions, fallacies)
+- ✅ CSV export
+
+**Verwachte output:**
+- Gedetailleerd rapport met metrics per pipeline fase
+- Event type distributie
+- Clustering rate (% artikelen in multi-article events)
+- Runtime (~30-60 seconden met --skip-llm)
+- Gegenereerd CSV bestand in `data/exports/`
+
+**Exit codes:**
+- `0`: Alle pipeline stages succesvol
+- `1`: Een of meer fouten opgetreden (zie error summary)
 
 ### Handige scripts
 

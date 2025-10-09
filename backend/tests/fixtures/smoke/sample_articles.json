@@ -1,0 +1,92 @@
+[
+  {
+    "title": "Inbraak in museum Amsterdam: schilderijen gestolen",
+    "url": "https://example.com/museum-inbraak-1",
+    "published_at": "2025-10-08T02:30:00Z",
+    "source_name": "NOS",
+    "source_spectrum": "mainstream",
+    "content": "In de nacht van zondag op maandag is er een inbraak geweest in een bekend museum in Amsterdam. Volgens de politie zijn er meerdere waardevolle schilderijen gestolen uit de Nederlandse kunstcollectie. De daders zijn via een zijdeur het gebouw binnengedrongen en hebben het alarmsysteem uitgeschakeld. De politie doet onderzoek naar de diefstal en roept getuigen op zich te melden. De geschatte waarde van de gestolen kunstwerken bedraagt enkele miljoenen euro's. Het museum blijft voorlopig gesloten voor publiek.",
+    "expected_type": "crime"
+  },
+  {
+    "title": "Kunstdiefstal museum: politie zoekt getuigen",
+    "url": "https://example.com/museum-inbraak-2",
+    "published_at": "2025-10-08T08:15:00Z",
+    "source_name": "NU.nl",
+    "source_spectrum": "mainstream",
+    "content": "De politie is op zoek naar getuigen van de inbraak in het Amsterdamse museum afgelopen nacht. Bij de diefstal zijn drie schilderijen uit de 17e eeuw ontvreemd. Een woordvoerder van de politie laat weten dat er camerabeelden worden geanalyseerd. Het onderzoeksteam vermoedt dat de daders professionele kunstdieven zijn. De museumdirectie heeft een beloning uitgeloofd voor tips die leiden tot de terugvinding van de kunstwerken. Experts waarschuwen dat de gestolen werken moeilijk te verkopen zijn op de legale markt.",
+    "expected_type": "crime"
+  },
+  {
+    "title": "Museum opent weer na kunstdiefstal",
+    "url": "https://example.com/museum-inbraak-3",
+    "published_at": "2025-10-08T14:00:00Z",
+    "source_name": "De Telegraaf",
+    "source_spectrum": "mainstream",
+    "content": "Het museum in Amsterdam dat maandag slachtoffer werd van een kunstroof, opent woensdag weer zijn deuren. De beveiliging is inmiddels aangescherpt en er zijn extra maatregelen genomen. Van de drie gestolen schilderijen ontbreekt nog elk spoor. De politie heeft inmiddels meerdere tips ontvangen en onderzoekt verschillende scenario's. De verzekering dekt de schade, maar de emotionele waarde van de kunstwerken is onvervangbaar volgens de museumcurator.",
+    "expected_type": "crime"
+  },
+  {
+    "title": "Kabinet presenteert klimaatplan voor 2030",
+    "url": "https://example.com/klimaatplan-1",
+    "published_at": "2025-10-07T10:00:00Z",
+    "source_name": "NOS",
+    "source_spectrum": "mainstream",
+    "content": "Het kabinet heeft vandaag het nieuwe klimaatplan voor 2030 gepresenteerd. Minister Jetten van Klimaat kondigde aan dat Nederland de CO2-uitstoot met 55 procent wil verminderen ten opzichte van 1990. Het plan bevat maatregelen voor industrie, verkeer en de gebouwde omgeving. De oppositie vindt de plannen te ambitieus en vreest voor de betaalbaarheid. Milieuorganisaties juichen de plannen toe maar vinden ze niet ver genoeg gaan. Het plan wordt komende weken in de Tweede Kamer besproken.",
+    "expected_type": "politics"
+  },
+  {
+    "title": "Tweede Kamer debatteert over klimaatmaatregelen",
+    "url": "https://example.com/klimaatplan-2",
+    "published_at": "2025-10-07T15:30:00Z",
+    "source_name": "NU.nl",
+    "source_spectrum": "mainstream",
+    "content": "De Tweede Kamer is begonnen met het debat over het klimaatplan van het kabinet. Coalitie en oppositie botsen over de haalbaarheid en de kosten van de voorgestelde maatregelen. VVD-fractievoorzitter benadrukt dat economische groei en klimaatdoelen hand in hand moeten gaan. GroenLinks en PvdA eisen snellere actie en hogere doelstellingen. Het kabinet verdedigt het plan als een evenwichtig pakket dat zowel ambitieus als realistisch is.",
+    "expected_type": "politics"
+  },
+  {
+    "title": "Demonstratie in Den Haag voor strengere klimaatwet",
+    "url": "https://example.com/klimaatplan-3",
+    "published_at": "2025-10-07T18:00:00Z",
+    "source_name": "De Volkskrant",
+    "source_spectrum": "mainstream",
+    "content": "Duizenden mensen hebben zaterdagmiddag gedemonstreerd in Den Haag voor een strengere klimaatwet. De organisatoren zijn ontevreden over het nieuwe klimaatplan van het kabinet en eisen meer concrete maatregelen. Klimaatactivisten voerden actie bij het ministerie van Klimaat en Energie. De demonstratie verliep volgens de politie vreedzaam. Premier Rutte zei in een reactie begrip te hebben voor de zorgen maar verwees naar de uitgebreide plannen die het kabinet al heeft gepresenteerd.",
+    "expected_type": "politics"
+  },
+  {
+    "title": "EU-top bereikt akkoord over migratie",
+    "url": "https://example.com/eu-migratie-1",
+    "published_at": "2025-10-06T20:00:00Z",
+    "source_name": "NOS",
+    "source_spectrum": "mainstream",
+    "content": "De Europese regeringsleiders hebben na urenlange onderhandelingen een akkoord bereikt over een nieuw migratiepact. Het plan voorziet in een eerlijkere verdeling van asielzoekers over de EU-lidstaten en strengere controles aan de buitengrenzen. Premier Rutte noemde het resultaat 'een belangrijk compromis'. Mensenrechtenorganisaties zijn kritisch en vrezen voor de rechten van vluchtelingen. Het akkoord moet nog worden goedgekeurd door het Europees Parlement.",
+    "expected_type": "international"
+  },
+  {
+    "title": "Reacties op EU-migratiepact: verdeeldheid blijft",
+    "url": "https://example.com/eu-migratie-2",
+    "published_at": "2025-10-07T09:00:00Z",
+    "source_name": "NU.nl",
+    "source_spectrum": "mainstream",
+    "content": "Het nieuwe EU-migratiepact zorgt voor verdeelde reacties in binnen- en buitenland. Polen en Hongarije stemden tegen het voorstel omdat ze de verplichte asielquota afwijzen. Duitsland en Frankrijk verdedigden het akkoord als noodzakelijk voor Europese samenwerking. In Nederland ontstaat discussie over hoeveel asielzoekers Nederland zou moeten opvangen onder het nieuwe systeem. De Tweede Kamer wil opheldering van het kabinet over de gevolgen voor Nederland.",
+    "expected_type": "international"
+  },
+  {
+    "title": "Oranje wint EK-kwalificatiewedstrijd met 3-1",
+    "url": "https://example.com/oranje-voetbal-1",
+    "published_at": "2025-10-05T22:00:00Z",
+    "source_name": "NOS",
+    "source_spectrum": "mainstream",
+    "content": "Het Nederlands elftal heeft donderdagavond met 3-1 gewonnen van Ierland in de EK-kwalificatie. Memphis Depay scoorde twee keer en Cody Gakpo maakte de derde treffer. Bondscoach Koeman was tevreden over het optreden van zijn ploeg. Met deze overwinning verstevigt Oranje de koppositie in de groep. De volgende wedstrijd is zondag tegen Frankrijk, een cruciale wedstrijd voor plaatsing voor het EK.",
+    "expected_type": "sports"
+  },
+  {
+    "title": "Koeman prijst Oranje na zege op Ierland",
+    "url": "https://example.com/oranje-voetbal-2",
+    "published_at": "2025-10-06T08:00:00Z",
+    "source_name": "De Telegraaf",
+    "source_spectrum": "mainstream",
+    "content": "Bondscoach Ronald Koeman is zeer te spreken over de prestatie van het Nederlands elftal tegen Ierland. In een persconferentie na afloop prees hij vooral de offensieve kracht van zijn ploeg. Memphis Depay liet zien weer in vorm te zijn met twee doelpunten. De verdediging hield goed stand ondanks een tegentreffer. Koeman kijkt met vertrouwen uit naar de topper tegen Frankrijk aanstaande zondag. Bij een overwinning is plaatsing voor het EK vrijwel zeker.",
+    "expected_type": "sports"
+  }
+]
