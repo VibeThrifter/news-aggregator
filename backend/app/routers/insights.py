@@ -66,6 +66,7 @@ async def get_event_insights(
         timeline=insight.timeline or [],
         clusters=insight.clusters or [],
         fallacies=insight.fallacies or [],
+        frames=insight.frames or [],
         contradictions=insight.contradictions or [],
         coverage_gaps=insight.coverage_gaps or [],
     )

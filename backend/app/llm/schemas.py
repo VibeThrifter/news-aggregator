@@ -53,6 +53,15 @@ class InsightFallacy(BaseModel):
     spectrum: str = Field(..., min_length=1)
 
 
+class InsightFrame(BaseModel):
+    """Represents a framing perspective used in news coverage."""
+
+    frame_type: str = Field(..., min_length=1, description="Type of framing (e.g., 'conflict', 'human interest', 'economic', 'morality')")
+    description: str = Field(..., min_length=1, description="How this frame is applied in the reporting")
+    sources: List[HttpUrl] = Field(default_factory=list, description="Articles using this frame")
+    spectrum: str = Field(..., min_length=1, description="Media spectrum of sources using this frame")
+
+
 class CoverageGap(BaseModel):
     """Represents an underrepresented perspective or missing context in news coverage."""
 
@@ -68,6 +77,7 @@ class InsightsPayload(BaseModel):
     clusters: List[InsightCluster] = Field(default_factory=list)
     contradictions: List[InsightContradiction] = Field(default_factory=list)
     fallacies: List[InsightFallacy] = Field(default_factory=list)
+    frames: List[InsightFrame] = Field(default_factory=list, description="Framing perspectives used in news coverage")
     coverage_gaps: List[CoverageGap] = Field(default_factory=list, description="Underrepresented perspectives or missing contexts")
 
 
@@ -78,6 +88,7 @@ __all__ = [
     "InsightContradiction",
     "InsightContradictionClaim",
     "InsightFallacy",
+    "InsightFrame",
     "InsightTimelineItem",
     "InsightsPayload",
     "SpectrumLabel",
