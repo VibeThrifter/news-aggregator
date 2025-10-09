@@ -703,22 +703,31 @@ Stories 5.1 - 5.3 **adapted to current architecture**. Health endpoint exists bu
 - Given any dependency check fails (e.g., missing index file, DB unreachable), then `/health` returns 503 with the failing component listed while still responding quickly (<200ms).
 - Given the health endpoint when called, then it includes: database connectivity, vector index file presence (`data/vector_index.bin`), LLM API key configured, scheduler status, and Python/app version.
 **Subtask Checklist:**
-- [ ] Extend `backend/app/core/logging.py` to add `RotatingFileHandler` (10MB size, 5 backups) writing to `logs/app.log` in addition to stdout.
-- [ ] Create `backend/app/routers/health.py` with detailed health checks: DB ping (async session), vector index file exists, LLM config present, scheduler running status.
-- [ ] Update existing `/health` endpoint to use new health router with component checks.
-- [ ] Add integration test `backend/tests/integration/test_health_endpoint.py` verifying 200 response when all healthy and 503 when dependencies fail.
-- [ ] Create `logs/` directory in `.gitignore` and ensure it's created on startup.
-- [ ] Document health endpoint response format and monitoring usage in README (Monitoring section).
-- [ ] Run `pytest backend/tests/integration/test_health_endpoint.py` and verify log rotation works.
+- [x] Extend `backend/app/core/logging.py` to add `RotatingFileHandler` (10MB size, 5 backups) writing to `logs/app.log` in addition to stdout.
+- [x] Create `backend/app/routers/health.py` with detailed health checks: DB ping (async session), vector index file exists, LLM config present, scheduler running status.
+- [x] Update existing `/health` endpoint to use new health router with component checks.
+- [x] Add integration test `backend/tests/integration/test_health_endpoint.py` verifying 200 response when all healthy and 503 when dependencies fail.
+- [x] Create `logs/` directory in `.gitignore` and ensure it's created on startup.
+- [x] Document health endpoint response format and monitoring usage in README (Monitoring section).
+- [x] Run `pytest backend/tests/integration/test_health_endpoint.py` and verify log rotation works.
 **Testing Requirements:**
 - Integration Tests via `pytest` (FastAPI TestClient) + manual log inspection.
 - Definition of Done: ACs met, tests passing, log files generated.
 **Story Wrap Up (To be filled in AFTER agent execution):**
-- **Agent Model Used:** 
-- **Agent Credit or Cost:** 
-- **Date/Time Completed:** 
-- **Commit Hash:** 
+- **Agent Model Used:** claude-sonnet-4-5-20250929
+- **Agent Credit or Cost:** ~160K tokens
+- **Date/Time Completed:** 2025-10-09
+- **Commit Hash:** 5dc1ba0
 - **Change Log:**
+  - Extended `backend/app/core/logging.py` with `RotatingFileHandler` (10MB max, 5 backups, UTF-8 encoding) to `logs/app.log`
+  - Created `backend/app/routers/health.py` with comprehensive component checks: database connectivity (async SQLAlchemy), vector index file presence, LLM config verification, scheduler status
+  - Health endpoint returns 200 (healthy/degraded) or 503 (unhealthy) with detailed component statuses
+  - Response includes: overall status, timestamp, response_time_ms, version (app + Python), component details
+  - Updated `backend/app/main.py` to configure logging on startup with rotating file handler
+  - Created 6 integration tests in `backend/tests/integration/test_health_endpoint.py` covering all scenarios
+  - Verified `logs/` already in `.gitignore`, directory created automatically on startup
+  - Added comprehensive "Monitoring & Observability" section to README with health endpoint usage, log configuration, and monitoring examples
+  - All tests passing (6/6), health endpoint verified working (200 OK responses in production)
 
 ---
 **Story ID:** 5.2
