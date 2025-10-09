@@ -3,13 +3,14 @@ services:
   - type: web
     name: news-aggregator-backend
     env: python
-    region: frankfurt
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
       - key: PYTHONPATH
-        value: /opt/render/project/src
+        value: .
       - key: MISTRAL_API_KEY
         sync: false  # Set this manually in Render dashboard
       - key: LOG_LEVEL
@@ -19,7 +20,6 @@ services:
   - type: web
     name: news-aggregator-frontend
     env: node
-    region: frankfurt
     plan: free
     buildCommand: cd frontend && npm install && npm run build
     startCommand: cd frontend && npm start
