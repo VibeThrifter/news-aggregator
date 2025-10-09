@@ -53,10 +53,16 @@ frontend-install: ## Install frontend dependencies (Node.js/Next.js)
 
 test: backend-test ## Run tests (backend only for now)
 
-backend-test: ## Run backend tests with pytest
-	@echo "🧪 Running backend tests..."
-	@. $(VENV)/bin/activate && PYTHONPATH=. python -m pytest backend/tests/ -v
+backend-test: ## Run backend tests with pytest and coverage
+	@echo "🧪 Running backend tests with coverage..."
+	@. $(VENV)/bin/activate && PYTHONPATH=. python -m pytest \
+		--cov=backend/app \
+		--cov-report=term-missing \
+		--cov-report=html:htmlcov \
+		--cov-fail-under=80 \
+		backend/tests/ -v
 	@echo "✅ Backend tests completed"
+	@echo "📊 Coverage report: htmlcov/index.html"
 
 frontend-test: ## Run frontend tests (when package.json test script exists)
 	@echo "🧪 Running frontend tests..."
@@ -105,7 +111,7 @@ clean: ## Clean up generated files and dependencies
 
 check-deps: ## Check if required tools are installed
 	@echo "🔍 Checking dependencies..."
-	@command -v $(PYTHON) >/dev/null 2>&1 || { echo "❌ Python 3.12 not found. Install with: brew install python@3.12"; exit 1; }
+	@command -v $(PYTHON) >/dev/null 2>&1 || { echo "❌ Python 3.11 not found. Install with: brew install python@3.11"; exit 1; }
 	@command -v $(NODE) >/dev/null 2>&1 || { echo "❌ Node.js not found. Install with: brew install node"; exit 1; }
 	@echo "✅ All required tools are available"
 	@$(PYTHON) --version

@@ -10,7 +10,7 @@ packages = [
 license = "Proprietary"
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "^3.11"
 fastapi = "0.109.2"
 uvicorn = { version = "0.27.1", extras = ["standard"] }
 apscheduler = "3.10.4"
@@ -42,7 +42,7 @@ types-requests = "2.32.0.20240712"
 
 [tool.black]
 line-length = 100
-target-version = ["py312"]
+target-version = ["py311"]
 include = "\\.pyi?$"
 exclude = """
 (
@@ -71,8 +71,33 @@ testpaths = [
 addopts = "-ra --strict-markers"
 asyncio_mode = "auto"
 
+[tool.coverage.run]
+source = ["backend/app"]
+omit = [
+  "*/tests/*",
+  "*/__pycache__/*",
+  "*/.venv/*",
+  "*/migrations/*"
+]
+branch = true
+
+[tool.coverage.report]
+fail_under = 80
+precision = 2
+show_missing = true
+skip_covered = false
+exclude_lines = [
+  "pragma: no cover",
+  "def __repr__",
+  "raise AssertionError",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+  "@abstractmethod"
+]
+
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.11"
 warn_unused_configs = true
 warn_return_any = true
 warn_unused_ignores = true
