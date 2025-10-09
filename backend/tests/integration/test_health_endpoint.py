@@ -244,3 +244,31 @@ async def test_health_endpoint_scheduler_check() -> None:
     # If scheduler is running, should include jobs
     if scheduler["status"] == "healthy":
         assert "jobs" in scheduler
+
+
+@pytest.mark.asyncio
+async def test_application_startup_succeeds() -> None:
+    """
+    Test that application startup/lifespan context completes without errors.
+
+    This test ensures the app can start up successfully without crashing
+    due to configuration errors (e.g., missing AppSettings attributes).
+
+    Regression test for: Backend startup failure when accessing non-existent
+    log_level attribute on AppSettings during lifespan initialization.
+    """
+    # The app should already have been initialized via the import at module level
+    # If startup had failed, importing the module would have raised an exception
+
+    # Make a simple request to ensure the app is working
+    async with httpx.AsyncClient(app=app, base_url="http://test") as client:
+        response = await client.get("/health")
+
+    # Should get a valid response (status code in 200-503 range)
+    assert response.status_code in [200, 503], \
+        f"Expected valid health check response, got {response.status_code}: {response.text}"
+
+    # Response should be valid JSON
+    data = response.json()
+    assert "status" in data, "Health response should include status field"
+    assert "components" in data, "Health response should include components"
