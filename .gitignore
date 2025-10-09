@@ -59,3 +59,10 @@ Thumbs.db
 
 # ML model cache (downloaded by sentence-transformers)
 data/models/
+
+# Runtime data files
+data/app.db
+data/exports/
+data/cookies/
+data/vector_index.bin
+data/vector_index.meta.json
