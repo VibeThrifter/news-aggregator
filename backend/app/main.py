@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.app.config import get_settings
 from backend.app.core.logging import configure_logging
 from backend.app.core.scheduler import get_scheduler
+from backend.app.db.session import init_db
 from backend.app.routers import (
     aggregate_router,
     events_router,
@@ -29,6 +30,9 @@ async def lifespan(app: FastAPI):
         json_format=False,  # Use console format for development
         log_file="logs/app.log"
     )
+
+    # Initialize database tables
+    await init_db()
 
     scheduler = get_scheduler()
     scheduler.start()
