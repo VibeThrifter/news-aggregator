@@ -53,15 +53,26 @@ class InsightFallacy(BaseModel):
     spectrum: str = Field(..., min_length=1)
 
 
+class CoverageGap(BaseModel):
+    """Represents an underrepresented perspective or missing context in news coverage."""
+
+    perspective: str = Field(..., min_length=1, description="Name/label of the missing perspective")
+    description: str = Field(..., min_length=1, description="Explanation of what viewpoint or context is missing")
+    relevance: str = Field(..., min_length=1, description="Why this perspective matters for understanding the event")
+    potential_sources: List[str] = Field(default_factory=list, description="Types of sources that might provide this perspective")
+
+
 class InsightsPayload(BaseModel):
     summary: str = Field(..., min_length=100, description="Comprehensive narrative summary combining all articles")
     timeline: List[InsightTimelineItem] = Field(default_factory=list)
     clusters: List[InsightCluster] = Field(default_factory=list)
     contradictions: List[InsightContradiction] = Field(default_factory=list)
     fallacies: List[InsightFallacy] = Field(default_factory=list)
+    coverage_gaps: List[CoverageGap] = Field(default_factory=list, description="Underrepresented perspectives or missing contexts")
 
 
 __all__ = [
+    "CoverageGap",
     "InsightCluster",
     "InsightClusterSource",
     "InsightContradiction",

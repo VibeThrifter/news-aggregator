@@ -41,6 +41,13 @@ export type Contradiction = {
   verification: string;
 };
 
+export type CoverageGap = {
+  perspective: string;
+  description: string;
+  relevance: string;
+  potential_sources: string[];
+};
+
 export type AggregationResponse = {
   query: string;
   generated_at: string;
@@ -50,6 +57,7 @@ export type AggregationResponse = {
   clusters: Cluster[];
   fallacies: Fallacy[];
   contradictions: Contradiction[];
+  coverage_gaps?: CoverageGap[];
 };
 
 export type SpectrumDistribution =

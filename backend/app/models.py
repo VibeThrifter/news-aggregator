@@ -66,6 +66,13 @@ class Contradiction(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class CoverageGap(BaseModel):
+    perspective: str
+    description: str
+    relevance: str
+    potential_sources: List[str]
+
+
 class AggregationResponse(BaseModel):
     query: str
     generated_at: datetime
@@ -75,6 +82,7 @@ class AggregationResponse(BaseModel):
     clusters: List[Cluster]
     fallacies: List[Fallacy]
     contradictions: List[Contradiction]
+    coverage_gaps: List[CoverageGap]
 
 
 class AggregateRequest(BaseModel):
