@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
     # Configure logging with rotating file handler (Story 5.1)
     settings = get_settings()
     configure_logging(
-        log_level=settings.log_level,
+        log_level="INFO",
         json_format=False,  # Use console format for development
         log_file="logs/app.log"
     )
