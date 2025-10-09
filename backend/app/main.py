@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.config import get_settings
+from backend.app.core.logging import configure_logging
 from backend.app.core.scheduler import get_scheduler
 from backend.app.routers import (
     aggregate_router,
@@ -14,12 +15,21 @@ from backend.app.routers import (
     insights_router,
 )
 from backend.app.routers.admin import router as admin_router
+from backend.app.routers.health import router as health_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle (startup and shutdown)."""
     # Startup
+    # Configure logging with rotating file handler (Story 5.1)
+    settings = get_settings()
+    configure_logging(
+        log_level=settings.log_level,
+        json_format=False,  # Use console format for development
+        log_file="logs/app.log"
+    )
+
     scheduler = get_scheduler()
     scheduler.start()
     yield
@@ -49,8 +59,4 @@ app.include_router(events_router)
 app.include_router(insights_router)
 app.include_router(admin_router)
 app.include_router(exports_router)
-
-
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+app.include_router(health_router)  # Story 5.1: Enhanced health endpoint

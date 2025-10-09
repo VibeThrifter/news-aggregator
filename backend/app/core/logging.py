@@ -12,6 +12,8 @@ import logging
 import logging.config
 import sys
 import uuid
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import structlog
@@ -37,26 +39,50 @@ def add_timestamp(logger: WrappedLogger, method_name: str, event_dict: EventDict
     return event_dict
 
 
-def configure_logging(log_level: str = "INFO", json_format: bool = True) -> None:
+def configure_logging(log_level: str = "INFO", json_format: bool = True, log_file: str = "logs/app.log") -> None:
     """
     Configure structured logging for the application.
 
     This function sets up structlog with proper processors, formatters, and correlation
     ID support as required by Story 0.3 and Architecture.md patterns.
 
+    Story 5.1: Added rotating file handler with 10MB max size and 5 backup files.
+
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         json_format: Whether to use JSON formatting (True for production, False for dev)
+        log_file: Path to log file (default: logs/app.log). Rotates at 10MB with 5 backups.
     """
     # Convert string log level to logging constant
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
 
-    # Configure standard library logging
-    logging.basicConfig(
-        format="%(message)s",
-        stream=sys.stdout,
-        level=numeric_level,
+    # Ensure logs directory exists
+    log_path = Path(log_file)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Configure standard library logging with both stdout and rotating file handler
+    root_logger = logging.getLogger()
+    root_logger.setLevel(numeric_level)
+
+    # Clear existing handlers to avoid duplicates
+    root_logger.handlers.clear()
+
+    # Console handler for stdout
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(numeric_level)
+    console_handler.setFormatter(logging.Formatter("%(message)s"))
+    root_logger.addHandler(console_handler)
+
+    # Rotating file handler (10MB max, 5 backups) - Story 5.1
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+        encoding='utf-8'
     )
+    file_handler.setLevel(numeric_level)
+    file_handler.setFormatter(logging.Formatter("%(message)s"))
+    root_logger.addHandler(file_handler)
 
     # Configure structlog processors
     processors = [

@@ -76,6 +76,104 @@ make validate      # Controleer setup
 make clean         # Cleanup gegenereerde bestanden
 make export-events # (optioneel) Schrijft een CSV van alle events naar data/exports/
 ```
+
+## Monitoring & Observability
+
+### Health Endpoint
+
+De backend biedt een uitgebreide `/health` endpoint voor monitoring en observability (Story 5.1):
+
+```bash
+# Check systeemstatus
+curl http://localhost:8000/health
+```
+
+**Response (200 OK wanneer alles gezond is):**
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-10-08T20:15:30.123456",
+  "response_time_ms": 15.23,
+  "version": {
+    "app": "0.1.0",
+    "python": "3.11.13"
+  },
+  "components": {
+    "database": {
+      "status": "healthy",
+      "message": "Database connection successful"
+    },
+    "vector_index": {
+      "status": "healthy",
+      "message": "Vector index file exists",
+      "path": "data/vector_index.bin",
+      "size_bytes": 542416
+    },
+    "llm_config": {
+      "status": "healthy",
+      "message": "LLM API keys configured",
+      "providers": ["mistral"],
+      "active_provider": "mistral"
+    },
+    "scheduler": {
+      "status": "healthy",
+      "message": "Scheduler is running",
+      "jobs": {...}
+    }
+  }
+}
+```
+
+**Status codes:**
+- `200 OK`: Alle componenten gezond of gedegradeerd (warnings, maar geen failures)
+- `503 Service Unavailable`: Een of meer kritieke componenten zijn niet beschikbaar
+
+**Component checks:**
+- **Database**: Test database-connectiviteit met een snelle query
+- **Vector index**: Controleert of het vector index bestand bestaat (`data/vector_index.bin`)
+- **LLM config**: Verifieert dat LLM API keys zijn geconfigureerd
+- **Scheduler**: Controleert of de APScheduler draait en toont job-status
+
+### Logging
+
+Het systeem gebruikt structured logging met roterende bestanden (Story 5.1):
+
+**Log locaties:**
+- Console: stdout (voor development)
+- Bestand: `logs/app.log` (met 10MB rotatie, 5 backups)
+
+**Log format:**
+Alle logs bevatten gestructureerde velden:
+- `timestamp`: ISO timestamp
+- `level`: INFO, WARNING, ERROR, etc.
+- `module`: Python module naam
+- `correlation_id`: Unique ID per request voor tracing
+- `message`: Log bericht + extra context velden
+
+**Log configuratie:**
+```bash
+# In .env:
+LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+```
+
+**Logs inspecteren:**
+```bash
+# Volg live logs
+tail -f logs/app.log
+
+# Zoek errors in laatste 100 lijnen
+tail -100 logs/app.log | grep ERROR
+
+# Filter op correlation_id voor request tracing
+grep "correlation_id=abc-123" logs/app.log
+```
+
+**Log rotatie:**
+- Maximale bestandsgrootte: 10MB
+- Aantal backups: 5
+- Encoding: UTF-8
+- Bestanden worden automatisch geroteerd naar `app.log.1`, `app.log.2`, etc.
+
 ### Handige scripts
 
 Alle losse hulpscripts staan in `/scripts/`. Gebruik bijvoorbeeld `test_rss_feeds.py` om snel te controleren of de RSS-readers antwoord geven:
