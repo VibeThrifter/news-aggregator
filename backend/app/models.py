@@ -51,6 +51,13 @@ class Fallacy(BaseModel):
     spectrum: Optional[str] = None
 
 
+class Frame(BaseModel):
+    frame_type: str
+    description: str
+    sources: List[str]
+    spectrum: Optional[str] = None
+
+
 class ContradictionClaim(BaseModel):
     summary: str
     sources: List[str]
@@ -81,6 +88,7 @@ class AggregationResponse(BaseModel):
     timeline: List[TimelineEvent]
     clusters: List[Cluster]
     fallacies: List[Fallacy]
+    frames: List[Frame]
     contradictions: List[Contradiction]
     coverage_gaps: List[CoverageGap]
 

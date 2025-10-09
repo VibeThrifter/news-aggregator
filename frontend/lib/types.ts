@@ -28,6 +28,13 @@ export type Fallacy = {
   spectrum?: string | null;
 };
 
+export type Frame = {
+  frame_type: string;
+  description: string;
+  sources: string[];
+  spectrum?: string | null;
+};
+
 export type ContradictionClaim = {
   summary: string;
   sources: string[];
@@ -56,6 +63,7 @@ export type AggregationResponse = {
   timeline: TimelineEvent[];
   clusters: Cluster[];
   fallacies: Fallacy[];
+  frames: Frame[];
   contradictions: Contradiction[];
   coverage_gaps?: CoverageGap[];
 };

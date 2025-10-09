@@ -25,6 +25,7 @@ import { ClusterGrid } from "@/components/ClusterGrid";
 import { ContradictionList } from "@/components/ContradictionList";
 import { CoverageGapsList } from "@/components/CoverageGapsList";
 import { FallacyList } from "@/components/FallacyList";
+import { FrameList } from "@/components/FrameList";
 import { InsightsFallback } from "@/components/InsightsFallback";
 import { Timeline } from "@/components/Timeline";
 
@@ -312,6 +313,18 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
                 </p>
               </div>
               <FallacyList items={insights.fallacies} />
+            </div>
+          ) : null}
+
+          {insights.frames?.length ? (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-2xl font-semibold text-white">Framing</h2>
+                <p className="mt-1 text-sm text-slate-300">
+                  Vanuit welk perspectief het verhaal wordt verteld en welke aspecten worden benadrukt.
+                </p>
+              </div>
+              <FrameList items={insights.frames} />
             </div>
           ) : null}
 

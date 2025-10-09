@@ -64,6 +64,7 @@ class InsightRepository:
         clusters: list[Dict[str, Any]],
         contradictions: list[Dict[str, Any]],
         fallacies: list[Dict[str, Any]],
+        frames: list[Dict[str, Any]] | None = None,
         coverage_gaps: list[Dict[str, Any]] | None = None,
         raw_response: str | None,
         generated_at: datetime | None = None,
@@ -82,6 +83,7 @@ class InsightRepository:
             existing.clusters = clusters
             existing.contradictions = contradictions
             existing.fallacies = fallacies
+            existing.frames = frames
             existing.coverage_gaps = coverage_gaps
             existing.raw_response = raw_response
             existing.generated_at = timestamp
@@ -98,6 +100,7 @@ class InsightRepository:
                 clusters=clusters,
                 contradictions=contradictions,
                 fallacies=fallacies,
+                frames=frames,
                 coverage_gaps=coverage_gaps,
                 raw_response=raw_response,
                 generated_at=timestamp,
