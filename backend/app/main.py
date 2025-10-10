@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.config import get_settings
+from backend.app.core.config import get_settings
 from backend.app.core.logging import configure_logging
 from backend.app.core.scheduler import get_scheduler
 from backend.app.db.session import init_db
@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
     # Configure logging with rotating file handler (Story 5.1)
     settings = get_settings()
     configure_logging(
-        log_level="INFO",
+        log_level=settings.log_level,
         json_format=False,  # Use console format for development
         log_file="logs/app.log"
     )
@@ -52,7 +52,7 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3001",
-    ] + ([str(origin) for origin in settings.allow_origins] if settings.allow_origins else []),
+    ] + settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
