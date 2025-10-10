@@ -15,6 +15,8 @@ services:
         sync: false  # Set this manually in Render dashboard
       - key: LOG_LEVEL
         value: INFO
+      - key: FRONTEND_ORIGINS
+        value: https://news-aggregator-frontend.onrender.com
 
   # Frontend (Next.js)
   - type: web
@@ -26,5 +28,4 @@ services:
     startCommand: npm start
     envVars:
       - key: NEXT_PUBLIC_API_BASE_URL
-        # Update this after backend is deployed
-        value: https://news-aggregator-backend.onrender.com
+        value: https://news-aggregator-backend-ae10.onrender.com
