@@ -347,45 +347,58 @@ class IngestService:
                         logger=logger_ctx.bind(article_url=item.url),
                     )
                 except ArticleFetchError:
-                    logger_ctx.warning(
-                        "article_fetch_failed_skip",
-                        url=item.url,
-                        guid=item.guid,
-                    )
-                    yield {"status": "fetch_failures", "article_id": None}
-                    continue
-
-                try:
-                    parsed = parse_article_html(html, url=item.url)
-                except ArticleParseError:
-                    if profile and profile.parser and profile.parser != "trafilatura":
-                        fallback_text = naive_extract_text(html)
-                        if fallback_text:
-                            summary = fallback_text[:320] or (item.summary or "")
-                            parsed = ArticleParseResult(text=fallback_text, summary=summary)
-                            logger_ctx.info(
-                                "article_parse_fallback",
-                                parser=profile.parser,
-                                url=item.url,
-                                guid=item.guid,
-                            )
+                    # Use RSS summary as fallback when full article fetch fails
+                    if item.summary and len(item.summary.strip()) > 0:
+                        logger_ctx.info(
+                            "article_fetch_failed_using_rss_summary",
+                            url=item.url,
+                            guid=item.guid,
+                            summary_length=len(item.summary),
+                        )
+                        # Create minimal parsed result with RSS summary
+                        parsed = ArticleParseResult(text=item.summary, summary=item.summary[:320])
+                    else:
+                        logger_ctx.warning(
+                            "article_fetch_failed_skip",
+                            url=item.url,
+                            guid=item.guid,
+                            reason="no_rss_summary",
+                        )
+                        yield {"status": "fetch_failures", "article_id": None}
+                        continue
+                else:
+                    # Only parse HTML if fetch succeeded
+                    try:
+                        parsed = parse_article_html(html, url=item.url)
+                    except ArticleParseError:
+                        if profile and profile.parser and profile.parser != "trafilatura":
+                            fallback_text = naive_extract_text(html)
+                            if fallback_text:
+                                summary = fallback_text[:320] or (item.summary or "")
+                                parsed = ArticleParseResult(text=fallback_text, summary=summary)
+                                logger_ctx.info(
+                                    "article_parse_fallback",
+                                    parser=profile.parser,
+                                    url=item.url,
+                                    guid=item.guid,
+                                )
+                            else:
+                                logger_ctx.warning(
+                                    "article_parse_failed_skip",
+                                    url=item.url,
+                                    guid=item.guid,
+                                    reason="fallback_empty",
+                                )
+                                yield {"status": "parse_failures", "article_id": None}
+                                continue
                         else:
                             logger_ctx.warning(
                                 "article_parse_failed_skip",
                                 url=item.url,
                                 guid=item.guid,
-                                reason="fallback_empty",
                             )
                             yield {"status": "parse_failures", "article_id": None}
                             continue
-                    else:
-                        logger_ctx.warning(
-                            "article_parse_failed_skip",
-                            url=item.url,
-                            guid=item.guid,
-                        )
-                        yield {"status": "parse_failures", "article_id": None}
-                        continue
 
                 persistence = await repo.upsert_from_feed_item(item, parsed)
                 if persistence.created:
