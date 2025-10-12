@@ -135,7 +135,7 @@ def check_scheduler() -> Dict[str, Any]:
         job_status = scheduler.get_job_status()
 
         # Check if scheduler is running
-        is_running = job_status.get("scheduler_running", False)
+        is_running = job_status.get("status") == "running"
 
         if is_running:
             return {
