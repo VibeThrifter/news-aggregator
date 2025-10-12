@@ -16,7 +16,7 @@ services:
       - key: LOG_LEVEL
         value: INFO
       - key: FRONTEND_ORIGINS
-        value: https://news-aggregator-frontend.onrender.com
+        value: https://news-aggregator-frontend-jy7j.onrender.com
 
   # Frontend (Next.js)
   - type: web
