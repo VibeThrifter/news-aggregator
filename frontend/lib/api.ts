@@ -8,6 +8,7 @@ import type {
   EventSourceBreakdownEntry,
   SpectrumDistribution,
 } from "@/lib/types";
+import { supabase } from "@/lib/supabase";
 
 export interface ApiErrorPayload {
   code: string;
@@ -175,8 +176,34 @@ export const ApiClient = {
   },
 };
 
-export function listEvents(options?: ApiFetchOptions) {
-  return ApiClient.get<EventListItem[]>("/api/v1/events", options);
+export async function listEvents(options?: ApiFetchOptions): Promise<ApiResponse<EventListItem[]>> {
+  const { data, error } = await supabase
+    .from('events')
+    .select('*')
+    .is('archived_at', null)
+    .order('last_updated_at', { ascending: false });
+
+  if (error) {
+    throw new ApiClientError(error.message, 500, {
+      code: 'SUPABASE_ERROR',
+      message: error.message,
+      details: error,
+    });
+  }
+
+  const events: EventListItem[] = (data || []).map((event: any) => ({
+    id: event.id,
+    slug: event.slug,
+    title: event.title || `Event ${event.id}`,
+    description: event.description,
+    event_type: event.event_type,
+    article_count: event.article_count || 0,
+    first_seen_at: event.first_seen_at,
+    last_updated_at: event.last_updated_at,
+    spectrum_distribution: event.spectrum_distribution,
+  }));
+
+  return { data: events };
 }
 
 function encodeEventIdentifier(id: string | number): string {
@@ -186,12 +213,104 @@ function encodeEventIdentifier(id: string | number): string {
   return encodeURIComponent(id);
 }
 
-export function getEventDetail(eventId: string | number, options?: ApiFetchOptions) {
-  return ApiClient.get<EventDetail>(`/api/v1/events/${encodeEventIdentifier(eventId)}`, options);
+export async function getEventDetail(eventId: string | number, options?: ApiFetchOptions): Promise<ApiResponse<EventDetail>> {
+  // Fetch event
+  const { data: event, error: eventError } = await supabase
+    .from('events')
+    .select('*')
+    .eq('id', eventId)
+    .single();
+
+  if (eventError || !event) {
+    throw new ApiClientError(eventError?.message || 'Event not found', 404, {
+      code: 'NOT_FOUND',
+      message: 'Event not found',
+    });
+  }
+
+  // Fetch articles for this event
+  const { data: eventArticles, error: articlesError } = await supabase
+    .from('event_articles')
+    .select(`
+      article_id,
+      similarity_score,
+      articles (*)
+    `)
+    .eq('event_id', eventId);
+
+  if (articlesError) {
+    throw new ApiClientError(articlesError.message, 500, {
+      code: 'SUPABASE_ERROR',
+      message: articlesError.message,
+    });
+  }
+
+  const articles: EventArticle[] = (eventArticles || []).map((ea: any) => ({
+    id: ea.articles.id,
+    title: ea.articles.title,
+    url: ea.articles.url,
+    summary: ea.articles.summary,
+    source_name: ea.articles.source_name,
+    published_at: ea.articles.published_at,
+    similarity_score: ea.similarity_score,
+  }));
+
+  const eventDetail: EventDetail = {
+    id: event.id,
+    slug: event.slug,
+    title: event.title || `Event ${event.id}`,
+    description: event.description,
+    event_type: event.event_type,
+    article_count: event.article_count || 0,
+    first_seen_at: event.first_seen_at,
+    last_updated_at: event.last_updated_at,
+    spectrum_distribution: event.spectrum_distribution,
+    articles,
+  };
+
+  return { data: eventDetail };
 }
 
-export function getEventInsights(eventId: string | number, options?: ApiFetchOptions) {
-  return ApiClient.get<AggregationResponse>(`/api/v1/insights/${encodeEventIdentifier(eventId)}`, options);
+export async function getEventInsights(eventId: string | number, options?: ApiFetchOptions): Promise<ApiResponse<AggregationResponse>> {
+  const { data: insights, error } = await supabase
+    .from('llm_insights')
+    .select('*')
+    .eq('event_id', eventId)
+    .single();
+
+  if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+    throw new ApiClientError(error.message, 500, {
+      code: 'SUPABASE_ERROR',
+      message: error.message,
+    });
+  }
+
+  if (!insights) {
+    // No insights generated yet
+    return {
+      data: {
+        summary: null,
+        timeline: [],
+        clusters: [],
+        contradictions: [],
+        fallacies: [],
+        frames: [],
+        coverage_gaps: [],
+      },
+    };
+  }
+
+  return {
+    data: {
+      summary: insights.summary,
+      timeline: insights.timeline || [],
+      clusters: insights.clusters || [],
+      contradictions: insights.contradictions || [],
+      fallacies: insights.fallacies || [],
+      frames: insights.frames || [],
+      coverage_gaps: insights.coverage_gaps || [],
+    },
+  };
 }
 
 export function triggerInsightsRegeneration(eventId: string | number, options?: ApiFetchOptions) {
