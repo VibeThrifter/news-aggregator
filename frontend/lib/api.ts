@@ -237,7 +237,7 @@ export async function getEventDetail(eventId: string | number, options?: ApiFetc
       similarity_score,
       articles (*)
     `)
-    .eq('event_id', eventId);
+    .eq('event_id', event.id);
 
   if (articlesError) {
     throw new ApiClientError(articlesError.message, 500, {
