@@ -249,10 +249,9 @@ export async function getEventDetail(eventId: string | number, options?: ApiFetc
     id: ea.articles.id,
     title: ea.articles.title,
     url: ea.articles.url,
+    source: ea.articles.source_name || 'Unknown',
     summary: ea.articles.summary,
-    source_name: ea.articles.source_name,
     published_at: ea.articles.published_at,
-    similarity_score: ea.similarity_score,
   }));
 
   const eventDetail: EventDetail = {
