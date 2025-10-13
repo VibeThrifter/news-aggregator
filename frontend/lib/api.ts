@@ -213,12 +213,14 @@ function encodeEventIdentifier(id: string | number): string {
 }
 
 export async function getEventDetail(eventId: string | number, options?: ApiFetchOptions): Promise<ApiResponse<EventDetail>> {
-  // Fetch event
-  const { data: event, error: eventError } = await supabase
-    .from('events')
-    .select('*')
-    .eq('id', eventId)
-    .single();
+  // Fetch event - check if eventId is numeric or a slug
+  const isNumeric = typeof eventId === 'number' || !isNaN(Number(eventId));
+  const query = supabase.from('events').select('*');
+
+  const { data: event, error: eventError } = await (isNumeric
+    ? query.eq('id', Number(eventId))
+    : query.eq('slug', eventId)
+  ).single();
 
   if (eventError || !event) {
     throw new ApiClientError(eventError?.message || 'Event not found', 404, {
@@ -269,10 +271,43 @@ export async function getEventDetail(eventId: string | number, options?: ApiFetc
 }
 
 export async function getEventInsights(eventId: string | number, options?: ApiFetchOptions): Promise<ApiResponse<AggregationResponse>> {
+  // First, get the event to find its numeric ID if a slug was provided
+  const isNumeric = typeof eventId === 'number' || !isNaN(Number(eventId));
+  let numericEventId: number;
+
+  if (isNumeric) {
+    numericEventId = Number(eventId);
+  } else {
+    // Fetch event by slug to get numeric ID
+    const { data: event } = await supabase
+      .from('events')
+      .select('id')
+      .eq('slug', eventId)
+      .single();
+
+    if (!event) {
+      // Event not found, return empty insights
+      return {
+        data: {
+          query: '',
+          generated_at: new Date().toISOString(),
+          summary: null,
+          timeline: [],
+          clusters: [],
+          contradictions: [],
+          fallacies: [],
+          frames: [],
+          coverage_gaps: [],
+        },
+      };
+    }
+    numericEventId = event.id;
+  }
+
   const { data: insights, error } = await supabase
     .from('llm_insights')
     .select('*')
-    .eq('event_id', eventId)
+    .eq('event_id', numericEventId)
     .single();
 
   if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
