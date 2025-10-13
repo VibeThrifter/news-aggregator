@@ -1,0 +1,10 @@
+backend/
+data/
+scripts/
+*.db
+*.bin
+.venv/
+__pycache__/
+*.pyc
+requirements.txt
+.env
