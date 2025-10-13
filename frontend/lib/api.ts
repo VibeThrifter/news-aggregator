@@ -286,6 +286,8 @@ export async function getEventInsights(eventId: string | number, options?: ApiFe
     // No insights generated yet
     return {
       data: {
+        query: '',
+        generated_at: new Date().toISOString(),
         summary: null,
         timeline: [],
         clusters: [],
@@ -299,6 +301,9 @@ export async function getEventInsights(eventId: string | number, options?: ApiFe
 
   return {
     data: {
+      query: '',
+      generated_at: insights.generated_at,
+      llm_provider: insights.provider,
       summary: insights.summary,
       timeline: insights.timeline || [],
       clusters: insights.clusters || [],
