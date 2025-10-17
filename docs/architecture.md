@@ -3,9 +3,11 @@
 Status: Draft
 
 ## Technical Summary
-De MVP wordt een modulair Python-platform dat nieuwsartikelen uit Nederlandse bronnen binnenhaalt, verrijkt en groepeert tot events, waarna een LLM pluriforme perspectieven afleidt. De architectuur splitst ingestie, verwerking, eventdetectie, LLM-analyse en presentatie in duidelijke lagen om onderhoudbaarheid en uitbreidbaarheid te waarborgen.
+De MVP is een modulair Python-platform dat nieuwsartikelen uit Nederlandse bronnen binnenhaalt, verrijkt en groepeert tot events, waarna een LLM pluriforme perspectieven afleidt. De architectuur splitst ingestie, verwerking, eventdetectie, LLM-analyse en presentatie in duidelijke lagen om onderhoudbaarheid en uitbreidbaarheid te waarborgen.
 
-We kiezen voor een service-georiënteerde monoliet: één codebase met gescheiden modules en asynchrone pipelines die lokaal draaien maar schaalbaar zijn naar aparte services. Persistentie gebeurt in SQLite (met WAL) voor robuustheid en makkelijke migratie naar PostgreSQL; vectorindexering blijft in hnswlib. FastAPI biedt REST-endpoints voor de frontend en CSV-exports, terwijl Next.js/Tailwind de UI levert.
+**Deployment Architecture**: Backend draait lokaal (vanwege zware ML-modellen en 512MB memory limits op cloud platforms), schrijft naar Supabase PostgreSQL (cloud database), en de Next.js frontend is gedeployed op Vercel. De frontend haalt data direct op via Supabase JS client voor optimale performance.
+
+We kiezen voor een service-georiënteerde monoliet: één codebase met gescheiden modules en asynchrone pipelines. Persistentie gebeurt in Supabase PostgreSQL (cloud); vectorindexering blijft lokaal in hnswlib. FastAPI biedt REST-endpoints voor admin/trigger functies, terwijl Next.js/Tailwind de UI levert.
 
 ## Technology Table
 
@@ -16,9 +18,11 @@ We kiezen voor een service-georiënteerde monoliet: één codebase met gescheide
 | FastAPI | 0.111 | REST API layer met async support |
 | Uvicorn | 0.30 | ASGI-server voor FastAPI |
 | APScheduler | 3.10 | In-process scheduler voor periodieke ingestietaken |
-| SQLAlchemy | 2.0 | ORM + querylaag boven SQLite/PostgreSQL |
-| SQLite | 3.45 (WAL) | Embedded database voor MVP, eenvoudig te migreren |
-| Alembic | 1.13 | Database migrations vanaf MVP |
+| SQLAlchemy | 2.0 | ORM + querylaag boven PostgreSQL |
+| Supabase PostgreSQL | 15+ | Cloud PostgreSQL database (500MB free tier) |
+| asyncpg | 0.29 | Async PostgreSQL driver voor SQLAlchemy |
+| @supabase/supabase-js | latest | Frontend client voor directe Supabase queries |
+| Alembic | 1.13 | Database migrations (gebruikt voor schema setup) |
 | hnswlib | 0.7 | Persistente ANN-vectorindex voor eventkandidaten |
 | sentence-transformers | 2.7 | Embeddings (`paraphrase-multilingual-MiniLM-L12-v2`) |
 | spaCy | 3.7 (`nl_core_news_lg`) | NER en NLP preprocessing |
@@ -38,7 +42,7 @@ We kiezen voor een service-georiënteerde monoliet: één codebase met gescheide
 
 ## High-Level Overview
 
-Architectuurstijl: **Service-georiënteerde modulair monoliet**. Eén repository bevat discrete lagen voor ingestie, processing, analytics en presentatie. Componenten communiceren via interne service-interfaces en delen een centrale database plus bestandsopslag. Deze keuze biedt lokale eenvoud en maakt toekomstige opsplitsing in microservices mogelijk (door duidelijke boundaries, adapters en config via `.env`).
+Architectuurstijl: **Hybrid Service-georiënteerde modulair monoliet**. Eén repository bevat discrete lagen voor ingestie, processing, analytics en presentatie. Backend draait lokaal (ML models te zwaar voor cloud free tier), schrijft naar Supabase PostgreSQL (cloud), en frontend op Vercel haalt data direct van Supabase. Deze keuze biedt lokale ML-kracht, cloud-schaalbaarheid en gratis hosting voor de frontend.
 
 ```mermaid
 flowchart LR
@@ -60,14 +64,18 @@ flowchart LR
     end
 
     subgraph Storage
-        DB[(SQLite DB)]
-        VectorStore[(hnswlib Index)]
+        DB[(Supabase PostgreSQL)]
+        VectorStore[(hnswlib Index - Local)]
         BlobStore[(Local filesystem: article cache, CSV)]
     end
 
-    subgraph Frontend
+    subgraph Frontend [Frontend - Vercel]
         NextApp[Next.js UI]
-        Analysts[Researchers / CSV Consumers]
+        SupabaseClient[@supabase/supabase-js]
+    end
+
+    subgraph Analysts
+        CSVConsumers[Researchers / CSV Consumers]
     end
 
     RSS --> Scheduler --> IngestService --> NLPService --> EventDetector
@@ -76,8 +84,8 @@ flowchart LR
     LLMOrchestrator --> RepositoryLayer
     RepositoryLayer --> CSVExporter --> BlobStore
     FastAPI --> RepositoryLayer
-    FastAPI --> CSVExporter
-    NextApp --> FastAPI
+    NextApp --> SupabaseClient --> DB
+    CSVConsumers --> BlobStore
     Analysts --> BlobStore
 ```
 
@@ -217,7 +225,7 @@ erDiagram
     }
 ```
 
-### Core Table Definitions (SQLite syntax)
+### Core Table Definitions (PostgreSQL syntax)
 
 ```sql
 CREATE TABLE sources (
@@ -553,7 +561,7 @@ Configuratie via `.env`:
   2. `make setup` (creeert .venv, installeert requirements.txt + npm dependencies).
   3. Kopieer `.env.example` → `.env`; vul `MISTRAL_API_KEY`, scheduler interval, embedding modelnaam en de nieuwe vectorindex-parameters (`VECTOR_INDEX_*`, `EVENT_CANDIDATE_*`).
   4. Controleer dat het pad in `VECTOR_INDEX_PATH` schrijfbaar is (default `./data/vector_index.bin`) en maak zo nodig `data/` + `data/models/` aan.
-  5. Initialiseert database: `source .venv/bin/activate && alembic upgrade head` (maakt SQLite + schema).
+  5. Initialiseert database: Gebruik `scripts/create_supabase_tables.py` om schema aan te maken in Supabase PostgreSQL.
   6. Download spaCy model: `source .venv/bin/activate && python -m spacy download nl_core_news_lg` (wanneer NER geimplementeerd).
   7. Prime TF-IDF model: `source .venv/bin/activate && python backend/scripts/build_tfidf.py --bootstrap` (wanneer ML geimplementeerd).
   8. Start dev stack: `make dev` (backend + frontend) of afzonderlijk via `make backend-dev`.
@@ -561,13 +569,22 @@ Configuratie via `.env`:
 
 ## Infrastructure and Deployment
 
+- **Hybrid Deployment Architecture**
+  - **Backend**: Draait lokaal (vanwege zware ML-modellen: 2GB+ PyTorch/spaCy/embeddings)
+  - **Database**: Supabase PostgreSQL (cloud, 500MB free tier)
+  - **Frontend**: Vercel (cloud, auto-deploy via GitHub)
+  - **Data Flow**: Backend (local) → Supabase (cloud) ← Frontend (Vercel)
+
 - **Execution Environment**
-  - MVP draait lokaal via Docker Compose (FastAPI, Next.js, volumes voor data, SQLite file).
-  - Optionele dev container (VSCode Dev Containers) voor consistente toolchain.
+  - Backend: `make backend-dev` of `uvicorn backend.app.main:app --reload`
+  - Frontend: `make frontend-dev` of `cd frontend && npm run dev`
+  - Database: Supabase PostgreSQL via asyncpg driver
+
 - **Persistence**
-  - SQLite database met WAL-mode op gedeelde volume `./data/db.sqlite`.
-  - hnswlib indexbestand `./data/vector_index.bin` met checksum controle.
-  - CSV-exports opgeslagen in `./data/exports/` met timestamp in bestandsnaam.
+  - **Database**: Supabase PostgreSQL (articles, events, event_articles, llm_insights)
+  - **Vector Index**: Lokaal hnswlib bestand `./data/vector_index.bin` met metadata JSON
+  - **CSV-exports**: Lokaal opgeslagen in `./data/exports/` met timestamp in bestandsnaam
+  - **Cookies**: NU.nl consent cookies cached in `./data/cookies/nunl_rss.json`
 - **CI/CD**
   - GitHub Actions workflow `ci.yml` draait lint, tests en build.
   - Artefact: gecontaineriseerde backend/frontend images (ghcr.io).

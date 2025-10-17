@@ -25,21 +25,32 @@ Always consult these canonical documents before starting any task:
 
 ### Backend (Python 3.11)
 - **Framework**: FastAPI with Uvicorn
-- **Database**: SQLite with SQLAlchemy ORM
+- **Database**: Supabase PostgreSQL with SQLAlchemy ORM (asyncpg driver)
 - **Dependencies**: venv + pip with `requirements.txt`
 - **ML Stack**: PyTorch 2.2.2 + sentence-transformers 2.7.0 + hnswlib + spaCy (fully operational)
 - **Testing**: pytest with coverage target ≥80%
+- **Deployment**: Runs locally (heavy ML models), writes to cloud database
 
 ### Frontend (Next.js 14)
 - **Framework**: Next.js App Router
 - **Styling**: Tailwind CSS 3.4
 - **Components**: React 18 with TypeScript
+- **Data Access**: Direct Supabase queries via `@supabase/supabase-js`
 - **Testing**: Playwright for E2E tests
+- **Deployment**: Vercel (auto-deploys from GitHub)
+
+### Deployment Architecture
+- **Backend**: Runs locally (to avoid 512MB memory limits for ML models)
+- **Database**: Supabase PostgreSQL (free tier, 500MB)
+- **Frontend**: Vercel (free tier, auto-deploys from GitHub)
+- **Data Flow**: Backend writes to Supabase → Frontend reads from Supabase
 
 ### Development Tools
 - **Build System**: Comprehensive Makefile with all dev targets
 - **Linting**: ruff + black (Python), ESLint (JavaScript/TypeScript)
-- **Environment**: `.env.example` → `.env` for configuration
+- **Environment**:
+  - Backend: `.env` (DATABASE_URL, Mistral API key)
+  - Frontend: `frontend/.env.local` (Supabase credentials)
 - **Utility scripts**: `/scripts/test_rss_feeds.py` voor snelle feedchecks; voeg nieuwe helpers in dezelfde map toe
 
 ## ⚙️ Quick Start Commands
@@ -117,22 +128,24 @@ make clean             # Clean up generated files
 ## 🚨 Important Notes
 
 ### Current Status
-- **Backend**: Fully functional with Python 3.11 + venv + SQLite database
-- **Frontend**: Next.js 14 fully implemented with dark mode UI
+- **Backend**: Fully functional with Python 3.11 + venv, runs locally with Supabase PostgreSQL
+- **Frontend**: Next.js 14 deployed on Vercel with dark mode UI
+- **Database**: Supabase PostgreSQL (cloud), direct queries from frontend via Supabase JS client
 - **ML Features**: Fully operational - PyTorch embeddings, vector search (hnswlib), spaCy NER
-- **Database**: SQLite with WAL mode, Alembic migrations configured
-- **LLM Classification**: **NEW** - Mistral-based semantic event type classification (replaced keyword matching)
-- **Clustering Performance**: **IMPROVED** - 32.0% clustering rate (2.16x improvement from 14.78% baseline)
-- **LLM Insights**: Auto-generation working with Mistral API, narrative summaries included
-- **REST API**: Full JSON:API-lite endpoints for events and insights
-- **Event Detail**: Complete detail pages with timeline, clusters, contradictions, fallacies
+- **LLM Classification**: Mistral-based semantic event type classification (replaced keyword matching)
+- **Clustering Performance**: 32.0% clustering rate (2.16x improvement from 14.78% baseline)
+- **LLM Insights**: Auto-generation working with Mistral API, narrative summaries, frames, coverage gaps
+- **REST API**: Backend endpoints for admin/trigger functions
+- **Event Detail**: Complete detail pages with timeline, clusters, contradictions, fallacies, frames
+- **RSS Polling**: Automated every 15 minutes via APScheduler (backend)
 
 ### What NOT to Do
 - ❌ Don't install Poetry (project uses venv + pip)
 - ❌ Don't upgrade Python beyond 3.11 (PyTorch compatibility)
 - ❌ Don't create features outside the story backlog
 - ❌ Don't skip testing requirements
-- ❌ Don't commit secrets or API keys
+- ❌ Don't commit secrets or API keys (especially Supabase credentials)
+- ❌ Don't try to deploy backend to cloud (runs locally due to ML models)
 
 ### When to Ask for Help
 - If story requirements conflict with current setup
