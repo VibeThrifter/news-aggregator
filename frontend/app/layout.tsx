@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import Link from "next/link";
 import "@/styles/globals.css";
 
 export const metadata: Metadata = {
@@ -20,14 +21,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <div className="flex min-h-screen flex-col">
           <header className="border-b border-slate-700 bg-slate-800">
             <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-              <div>
+              <Link href="/" className="cursor-pointer transition-opacity hover:opacity-80">
                 <p className="text-sm font-semibold uppercase tracking-[0.18em] text-brand-400">
                   360° Nieuwsaggregator
                 </p>
                 <h1 className="text-lg font-semibold text-slate-100 sm:text-xl">
                   Pluriform overzicht van Nederlandse nieuwsevents
                 </h1>
-              </div>
+              </Link>
               <div className="hidden rounded-lg border border-slate-600 bg-slate-700/50 px-3 py-2 text-right text-xs text-slate-300 sm:block">
                 <p className="font-medium text-slate-100">MVP Status</p>
                 <p>Frontend shell actief</p>
