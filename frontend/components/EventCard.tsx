@@ -23,6 +23,19 @@ function buildSpectrumClassName(spectrumKey: string): string {
   }`;
 }
 
+function extractTitleAndDescription(summary: string | null | undefined): { title: string; description: string | null } {
+  if (!summary) {
+    return { title: "", description: null };
+  }
+  // Split on first sentence ending (. ! ?)
+  const match = summary.match(/^(.+?[.!?])\s*(.*)$/s);
+  if (match) {
+    return { title: match[1].trim(), description: match[2].trim() || null };
+  }
+  // No sentence ending found, use whole text as title
+  return { title: summary, description: null };
+}
+
 export interface EventCardProps {
   event: EventListItem;
 }
@@ -31,6 +44,11 @@ export function EventCard({ event }: EventCardProps) {
   const spectrumBadges = useMemo(
     () => resolveSpectrumBadges(event.spectrum_distribution),
     [event.spectrum_distribution],
+  );
+
+  const { title: summaryTitle, description: summaryDescription } = useMemo(
+    () => extractTitleAndDescription(event.description),
+    [event.description],
   );
 
   const timeframeLabel = formatEventTimeframe(event.first_seen_at, event.last_updated_at);
@@ -43,7 +61,6 @@ export function EventCard({ event }: EventCardProps) {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-400">Event</p>
-          <h2 className="text-xl font-semibold text-slate-100 sm:text-2xl">{event.title}</h2>
           <p className="text-sm text-slate-300">{timeframeLabel}</p>
         </div>
         <div className="flex items-center gap-2 rounded-full border border-slate-600 bg-slate-700/50 px-4 py-2 text-sm font-medium text-slate-200">
@@ -52,9 +69,14 @@ export function EventCard({ event }: EventCardProps) {
         </div>
       </header>
 
-      {event.description ? (
-        <p className="text-sm leading-6 text-slate-300">{event.description}</p>
-      ) : null}
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-slate-100">
+          {summaryTitle || event.title}
+        </h2>
+        {summaryDescription ? (
+          <p className="text-sm leading-relaxed text-slate-300">{summaryDescription}</p>
+        ) : null}
+      </div>
 
       {spectrumBadges.length > 0 ? (
         <ul className="flex flex-wrap gap-2" aria-label="Bronverdeling">

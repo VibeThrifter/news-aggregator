@@ -177,9 +177,13 @@ export const ApiClient = {
 };
 
 export async function listEvents(options?: ApiFetchOptions): Promise<ApiResponse<EventListItem[]>> {
+  // Fetch events with their LLM insights (summary) via a join
   const { data, error } = await supabase
     .from('events')
-    .select('*')
+    .select(`
+      *,
+      llm_insights (summary)
+    `)
     .is('archived_at', null)
     .order('last_updated_at', { ascending: false });
 
@@ -191,16 +195,22 @@ export async function listEvents(options?: ApiFetchOptions): Promise<ApiResponse
     });
   }
 
-  const events: EventListItem[] = (data || []).map((event: any) => ({
-    id: event.id,
-    slug: event.slug,
-    title: event.title || `Event ${event.id}`,
-    description: event.description,
-    article_count: event.article_count || 0,
-    first_seen_at: event.first_seen_at,
-    last_updated_at: event.last_updated_at,
-    spectrum_distribution: event.spectrum_distribution,
-  }));
+  const events: EventListItem[] = (data || []).map((event: any) => {
+    // Use LLM-generated summary as the description for the event card
+    const insightSummary = event.llm_insights?.summary;
+
+    return {
+      id: event.id,
+      slug: event.slug,
+      title: event.title || `Event ${event.id}`,
+      description: insightSummary || event.description,
+      summary: insightSummary,
+      article_count: event.article_count || 0,
+      first_seen_at: event.first_seen_at,
+      last_updated_at: event.last_updated_at,
+      spectrum_distribution: event.spectrum_distribution,
+    };
+  });
 
   return { data: events };
 }
