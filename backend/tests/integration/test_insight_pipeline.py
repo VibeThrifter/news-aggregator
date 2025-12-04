@@ -59,6 +59,7 @@ async def test_insight_service_persists_payload() -> None:
     )
 
     payload = InsightsPayload(
+        summary="Dit is een uitgebreide samenvatting van de demonstratie op het Malieveld. " * 5,
         timeline=[
             {
                 "time": "2024-02-12T10:00:00+00:00",
@@ -69,16 +70,15 @@ async def test_insight_service_persists_payload() -> None:
         ],
         clusters=[
             {
-                "label": "Publieke omroep",
+                "label": "Neutraal-feitelijk",
                 "spectrum": "mainstream",
                 "source_types": ["public_broadcaster"],
                 "summary": "NOS en RTL benoemen het vreedzame karakter.",
-                "characteristics": ["vreedzaam"],
                 "sources": [
                     {
                         "title": "NOS liveblog",
                         "url": "https://example.com/a",
-                        "spectrum": "center",
+                        "spectrum": "mainstream",
                         "stance": "neutraal",
                     }
                 ],
@@ -86,6 +86,8 @@ async def test_insight_service_persists_payload() -> None:
         ],
         contradictions=[],
         fallacies=[],
+        frames=[],
+        coverage_gaps=[],
     )
 
     result = LLMResult(

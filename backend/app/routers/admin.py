@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from backend.app.core.scheduler import get_scheduler
 from backend.app.services.enrich_service import ArticleEnrichmentService
+from backend.app.services.event_service import EventService
 from backend.app.services.insight_service import InsightGenerationOutcome, InsightService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -34,6 +35,14 @@ async def trigger_enrich():
     """Manually trigger article enrichment."""
     enrichment_service = ArticleEnrichmentService()
     result = await enrichment_service.enrich_pending(limit=None)
+    return result
+
+
+@router.post("/trigger/assign-events")
+async def trigger_assign_events():
+    """Manually trigger event assignment for enriched articles without events."""
+    event_service = EventService()
+    result = await event_service.assign_orphaned_articles()
     return result
 
 

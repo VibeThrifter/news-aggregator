@@ -24,6 +24,12 @@ import { ArticleList } from "@/components/ArticleList";
 import { ClusterGrid } from "@/components/ClusterGrid";
 import { ContradictionList } from "@/components/ContradictionList";
 import { CoverageGapsList } from "@/components/CoverageGapsList";
+import {
+  UnsubstantiatedClaimsList,
+  AuthorityAnalysisList,
+  MediaAnalysisList,
+  ScientificPluralityCard,
+} from "@/components/CriticalAnalysis";
 import { FallacyList } from "@/components/FallacyList";
 import { FrameList } from "@/components/FrameList";
 import { InsightsFallback } from "@/components/InsightsFallback";
@@ -104,7 +110,11 @@ function hasInsightsContent(insights: AggregationResponse | null): boolean {
     insights.clusters.length ||
     insights.fallacies.length ||
     insights.contradictions.length ||
-    insights.coverage_gaps?.length,
+    insights.coverage_gaps?.length ||
+    insights.unsubstantiated_claims?.length ||
+    insights.authority_analysis?.length ||
+    insights.media_analysis?.length ||
+    insights.scientific_plurality,
   );
 }
 
@@ -279,7 +289,8 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
       {insightsFallbackReason ? <InsightsFallback eventId={event.id} reason={insightsFallbackReason} /> : null}
 
       {showInsights && insights ? (
-        <section className="space-y-8">
+        <section className="space-y-12">
+          {/* === SECTIE 1: OVERZICHT === */}
           {insights.timeline.length ? (
             <div>
               <h2 className="text-2xl font-semibold text-white">Chronologie</h2>
@@ -295,60 +306,138 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
           {insights.clusters.length ? (
             <div className="space-y-4">
               <div>
-                <h2 className="text-2xl font-semibold text-white">Invalshoeken</h2>
+                <h2 className="text-2xl font-semibold text-white">Standpunten</h2>
                 <p className="mt-1 text-sm text-slate-300">
-                  Groepering van verschillende perspectieven met spectrumlabels en bronlinks.
+                  Groepering van artikelen op basis van ingenomen standpunt of perspectief.
                 </p>
               </div>
               <ClusterGrid clusters={insights.clusters} />
             </div>
           ) : null}
 
-          {insights.fallacies.length ? (
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-2xl font-semibold text-white">Drogredeneringen</h2>
+          {/* === SECTIE 2: KRITISCHE ANALYSE === */}
+          {(insights.unsubstantiated_claims?.length ||
+            insights.authority_analysis?.length ||
+            insights.media_analysis?.length ||
+            insights.scientific_plurality ||
+            insights.fallacies.length ||
+            insights.frames?.length) ? (
+            <div className="space-y-8">
+              <div className="border-t border-white/10 pt-8">
+                <h2 className="text-2xl font-semibold text-aurora-300">Kritische Analyse</h2>
                 <p className="mt-1 text-sm text-slate-300">
-                  Signalen waar argumentatie afwijkt van journalistieke standaarden.
+                  Diepgaande analyse van claims, bronnen, framing en berichtgeving.
                 </p>
               </div>
-              <FallacyList items={insights.fallacies} />
+
+              {insights.unsubstantiated_claims?.length ? (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-xl font-semibold text-white">Ononderbouwde claims</h3>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Claims die als feit worden gepresenteerd zonder adequate onderbouwing.
+                    </p>
+                  </div>
+                  <UnsubstantiatedClaimsList items={insights.unsubstantiated_claims} />
+                </div>
+              ) : null}
+
+              {insights.authority_analysis?.length ? (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-xl font-semibold text-white">Bronkritiek</h3>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Kritische analyse van geciteerde autoriteiten en hun mandaat.
+                    </p>
+                  </div>
+                  <AuthorityAnalysisList items={insights.authority_analysis} />
+                </div>
+              ) : null}
+
+              {insights.fallacies.length ? (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-xl font-semibold text-white">Drogredeneringen</h3>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Logische drogredenen in de argumentatie.
+                    </p>
+                  </div>
+                  <FallacyList items={insights.fallacies} />
+                </div>
+              ) : null}
+
+              {insights.frames?.length ? (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-xl font-semibold text-white">Framingtechnieken</h3>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Hoe het verhaal wordt gepresenteerd en welke aspecten worden benadrukt of weggelaten.
+                    </p>
+                  </div>
+                  <FrameList items={insights.frames} />
+                </div>
+              ) : null}
+
+              {insights.scientific_plurality ? (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-xl font-semibold text-white">Wetenschappelijke pluraliteit</h3>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Wordt dit onderwerp gepresenteerd als consensus terwijl er wetenschappelijk debat is?
+                    </p>
+                  </div>
+                  <ScientificPluralityCard data={insights.scientific_plurality} />
+                </div>
+              ) : null}
             </div>
           ) : null}
 
-          {insights.frames?.length ? (
+          {/* === SECTIE 3: MEDIA-ANALYSE === */}
+          {insights.media_analysis?.length ? (
             <div className="space-y-4">
-              <div>
-                <h2 className="text-2xl font-semibold text-white">Framing</h2>
+              <div className="border-t border-white/10 pt-8">
+                <h2 className="text-2xl font-semibold text-rose-300">Media-analyse</h2>
                 <p className="mt-1 text-sm text-slate-300">
-                  Vanuit welk perspectief het verhaal wordt verteld en welke aspecten worden benadrukt.
+                  Kritische analyse van de berichtgeving zelf: patronen, niet-gestelde vragen, weggelaten perspectieven.
                 </p>
               </div>
-              <FrameList items={insights.frames} />
+              <MediaAnalysisList items={insights.media_analysis} />
             </div>
           ) : null}
 
-          {insights.contradictions.length ? (
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-2xl font-semibold text-white">Tegenstrijdige claims</h2>
+          {/* === SECTIE 4: VERGELIJKING === */}
+          {(insights.contradictions.length || insights.coverage_gaps?.length) ? (
+            <div className="space-y-8">
+              <div className="border-t border-white/10 pt-8">
+                <h2 className="text-2xl font-semibold text-white">Bronvergelijking</h2>
                 <p className="mt-1 text-sm text-slate-300">
-                  Bronvergelijking met detectie van conflicterende uitspraken.
+                  Vergelijking tussen bronnen: tegenstrijdigheden en onderbelichte perspectieven.
                 </p>
               </div>
-              <ContradictionList items={insights.contradictions} />
-            </div>
-          ) : null}
 
-          {insights.coverage_gaps?.length ? (
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-2xl font-semibold text-white">Onderbelichte perspectieven</h2>
-                <p className="mt-1 text-sm text-slate-300">
-                  Invalshoeken en contexten die ontbreken in de huidige berichtgeving.
-                </p>
-              </div>
-              <CoverageGapsList items={insights.coverage_gaps} />
+              {insights.contradictions.length ? (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-xl font-semibold text-white">Tegenstrijdige claims</h3>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Conflicterende uitspraken tussen verschillende bronnen.
+                    </p>
+                  </div>
+                  <ContradictionList items={insights.contradictions} />
+                </div>
+              ) : null}
+
+              {insights.coverage_gaps?.length ? (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-xl font-semibold text-white">Onderbelichte perspectieven</h3>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Invalshoeken en contexten die ontbreken in de huidige berichtgeving.
+                    </p>
+                  </div>
+                  <CoverageGapsList items={insights.coverage_gaps} />
+                </div>
+              ) : null}
             </div>
           ) : null}
         </section>

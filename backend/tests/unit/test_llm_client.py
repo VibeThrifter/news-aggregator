@@ -18,6 +18,7 @@ from backend.app.llm.client import (
 @pytest.mark.asyncio
 async def test_mistral_client_success_parses_payload() -> None:
     payload = {
+        "summary": "Dit is een uitgebreide samenvatting van het nieuws over het protest. " * 10,
         "timeline": [
             {
                 "time": "2024-02-12T10:00:00+00:00",
@@ -28,16 +29,15 @@ async def test_mistral_client_success_parses_payload() -> None:
         ],
         "clusters": [
             {
-                "label": "Publieke Omroep",
+                "label": "Neutraal-feitelijk",
                 "spectrum": "mainstream",
                 "source_types": ["public_broadcaster"],
                 "summary": "NOS en RTL leggen nadruk op geweldloos verloop.",
-                "characteristics": ["neutraal"],
                 "sources": [
                     {
                         "title": "Liveblog protest",
                         "url": "https://example.com/a",
-                        "spectrum": "center",
+                        "spectrum": "mainstream",
                         "stance": "beschrijvend",
                     }
                 ],
@@ -45,6 +45,16 @@ async def test_mistral_client_success_parses_payload() -> None:
         ],
         "contradictions": [],
         "fallacies": [],
+        "frames": [
+            {
+                "frame_type": "conflict",
+                "technique": "",
+                "description": "Het conflict frame benadrukt de spanning tussen demonstranten en politie.",
+                "sources": ["https://example.com/a"],
+                "spectrum": "mainstream",
+            }
+        ],
+        "coverage_gaps": [],
     }
 
     async def handler(request: httpx.Request) -> httpx.Response:

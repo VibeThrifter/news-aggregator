@@ -80,6 +80,44 @@ class CoverageGap(BaseModel):
     potential_sources: List[str]
 
 
+# Kritische analyse types
+class UnsubstantiatedClaim(BaseModel):
+    claim: str
+    presented_as: str
+    source_in_article: str
+    evidence_provided: str
+    missing_context: List[str] = Field(default_factory=list)
+    critical_questions: List[str] = Field(default_factory=list)
+
+
+class AuthorityAnalysis(BaseModel):
+    authority: str
+    authority_type: str
+    claimed_expertise: str
+    scope_creep: Optional[str] = None
+    composition_question: Optional[str] = None
+    potential_interests: List[str] = Field(default_factory=list)
+    critical_questions: List[str] = Field(default_factory=list)
+
+
+class MediaAnalysis(BaseModel):
+    source: str
+    tone: str
+    pattern: str
+    questions_not_asked: List[str] = Field(default_factory=list)
+    perspectives_omitted: List[str] = Field(default_factory=list)
+    framing_by_omission: str
+
+
+class ScientificPlurality(BaseModel):
+    topic: str
+    presented_view: str
+    alternative_views_mentioned: bool
+    known_debates: List[str] = Field(default_factory=list)
+    notable_dissenters: str
+    assessment: str
+
+
 class AggregationResponse(BaseModel):
     query: str
     generated_at: datetime
@@ -90,7 +128,12 @@ class AggregationResponse(BaseModel):
     fallacies: List[Fallacy]
     frames: List[Frame]
     contradictions: List[Contradiction]
-    coverage_gaps: List[CoverageGap]
+    coverage_gaps: List[CoverageGap] = Field(default_factory=list)
+    # Kritische analyse
+    unsubstantiated_claims: List[UnsubstantiatedClaim] = Field(default_factory=list)
+    authority_analysis: List[AuthorityAnalysis] = Field(default_factory=list)
+    media_analysis: List[MediaAnalysis] = Field(default_factory=list)
+    scientific_plurality: Optional[ScientificPlurality] = None
 
 
 class AggregateRequest(BaseModel):

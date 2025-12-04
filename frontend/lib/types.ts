@@ -55,6 +55,44 @@ export type CoverageGap = {
   potential_sources: string[];
 };
 
+// Nieuwe kritische analyse types
+export type UnsubstantiatedClaim = {
+  claim: string;
+  presented_as: string;
+  source_in_article: string;
+  evidence_provided: string;
+  missing_context: string[];
+  critical_questions: string[];
+};
+
+export type AuthorityAnalysis = {
+  authority: string;
+  authority_type: string;
+  claimed_expertise: string;
+  scope_creep?: string | null;
+  composition_question?: string | null;
+  potential_interests: string[];
+  critical_questions: string[];
+};
+
+export type MediaAnalysis = {
+  source: string;
+  tone: string;
+  pattern: string;
+  questions_not_asked: string[];
+  perspectives_omitted: string[];
+  framing_by_omission: string;
+};
+
+export type ScientificPlurality = {
+  topic: string;
+  presented_view: string;
+  alternative_views_mentioned: boolean;
+  known_debates: string[];
+  notable_dissenters: string;
+  assessment: string;
+};
+
 export type AggregationResponse = {
   query: string;
   generated_at: string;
@@ -66,6 +104,11 @@ export type AggregationResponse = {
   frames: Frame[];
   contradictions: Contradiction[];
   coverage_gaps?: CoverageGap[];
+  // Nieuwe kritische analyse velden
+  unsubstantiated_claims?: UnsubstantiatedClaim[];
+  authority_analysis?: AuthorityAnalysis[];
+  media_analysis?: MediaAnalysis[];
+  scientific_plurality?: ScientificPlurality | null;
 };
 
 export type SpectrumDistribution =

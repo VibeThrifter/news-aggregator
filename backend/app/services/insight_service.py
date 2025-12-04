@@ -87,6 +87,11 @@ class InsightService:
                 fallacies=payload_dict.get("fallacies", []),
                 frames=payload_dict.get("frames", []),
                 coverage_gaps=payload_dict.get("coverage_gaps", []),
+                # Nieuwe kritische analyse velden
+                unsubstantiated_claims=payload_dict.get("unsubstantiated_claims", []),
+                authority_analysis=payload_dict.get("authority_analysis", []),
+                media_analysis=payload_dict.get("media_analysis", []),
+                scientific_plurality=payload_dict.get("scientific_plurality"),
                 raw_response=llm_result.raw_content,
             )
 

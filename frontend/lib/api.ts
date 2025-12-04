@@ -298,6 +298,10 @@ export async function getEventInsights(eventId: string | number, options?: ApiFe
           fallacies: [],
           frames: [],
           coverage_gaps: [],
+          unsubstantiated_claims: [],
+          authority_analysis: [],
+          media_analysis: [],
+          scientific_plurality: null,
         },
       };
     }
@@ -330,6 +334,10 @@ export async function getEventInsights(eventId: string | number, options?: ApiFe
         fallacies: [],
         frames: [],
         coverage_gaps: [],
+        unsubstantiated_claims: [],
+        authority_analysis: [],
+        media_analysis: [],
+        scientific_plurality: null,
       },
     };
   }
@@ -346,6 +354,11 @@ export async function getEventInsights(eventId: string | number, options?: ApiFe
       fallacies: insights.fallacies || [],
       frames: insights.frames || [],
       coverage_gaps: insights.coverage_gaps || [],
+      // Kritische analyse velden
+      unsubstantiated_claims: insights.unsubstantiated_claims || [],
+      authority_analysis: insights.authority_analysis || [],
+      media_analysis: insights.media_analysis || [],
+      scientific_plurality: insights.scientific_plurality || null,
     },
   };
 }

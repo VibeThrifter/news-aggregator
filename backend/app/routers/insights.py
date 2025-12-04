@@ -69,6 +69,11 @@ async def get_event_insights(
         frames=insight.frames or [],
         contradictions=insight.contradictions or [],
         coverage_gaps=insight.coverage_gaps or [],
+        # Kritische analyse velden
+        unsubstantiated_claims=insight.unsubstantiated_claims or [],
+        authority_analysis=insight.authority_analysis or [],
+        media_analysis=insight.media_analysis or [],
+        scientific_plurality=insight.scientific_plurality,
     )
 
     return {
