@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 
@@ -9,6 +9,7 @@ import { DEFAULT_CATEGORY, getCategoryLabel } from "@/lib/categories";
 
 import CategoryNav from "./CategoryNav";
 import EventCard from "./EventCard";
+import SearchBar from "./SearchBar";
 import StatusBanner from "./StatusBanner";
 
 interface NormalisedMeta {
@@ -129,28 +130,49 @@ function ErrorState({ message, onRetry, isRetrying }: ErrorStateProps) {
 interface EmptyStateProps {
   onRetry: () => void;
   categoryLabel?: string;
+  searchQuery?: string;
+  onClearSearch?: () => void;
 }
 
-function EmptyState({ onRetry, categoryLabel }: EmptyStateProps) {
-  const message = categoryLabel
-    ? `Geen events in de categorie "${categoryLabel}".`
-    : "Er zijn nog geen events beschikbaar.";
+function EmptyState({ onRetry, categoryLabel, searchQuery, onClearSearch }: EmptyStateProps) {
+  let message: string;
+  let hint: string;
+
+  if (searchQuery) {
+    message = `Geen events gevonden voor "${searchQuery}".`;
+    hint = categoryLabel
+      ? "Probeer een andere zoekterm of wis de zoekfilter."
+      : "Probeer een andere zoekterm.";
+  } else if (categoryLabel) {
+    message = `Geen events in de categorie "${categoryLabel}".`;
+    hint = "Probeer een andere categorie of bekijk alle events.";
+  } else {
+    message = "Er zijn nog geen events beschikbaar.";
+    hint = "Controleer later opnieuw of forceer een nieuwe ingest-run.";
+  }
 
   return (
     <div className="rounded-2xl border border-slate-700 bg-slate-800 p-6 text-center text-slate-300">
       <p className="text-sm font-medium">{message}</p>
-      <p className="mt-1 text-sm">
-        {categoryLabel
-          ? "Probeer een andere categorie of bekijk alle events."
-          : "Controleer later opnieuw of forceer een nieuwe ingest-run."}
-      </p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="mt-4 inline-flex items-center justify-center rounded-full border border-slate-600 bg-slate-700/50 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
-      >
-        Ververs feed
-      </button>
+      <p className="mt-1 text-sm">{hint}</p>
+      <div className="mt-4 flex items-center justify-center gap-3">
+        {searchQuery && onClearSearch && (
+          <button
+            type="button"
+            onClick={onClearSearch}
+            className="inline-flex items-center justify-center rounded-full border border-slate-600 bg-slate-700/50 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
+          >
+            Wis zoekopdracht
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex items-center justify-center rounded-full border border-slate-600 bg-slate-700/50 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
+        >
+          Ververs feed
+        </button>
+      </div>
     </div>
   );
 }
@@ -162,6 +184,7 @@ const EVENTS_ENDPOINT = "/api/v1/events";
 export default function EventFeed() {
   const searchParams = useSearchParams();
   const activeCategory = searchParams.get("category") ?? DEFAULT_CATEGORY;
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data, error, isLoading, isValidating, mutate } = useSWR<EventFeedResponse>(
     EVENTS_ENDPOINT,
@@ -176,13 +199,27 @@ export default function EventFeed() {
   // Memoize allEvents to avoid changing reference on every render
   const allEvents = useMemo(() => data?.data ?? [], [data?.data]);
 
-  // Filter events by category (client-side filtering)
+  // Filter events by category and search query (client-side filtering)
   const filteredEvents = useMemo(() => {
-    if (activeCategory === DEFAULT_CATEGORY) {
-      return allEvents;
+    let events = allEvents;
+
+    // Filter by category
+    if (activeCategory !== DEFAULT_CATEGORY) {
+      events = events.filter((event) => event.event_type === activeCategory);
     }
-    return allEvents.filter((event) => event.event_type === activeCategory);
-  }, [allEvents, activeCategory]);
+
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      events = events.filter((event) => {
+        const title = event.title?.toLowerCase() ?? "";
+        const summary = event.summary?.toLowerCase() ?? "";
+        return title.includes(query) || summary.includes(query);
+      });
+    }
+
+    return events;
+  }, [allEvents, activeCategory, searchQuery]);
 
   const errorMessage = error ? resolveErrorMessage(error) : null;
   const totalEvents = normalisedMeta.totalEvents ?? allEvents.length;
@@ -196,10 +233,21 @@ export default function EventFeed() {
     void mutate(undefined, { revalidate: true });
   }, [mutate]);
 
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+  }, []);
+
   return (
     <div className="space-y-6">
       {/* Category Navigation */}
       <CategoryNav activeCategory={activeCategory} />
+
+      {/* Search Bar */}
+      <SearchBar
+        value={searchQuery}
+        onChange={handleSearchChange}
+        placeholder="Zoek in events..."
+      />
 
       {/* Status Banner */}
       <StatusBanner
@@ -219,7 +267,12 @@ export default function EventFeed() {
         ) : isLoading && !data ? (
           <LoadingSkeleton />
         ) : filteredEvents.length === 0 ? (
-          <EmptyState onRetry={handleRefresh} categoryLabel={activeCategoryLabel} />
+          <EmptyState
+            onRetry={handleRefresh}
+            categoryLabel={activeCategoryLabel}
+            searchQuery={searchQuery.trim() || undefined}
+            onClearSearch={() => setSearchQuery("")}
+          />
         ) : (
           <div className="grid gap-6">
             {filteredEvents.map((event) => (
