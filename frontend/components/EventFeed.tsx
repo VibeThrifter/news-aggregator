@@ -4,10 +4,11 @@ import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 
-import { ApiClientError, EventFeedMeta, listEvents } from "@/lib/api";
+import { ApiClientError, EventFeedMeta, EventListFilters, listEvents } from "@/lib/api";
 import { DEFAULT_CATEGORY, getCategoryLabel } from "@/lib/categories";
 
 import CategoryNav from "./CategoryNav";
+import DaysBackFilter from "./DaysBackFilter";
 import EventCard from "./EventCard";
 import MinSourcesFilter from "./MinSourcesFilter";
 import SearchBar from "./SearchBar";
@@ -180,17 +181,39 @@ function EmptyState({ onRetry, categoryLabel, searchQuery, onClearSearch }: Empt
 
 type EventFeedResponse = Awaited<ReturnType<typeof listEvents>>;
 
-const EVENTS_ENDPOINT = "/api/v1/events";
+const DEFAULT_DAYS_BACK = 7;
+
+// Build a stable SWR key from filters
+function buildSwrKey(filters: EventListFilters): string {
+  const params = new URLSearchParams();
+  if (filters.daysBack !== undefined) params.set("days", String(filters.daysBack));
+  if (filters.category && filters.category !== "all") params.set("category", filters.category);
+  if (filters.minSources !== undefined && filters.minSources > 1) params.set("minSources", String(filters.minSources));
+  if (filters.search?.trim()) params.set("search", filters.search.trim());
+  return `/api/events?${params.toString()}`;
+}
 
 export default function EventFeed() {
   const searchParams = useSearchParams();
   const activeCategory = searchParams.get("category") ?? DEFAULT_CATEGORY;
   const [searchQuery, setSearchQuery] = useState("");
   const [minSources, setMinSources] = useState(1);
+  const [daysBack, setDaysBack] = useState(DEFAULT_DAYS_BACK);
+
+  // Build filters object for server-side query
+  const filters: EventListFilters = useMemo(() => ({
+    daysBack,
+    category: activeCategory,
+    minSources,
+    search: searchQuery,
+  }), [daysBack, activeCategory, minSources, searchQuery]);
+
+  // SWR key changes when filters change, triggering a new fetch
+  const swrKey = useMemo(() => buildSwrKey(filters), [filters]);
 
   const { data, error, isLoading, isValidating, mutate } = useSWR<EventFeedResponse>(
-    EVENTS_ENDPOINT,
-    () => listEvents(),
+    swrKey,
+    () => listEvents(filters),
     {
       revalidateOnFocus: false,
     },
@@ -198,39 +221,12 @@ export default function EventFeed() {
 
   const normalisedMeta = normaliseMeta((data?.meta as EventFeedMeta | undefined) ?? undefined);
 
-  // Memoize allEvents to avoid changing reference on every render
-  const allEvents = useMemo(() => data?.data ?? [], [data?.data]);
-
-  // Filter events by category, search query, and minimum sources (client-side filtering)
-  const filteredEvents = useMemo(() => {
-    let events = allEvents;
-
-    // Filter by category
-    if (activeCategory !== DEFAULT_CATEGORY) {
-      events = events.filter((event) => event.event_type === activeCategory);
-    }
-
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim();
-      events = events.filter((event) => {
-        const title = event.title?.toLowerCase() ?? "";
-        const summary = event.summary?.toLowerCase() ?? "";
-        return title.includes(query) || summary.includes(query);
-      });
-    }
-
-    // Filter by minimum sources (article_count)
-    if (minSources > 1) {
-      events = events.filter((event) => (event.article_count ?? 0) >= minSources);
-    }
-
-    return events;
-  }, [allEvents, activeCategory, searchQuery, minSources]);
+  // Events are already filtered server-side, no client-side filtering needed
+  const events = useMemo(() => data?.data ?? [], [data?.data]);
 
   const errorMessage = error ? resolveErrorMessage(error) : null;
-  const totalEvents = normalisedMeta.totalEvents ?? allEvents.length;
-  const filteredCount = filteredEvents.length;
+  const totalEvents = normalisedMeta.totalEvents ?? events.length;
+  const eventCount = events.length;
 
   // Get label for empty state
   const activeCategoryLabel =
@@ -248,6 +244,10 @@ export default function EventFeed() {
     setMinSources(value);
   }, []);
 
+  const handleDaysBackChange = useCallback((value: number) => {
+    setDaysBack(value);
+  }, []);
+
   return (
     <div className="space-y-6">
       {/* Category Navigation */}
@@ -261,10 +261,16 @@ export default function EventFeed() {
           placeholder="Zoek in events..."
           className="flex-1"
         />
-        <MinSourcesFilter
-          value={minSources}
-          onChange={handleMinSourcesChange}
-        />
+        <div className="flex items-center gap-4">
+          <DaysBackFilter
+            value={daysBack}
+            onChange={handleDaysBackChange}
+          />
+          <MinSourcesFilter
+            value={minSources}
+            onChange={handleMinSourcesChange}
+          />
+        </div>
       </div>
 
       {/* Status Banner */}
@@ -284,7 +290,7 @@ export default function EventFeed() {
           <ErrorState message={errorMessage} onRetry={handleRefresh} isRetrying={isValidating} />
         ) : isLoading && !data ? (
           <LoadingSkeleton />
-        ) : filteredEvents.length === 0 ? (
+        ) : events.length === 0 ? (
           <EmptyState
             onRetry={handleRefresh}
             categoryLabel={activeCategoryLabel}
@@ -293,7 +299,7 @@ export default function EventFeed() {
           />
         ) : (
           <div className="grid gap-6">
-            {filteredEvents.map((event) => (
+            {events.map((event) => (
               <EventCard key={event.id} event={event} />
             ))}
           </div>

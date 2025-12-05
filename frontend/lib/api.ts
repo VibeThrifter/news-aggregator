@@ -34,6 +34,13 @@ export interface ApiResponse<T> {
   links?: Record<string, string>;
 }
 
+export interface EventListFilters {
+  daysBack?: number;
+  category?: string;
+  minSources?: number;
+  search?: string;
+}
+
 const FALLBACK_API_BASE_URL = "http://localhost:8000";
 const rawBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
 export const API_BASE_URL = (rawBaseUrl && stripTrailingSlash(rawBaseUrl)) || FALLBACK_API_BASE_URL;
@@ -189,16 +196,44 @@ function extractTitleFromSummary(summary: string | null | undefined): { title: s
   return { title: summary, description: null };
 }
 
-export async function listEvents(options?: ApiFetchOptions): Promise<ApiResponse<EventListItem[]>> {
-  // Fetch events with their LLM insights (summary) via a join
-  const { data, error } = await supabase
+export async function listEvents(
+  filters?: EventListFilters,
+  options?: ApiFetchOptions
+): Promise<ApiResponse<EventListItem[]>> {
+  const { daysBack = 7, category, minSources = 1, search } = filters ?? {};
+
+  // Calculate the cutoff date for filtering
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - daysBack);
+  const cutoffIso = cutoffDate.toISOString();
+
+  // Build query with server-side filters
+  let query = supabase
     .from('events')
     .select(`
       *,
       llm_insights (summary)
     `)
     .is('archived_at', null)
-    .order('last_updated_at', { ascending: false });
+    .gte('last_updated_at', cutoffIso);
+
+  // Filter by category (event_type)
+  if (category && category !== 'all') {
+    query = query.eq('event_type', category);
+  }
+
+  // Filter by minimum sources (article_count)
+  if (minSources > 1) {
+    query = query.gte('article_count', minSources);
+  }
+
+  // Search in title using case-insensitive pattern match
+  if (search?.trim()) {
+    query = query.ilike('title', `%${search.trim()}%`);
+  }
+
+  // Order by most recently updated
+  const { data, error } = await query.order('last_updated_at', { ascending: false });
 
   if (error) {
     throw new ApiClientError(error.message, 500, {
