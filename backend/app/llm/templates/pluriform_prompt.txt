@@ -35,7 +35,7 @@ JSON OUTPUT SCHEMA:
   "unsubstantiated_claims": [{"claim": "letterlijke claim", "presented_as": "feit|advies|mening|voorspelling", "source_in_article": "wie", "evidence_provided": "bewijs of 'geen'", "missing_context": ["string"], "critical_questions": ["string"]}],
   "authority_analysis": [{
     "authority": "naam",
-    "authority_type": "overheidsinstantie|adviesorgaan|publieke_omroep|expert|organisatie|bedrijf|ngo|internationaal",
+    "authority_type": "overheidsinstantie|adviesorgaan|publieke_omroep|expert|organisatie|bedrijf|ngo|koepelorganisatie|internationaal",
     "claimed_expertise": "terrein",
     "scope_creep": "string of null - VERPLICHT invullen als autoriteit buiten mandaat treedt",
     "composition_question": "string of null - voor adviesorganen: wie benoemt, samenstelling",
@@ -68,6 +68,7 @@ ANALYSE-INSTRUCTIES:
 6. **AUTHORITY_ANALYSIS**:
    - Bij ELKE autoriteit: is dit de juiste expert? Belangen? Buiten mandaat?
    - Bij adviesorganen: wie benoemt leden? Onafhankelijk van wie? Samenstelling?
+   - Kies authority_type nauwkeurig: koepelorganisatie = samenwerkingsverband van leden (bijv. branchevereniging, federatie)
 7. **MEDIA_ANALYSIS**:
    - Kritiekloze overname? Vragen die NIET gesteld worden?
    - ALS scope_creep genoteerd: vraag over bevoegdheid MOET in questions_not_asked!

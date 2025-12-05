@@ -77,7 +77,7 @@ JSON OUTPUT SCHEMA:
     "authority_type": "describe accurately - avoid generic labels",
     "claimed_expertise": "domain they claim authority in",
     "actual_role": "what they actually are/do",
-    "scope_creep": "string or empty - adviseert buiten mandaat? (gezondheidsraad over milieu, klimaatpanel over economie)",
+    "scope_creep": "string or empty - ALLEEN voor instituties/adviesorganen die buiten hun formele mandaat adviseren (bijv. gezondheidsraad over milieu, klimaatpanel over economie). NIET voor politici of individuen die claims maken.",
     "composition_question": "string or empty - ALLEEN NEUTRALE VRAGEN zonder aannames. Voorbeeld: 'Wie benoemt de leden? Is er ideologische diversiteit?' VERBODEN: claims over welke bias er zou zijn, woorden als 'kunnen hebben', 'waarschijnlijk', 'progressief', 'conservatief' etc.",
     "funding_sources": "string or empty - who funds this institution/expert?",
     "track_record": "string or empty - previous statements/advice and how they turned out",
@@ -136,7 +136,10 @@ ANALYSIS INSTRUCTIONS:
 5. **STATISTICAL_ISSUES and TIMING_ANALYSIS** - Only include if genuinely relevant to this story.
    Many stories don't have statistical claims or suspicious timing. That's fine - leave these null.
 
-6. **UNSUBSTANTIATED_CLAIMS** - Be thorough here. If an article contains 5 claims without evidence, list all 5.
+6. **UNSUBSTANTIATED_CLAIMS** - Focus on the UNDERLYING scientific/factual claims, not meta-statements.
+   - "Raad X adviseert Y" is NOT unsubstantiated if they indeed advise Y - that's reporting a fact.
+   - The UNDERLYING claims that justify the advice ARE potentially unsubstantiated.
+   - Ask: what evidence is provided IN THE ARTICLES for these underlying claims?
    Pay attention to predictions stated as facts, opinions presented as consensus, and appeals to unnamed "experts".
 
 7. **COVERAGE_GAPS** - What perspectives are missing? Who wasn't interviewed?
