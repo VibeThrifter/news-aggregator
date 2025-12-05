@@ -66,10 +66,12 @@ class InsightRepository:
         fallacies: list[Dict[str, Any]],
         frames: list[Dict[str, Any]] | None = None,
         coverage_gaps: list[Dict[str, Any]] | None = None,
-        # Nieuwe kritische analyse velden
+        # Kritische analyse velden
         unsubstantiated_claims: list[Dict[str, Any]] | None = None,
         authority_analysis: list[Dict[str, Any]] | None = None,
         media_analysis: list[Dict[str, Any]] | None = None,
+        statistical_issues: list[Dict[str, Any]] | None = None,
+        timing_analysis: Dict[str, Any] | None = None,
         scientific_plurality: Dict[str, Any] | None = None,
         raw_response: str | None,
         generated_at: datetime | None = None,
@@ -93,6 +95,8 @@ class InsightRepository:
             existing.unsubstantiated_claims = unsubstantiated_claims
             existing.authority_analysis = authority_analysis
             existing.media_analysis = media_analysis
+            existing.statistical_issues = statistical_issues
+            existing.timing_analysis = timing_analysis
             existing.scientific_plurality = scientific_plurality
             existing.raw_response = raw_response
             existing.generated_at = timestamp
@@ -114,6 +118,8 @@ class InsightRepository:
                 unsubstantiated_claims=unsubstantiated_claims,
                 authority_analysis=authority_analysis,
                 media_analysis=media_analysis,
+                statistical_issues=statistical_issues,
+                timing_analysis=timing_analysis,
                 scientific_plurality=scientific_plurality,
                 raw_response=raw_response,
                 generated_at=timestamp,

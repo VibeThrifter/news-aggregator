@@ -73,6 +73,8 @@ async def get_event_insights(
         unsubstantiated_claims=insight.unsubstantiated_claims or [],
         authority_analysis=insight.authority_analysis or [],
         media_analysis=insight.media_analysis or [],
+        statistical_issues=insight.statistical_issues or [],
+        timing_analysis=insight.timing_analysis,
         scientific_plurality=insight.scientific_plurality,
     )
 

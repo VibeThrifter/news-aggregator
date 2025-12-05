@@ -25,14 +25,15 @@ ARTICLE_CAPSULE_SENTENCE_LIMIT = 3
 DEFAULT_SUMMARY_CHAR_LIMIT = 320
 
 
-def _load_template() -> str:
-    """Load the static prompt template from package resources."""
-
-    template_path = resources.files("backend.app.llm.templates").joinpath("pluriform_prompt.txt")
+def _load_template(filename: str = "pluriform_prompt.txt") -> str:
+    """Load a prompt template from package resources."""
+    template_path = resources.files("backend.app.llm.templates").joinpath(filename)
     return template_path.read_text(encoding="utf-8")
 
 
-PROMPT_TEMPLATE = _load_template()
+PROMPT_TEMPLATE = _load_template("pluriform_prompt.txt")
+FACTUAL_TEMPLATE = _load_template("factual_prompt.txt")
+CRITICAL_TEMPLATE = _load_template("critical_prompt.txt")
 
 
 @dataclass(slots=True)
@@ -338,6 +339,104 @@ class PromptBuilder:
                 return blocks, trimmed_capsules
 
         return blocks, trimmed_capsules
+
+    async def build_factual_prompt_package(
+        self,
+        event_id: int,
+        *,
+        max_articles: int | None = None,
+    ) -> PromptGenerationResult:
+        """Build prompt for phase 1: factual analysis (summary, timeline, clusters, contradictions)."""
+        limit = max_articles or self.settings.llm_prompt_article_cap
+        if limit <= 0:
+            raise PromptBuilderError("Article cap must be positive")
+
+        async with self.session_factory() as session:
+            event = await self._fetch_event(session, event_id)
+            articles = await self._fetch_articles(session, event_id)
+
+        if not articles:
+            raise PromptBuilderError(
+                f"Event {event_id} has no linked articles; rerun enrichment pipeline first"
+            )
+
+        capsules = self._build_capsules(articles)
+        selected = self._select_balanced_subset(capsules, limit=limit)
+        if not selected:
+            raise PromptBuilderError(
+                f"Unable to build prompt for event {event_id}: selection yielded no articles"
+            )
+
+        context_block = self._format_event_context(event, selected, total=len(capsules))
+        capsule_block = self._format_article_capsules(selected)
+
+        prompt = FACTUAL_TEMPLATE
+        prompt = prompt.replace("{event_context}", context_block)
+        prompt = prompt.replace("{article_capsules}", capsule_block)
+
+        LOG.info(
+            "factual_prompt_built",
+            event_id=event_id,
+            selected_count=len(selected),
+            prompt_length=len(prompt),
+        )
+        return PromptGenerationResult(
+            prompt=prompt,
+            prompt_length=len(prompt),
+            selected_article_ids=[c.article_id for c in selected],
+            selected_count=len(selected),
+            total_articles=len(capsules),
+        )
+
+    async def build_critical_prompt_package(
+        self,
+        event_id: int,
+        factual_summary: str,
+        *,
+        max_articles: int | None = None,
+    ) -> PromptGenerationResult:
+        """Build prompt for phase 2: critical analysis (frames, fallacies, authority, media)."""
+        limit = max_articles or self.settings.llm_prompt_article_cap
+        if limit <= 0:
+            raise PromptBuilderError("Article cap must be positive")
+
+        async with self.session_factory() as session:
+            event = await self._fetch_event(session, event_id)
+            articles = await self._fetch_articles(session, event_id)
+
+        if not articles:
+            raise PromptBuilderError(
+                f"Event {event_id} has no linked articles; rerun enrichment pipeline first"
+            )
+
+        capsules = self._build_capsules(articles)
+        selected = self._select_balanced_subset(capsules, limit=limit)
+        if not selected:
+            raise PromptBuilderError(
+                f"Unable to build prompt for event {event_id}: selection yielded no articles"
+            )
+
+        context_block = self._format_event_context(event, selected, total=len(capsules))
+        capsule_block = self._format_article_capsules(selected)
+
+        prompt = CRITICAL_TEMPLATE
+        prompt = prompt.replace("{event_context}", context_block)
+        prompt = prompt.replace("{factual_summary}", factual_summary)
+        prompt = prompt.replace("{article_capsules}", capsule_block)
+
+        LOG.info(
+            "critical_prompt_built",
+            event_id=event_id,
+            selected_count=len(selected),
+            prompt_length=len(prompt),
+        )
+        return PromptGenerationResult(
+            prompt=prompt,
+            prompt_length=len(prompt),
+            selected_article_ids=[c.article_id for c in selected],
+            selected_count=len(selected),
+            total_articles=len(capsules),
+        )
 
 
 def _coerce_spectrum(metadata: Mapping[str, object] | None) -> str:

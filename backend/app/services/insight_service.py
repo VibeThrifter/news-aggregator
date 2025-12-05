@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict
+from typing import Any, Dict
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -14,11 +14,12 @@ from backend.app.db.session import get_sessionmaker
 from backend.app.llm.client import (
     BaseLLMClient,
     LLMClientError,
+    LLMGenericResult,
     LLMResult,
     MistralClient,
 )
 from backend.app.llm.prompt_builder import PromptBuilder, PromptGenerationResult
-from backend.app.llm.schemas import InsightsPayload
+from backend.app.llm.schemas import CriticalPayload, FactualPayload, InsightsPayload
 from backend.app.repositories import InsightRepository, InsightPersistenceResult
 
 logger = get_logger(__name__).bind(component="InsightService")
@@ -62,16 +63,84 @@ class InsightService:
         *,
         correlation_id: str | None = None,
     ) -> InsightGenerationOutcome:
-        """Generate and persist insights for a specific event."""
+        """Generate and persist insights for a specific event using 2-phase LLM calls."""
 
-        package = await self.prompt_builder.build_prompt_package(event_id, max_articles=None)
-        prompt_metadata = self._build_prompt_metadata(package)
+        # Phase 1: Factual analysis
+        factual_package = await self.prompt_builder.build_factual_prompt_package(event_id, max_articles=None)
+        prompt_metadata = self._build_prompt_metadata(factual_package)
+        prompt_metadata["phase"] = "two_phase"
 
-        llm_result = await self.client.generate(package.prompt, correlation_id=correlation_id)
-        payload_dict = llm_result.payload.model_dump(mode="json")
-        prompt_metadata["model"] = llm_result.model
-        if llm_result.usage:
-            prompt_metadata["usage"] = llm_result.usage
+        logger.info(
+            "insight_generation_phase1_start",
+            event_id=event_id,
+            correlation_id=correlation_id,
+        )
+        factual_result = await self.client.generate_json(
+            factual_package.prompt,
+            FactualPayload,
+            correlation_id=correlation_id,
+        )
+        factual_payload: FactualPayload = factual_result.payload
+
+        logger.info(
+            "insight_generation_phase1_complete",
+            event_id=event_id,
+            summary_length=len(factual_payload.summary),
+            correlation_id=correlation_id,
+        )
+
+        # Phase 2: Critical analysis (receives summary from phase 1)
+        critical_package = await self.prompt_builder.build_critical_prompt_package(
+            event_id,
+            factual_summary=factual_payload.summary,
+            max_articles=None,
+        )
+
+        logger.info(
+            "insight_generation_phase2_start",
+            event_id=event_id,
+            correlation_id=correlation_id,
+        )
+        critical_result = await self.client.generate_json(
+            critical_package.prompt,
+            CriticalPayload,
+            correlation_id=correlation_id,
+        )
+        critical_payload: CriticalPayload = critical_result.payload
+
+        logger.info(
+            "insight_generation_phase2_complete",
+            event_id=event_id,
+            authority_count=len(critical_payload.authority_analysis),
+            correlation_id=correlation_id,
+        )
+
+        # Merge both payloads
+        merged_payload = InsightsPayload.from_phases(factual_payload, critical_payload)
+        payload_dict = merged_payload.model_dump(mode="json")
+
+        # Update metadata with both phases
+        prompt_metadata["model"] = critical_result.model
+        prompt_metadata["factual_prompt_length"] = factual_package.prompt_length
+        prompt_metadata["critical_prompt_length"] = critical_package.prompt_length
+        total_usage: Dict[str, Any] = {}
+        if factual_result.usage:
+            for k, v in factual_result.usage.items():
+                total_usage[f"factual_{k}"] = v
+        if critical_result.usage:
+            for k, v in critical_result.usage.items():
+                total_usage[f"critical_{k}"] = v
+        if total_usage:
+            prompt_metadata["usage"] = total_usage
+
+        # Create a synthetic LLMResult for backward compatibility
+        llm_result = LLMResult(
+            provider=critical_result.provider,
+            model=critical_result.model,
+            payload=merged_payload,
+            raw_content=f"FACTUAL:\n{factual_result.raw_content}\n\nCRITICAL:\n{critical_result.raw_content}",
+            usage=total_usage if total_usage else None,
+        )
 
         async with self.session_factory() as session:
             repo = InsightRepository(session)
@@ -87,15 +156,17 @@ class InsightService:
                 fallacies=payload_dict.get("fallacies", []),
                 frames=payload_dict.get("frames", []),
                 coverage_gaps=payload_dict.get("coverage_gaps", []),
-                # Nieuwe kritische analyse velden
+                # Kritische analyse velden
                 unsubstantiated_claims=payload_dict.get("unsubstantiated_claims", []),
                 authority_analysis=payload_dict.get("authority_analysis", []),
                 media_analysis=payload_dict.get("media_analysis", []),
+                statistical_issues=payload_dict.get("statistical_issues", []),
+                timing_analysis=payload_dict.get("timing_analysis"),
                 scientific_plurality=payload_dict.get("scientific_plurality"),
                 raw_response=llm_result.raw_content,
             )
 
-            # Verify the saved insight matches the event_id (防止 race conditions)
+            # Verify the saved insight matches the event_id
             if persistence.insight.event_id != event_id:
                 await session.rollback()
                 raise RuntimeError(
@@ -111,12 +182,13 @@ class InsightService:
             provider=llm_result.provider,
             model=llm_result.model,
             created=persistence.created,
+            phases=2,
             correlation_id=correlation_id,
         )
         return InsightGenerationOutcome(
             insight=persistence.insight,
             created=persistence.created,
-            payload=llm_result.payload,
+            payload=merged_payload,
             llm_result=llm_result,
         )
 

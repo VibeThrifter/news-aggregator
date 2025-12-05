@@ -155,10 +155,12 @@ class LLMInsight(Base):
     fallacies: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     frames: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     coverage_gaps: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
-    # Nieuwe kritische analyse velden
+    # Kritische analyse velden
     unsubstantiated_claims: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     authority_analysis: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     media_analysis: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    statistical_issues: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    timing_analysis: Mapped[Dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     scientific_plurality: Mapped[Dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     raw_response: Mapped[str | None] = mapped_column(Text, nullable=True)
     generated_at: Mapped[datetime] = mapped_column(

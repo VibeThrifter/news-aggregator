@@ -29,6 +29,8 @@ import {
   AuthorityAnalysisList,
   MediaAnalysisList,
   ScientificPluralityCard,
+  StatisticalIssuesList,
+  TimingAnalysisCard,
 } from "@/components/CriticalAnalysis";
 import { FallacyList } from "@/components/FallacyList";
 import { FrameList } from "@/components/FrameList";
@@ -46,9 +48,6 @@ interface EventMetaSummary {
   articleCount: number;
   lastUpdatedLabel: string;
   firstSeenLabel: string;
-  llmProvider: string | null;
-  insightsStatus: string | null;
-  insightsGeneratedLabel: string | null;
 }
 
 interface EventDetailScreenProps {
@@ -64,10 +63,6 @@ function formatDate(value?: string | null): string {
 }
 
 function normaliseMeta(event: EventDetail, meta?: EventDetailMeta): EventMetaSummary {
-  const insightsStatus = (event.insights_status ?? meta?.insights_status ?? null) as string | null;
-  const llmProvider = event.llm_provider ?? (meta?.llm_provider as string | undefined) ?? null;
-  const generatedAt =
-    event.insights_generated_at ?? (meta?.insights_generated_at as string | undefined) ?? (meta?.generated_at as string | undefined) ?? null;
   const firstSeen = event.first_seen_at ?? (meta?.first_seen_at as string | undefined) ?? null;
   const lastUpdated = event.last_updated_at ?? (meta?.last_updated_at as string | undefined) ?? null;
 
@@ -76,9 +71,6 @@ function normaliseMeta(event: EventDetail, meta?: EventDetailMeta): EventMetaSum
     articleCount: event.article_count,
     lastUpdatedLabel: formatDate(lastUpdated),
     firstSeenLabel: formatDate(firstSeen),
-    llmProvider: llmProvider && llmProvider.trim() ? llmProvider : null,
-    insightsStatus: insightsStatus?.trim() ?? null,
-    insightsGeneratedLabel: generatedAt ? formatDate(generatedAt) : null,
   };
 }
 
@@ -114,6 +106,8 @@ function hasInsightsContent(insights: AggregationResponse | null): boolean {
     insights.unsubstantiated_claims?.length ||
     insights.authority_analysis?.length ||
     insights.media_analysis?.length ||
+    insights.statistical_issues?.length ||
+    insights.timing_analysis ||
     insights.scientific_plurality,
   );
 }
@@ -239,33 +233,15 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
               </dl>
             ) : null}
           </div>
-          <div className="flex flex-col items-start gap-3 rounded-3xl border border-white/10 bg-black/20 p-6">
-            <div className="space-y-1">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">LLM-provider</p>
-              <p className="text-sm font-medium text-slate-100">{eventMeta?.llmProvider ?? "Onbekend"}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Insights status</p>
-              <p className="text-sm font-medium text-slate-100">{eventMeta?.insightsStatus ?? "Niet beschikbaar"}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Laatste insights-run</p>
-              <p className="text-sm font-medium text-slate-100">{eventMeta?.insightsGeneratedLabel ?? "Onbekend"}</p>
-            </div>
-            {exportUrl ? (
-              <a
-                href={exportUrl}
-                download
-                className="inline-flex items-center gap-2 rounded-full border border-aurora-400/60 bg-aurora-500/10 px-4 py-2 text-sm font-semibold text-aurora-100 transition hover:bg-aurora-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-aurora-500 focus-visible:ring-offset-2"
-              >
-                Download CSV
-              </a>
-            ) : (
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm text-slate-400">
-                Laden…
-              </span>
-            )}
-          </div>
+          {exportUrl ? (
+            <a
+              href={exportUrl}
+              download
+              className="inline-flex items-center gap-2 rounded-full border border-aurora-400/60 bg-aurora-500/10 px-4 py-2 text-sm font-semibold text-aurora-100 transition hover:bg-aurora-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-aurora-500 focus-visible:ring-offset-2"
+            >
+              Download CSV
+            </a>
+          ) : null}
         </div>
         {spectrumBadges.length ? (
           <div>
@@ -319,6 +295,8 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
           {(insights.unsubstantiated_claims?.length ||
             insights.authority_analysis?.length ||
             insights.media_analysis?.length ||
+            insights.statistical_issues?.length ||
+            insights.timing_analysis ||
             insights.scientific_plurality ||
             insights.fallacies.length ||
             insights.frames?.length) ? (
@@ -378,6 +356,30 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
                 </div>
               ) : null}
 
+              {insights.statistical_issues?.length ? (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-xl font-semibold text-white">Misleidende statistieken</h3>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Statistieken die mogelijk misleidend of onvolledig worden gepresenteerd.
+                    </p>
+                  </div>
+                  <StatisticalIssuesList items={insights.statistical_issues} />
+                </div>
+              ) : null}
+
+              {insights.timing_analysis ? (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-xl font-semibold text-white">Timing analyse</h3>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Waarom is dit nu nieuws? Wie profiteert van deze timing?
+                    </p>
+                  </div>
+                  <TimingAnalysisCard data={insights.timing_analysis} />
+                </div>
+              ) : null}
+
               {insights.scientific_plurality ? (
                 <div className="space-y-4">
                   <div>
@@ -398,7 +400,7 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
               <div className="border-t border-white/10 pt-8">
                 <h2 className="text-2xl font-semibold text-rose-300">Media-analyse</h2>
                 <p className="mt-1 text-sm text-slate-300">
-                  Kritische analyse van de berichtgeving zelf: patronen, niet-gestelde vragen, weggelaten perspectieven.
+                  Kritische analyse van de berichtgeving: bronnenpatronen, niet-gestelde vragen, en narratief-uitlijning.
                 </p>
               </div>
               <MediaAnalysisList items={insights.media_analysis} />

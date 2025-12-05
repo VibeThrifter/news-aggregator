@@ -94,19 +94,39 @@ class AuthorityAnalysis(BaseModel):
     authority: str
     authority_type: str
     claimed_expertise: str
+    actual_role: Optional[str] = None
     scope_creep: Optional[str] = None
     composition_question: Optional[str] = None
+    funding_sources: Optional[str] = None
+    track_record: Optional[str] = None
     potential_interests: List[str] = Field(default_factory=list)
+    independence_check: Optional[str] = None
     critical_questions: List[str] = Field(default_factory=list)
 
 
 class MediaAnalysis(BaseModel):
     source: str
     tone: str
-    pattern: str
+    sourcing_pattern: Optional[str] = None
     questions_not_asked: List[str] = Field(default_factory=list)
     perspectives_omitted: List[str] = Field(default_factory=list)
-    framing_by_omission: str
+    framing_by_omission: Optional[str] = None
+    copy_paste_score: Optional[str] = None
+    anonymous_source_count: Optional[int] = None
+    narrative_alignment: Optional[str] = None
+    what_if_wrong: Optional[str] = None
+
+
+class StatisticalIssue(BaseModel):
+    claim: str
+    issue: str
+    better_framing: Optional[str] = None
+
+
+class TimingAnalysis(BaseModel):
+    why_now: str
+    cui_bono: Optional[str] = None
+    upcoming_events: Optional[str] = None
 
 
 class ScientificPlurality(BaseModel):
@@ -133,6 +153,8 @@ class AggregationResponse(BaseModel):
     unsubstantiated_claims: List[UnsubstantiatedClaim] = Field(default_factory=list)
     authority_analysis: List[AuthorityAnalysis] = Field(default_factory=list)
     media_analysis: List[MediaAnalysis] = Field(default_factory=list)
+    statistical_issues: List[StatisticalIssue] = Field(default_factory=list)
+    timing_analysis: Optional[TimingAnalysis] = None
     scientific_plurality: Optional[ScientificPlurality] = None
 
 

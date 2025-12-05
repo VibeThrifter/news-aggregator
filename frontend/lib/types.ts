@@ -69,19 +69,39 @@ export type AuthorityAnalysis = {
   authority: string;
   authority_type: string;
   claimed_expertise: string;
+  actual_role?: string | null;
   scope_creep?: string | null;
   composition_question?: string | null;
+  funding_sources?: string | null;
+  track_record?: string | null;
   potential_interests: string[];
+  independence_check?: string | null;
   critical_questions: string[];
 };
 
 export type MediaAnalysis = {
   source: string;
   tone: string;
-  pattern: string;
+  sourcing_pattern?: string | null;
   questions_not_asked: string[];
-  perspectives_omitted: string[];
-  framing_by_omission: string;
+  perspectives_omitted?: string[];
+  framing_by_omission?: string | null;
+  copy_paste_score?: string | null;
+  anonymous_source_count?: number;
+  narrative_alignment?: string | null;
+  what_if_wrong?: string | null;
+};
+
+export type StatisticalIssue = {
+  claim: string;
+  issue: string;
+  better_framing?: string | null;
+};
+
+export type TimingAnalysis = {
+  why_now: string;
+  cui_bono?: string | null;
+  upcoming_events?: string | null;
 };
 
 export type ScientificPlurality = {
@@ -104,10 +124,12 @@ export type AggregationResponse = {
   frames: Frame[];
   contradictions: Contradiction[];
   coverage_gaps?: CoverageGap[];
-  // Nieuwe kritische analyse velden
+  // Kritische analyse velden
   unsubstantiated_claims?: UnsubstantiatedClaim[];
   authority_analysis?: AuthorityAnalysis[];
   media_analysis?: MediaAnalysis[];
+  statistical_issues?: StatisticalIssue[];
+  timing_analysis?: TimingAnalysis | null;
   scientific_plurality?: ScientificPlurality | null;
 };
 
