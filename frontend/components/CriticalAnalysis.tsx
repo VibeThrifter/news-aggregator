@@ -120,7 +120,7 @@ export function AuthorityAnalysisList({ items }: AuthorityAnalysisListProps) {
                 <p className="text-sm text-slate-200">{item.actual_role}</p>
               </div>
             )}
-            {item.scope_creep && (
+            {item.scope_creep && item.scope_creep.toLowerCase() !== "geen" && (
               <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-red-300">
                   Scope creep
