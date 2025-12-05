@@ -9,6 +9,7 @@ import { DEFAULT_CATEGORY, getCategoryLabel } from "@/lib/categories";
 
 import CategoryNav from "./CategoryNav";
 import EventCard from "./EventCard";
+import MinSourcesFilter from "./MinSourcesFilter";
 import SearchBar from "./SearchBar";
 import StatusBanner from "./StatusBanner";
 
@@ -185,6 +186,7 @@ export default function EventFeed() {
   const searchParams = useSearchParams();
   const activeCategory = searchParams.get("category") ?? DEFAULT_CATEGORY;
   const [searchQuery, setSearchQuery] = useState("");
+  const [minSources, setMinSources] = useState(1);
 
   const { data, error, isLoading, isValidating, mutate } = useSWR<EventFeedResponse>(
     EVENTS_ENDPOINT,
@@ -199,7 +201,7 @@ export default function EventFeed() {
   // Memoize allEvents to avoid changing reference on every render
   const allEvents = useMemo(() => data?.data ?? [], [data?.data]);
 
-  // Filter events by category and search query (client-side filtering)
+  // Filter events by category, search query, and minimum sources (client-side filtering)
   const filteredEvents = useMemo(() => {
     let events = allEvents;
 
@@ -218,8 +220,13 @@ export default function EventFeed() {
       });
     }
 
+    // Filter by minimum sources (article_count)
+    if (minSources > 1) {
+      events = events.filter((event) => (event.article_count ?? 0) >= minSources);
+    }
+
     return events;
-  }, [allEvents, activeCategory, searchQuery]);
+  }, [allEvents, activeCategory, searchQuery, minSources]);
 
   const errorMessage = error ? resolveErrorMessage(error) : null;
   const totalEvents = normalisedMeta.totalEvents ?? allEvents.length;
@@ -237,17 +244,28 @@ export default function EventFeed() {
     setSearchQuery(value);
   }, []);
 
+  const handleMinSourcesChange = useCallback((value: number) => {
+    setMinSources(value);
+  }, []);
+
   return (
     <div className="space-y-6">
       {/* Category Navigation */}
       <CategoryNav activeCategory={activeCategory} />
 
-      {/* Search Bar */}
-      <SearchBar
-        value={searchQuery}
-        onChange={handleSearchChange}
-        placeholder="Zoek in events..."
-      />
+      {/* Search Bar and Filters */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+        <SearchBar
+          value={searchQuery}
+          onChange={handleSearchChange}
+          placeholder="Zoek in events..."
+          className="flex-1"
+        />
+        <MinSourcesFilter
+          value={minSources}
+          onChange={handleMinSourcesChange}
+        />
+      </div>
 
       {/* Status Banner */}
       <StatusBanner
