@@ -111,6 +111,27 @@ async def close_browser_pool() -> None:
         _browser_pool = None
 
 
+def _get_dpg_homepage(url: str) -> Optional[str]:
+    """
+    Get the homepage URL for DPG Media sites.
+    DPG sites require accepting cookies on the homepage first to avoid
+    the privacy gate redirect issue.
+    """
+    dpg_domains = [
+        "nu.nl",
+        "ad.nl",
+        "volkskrant.nl",
+        "parool.nl",
+        "trouw.nl",
+    ]
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    for domain in dpg_domains:
+        if domain in parsed.netloc:
+            return f"https://www.{domain}/"
+    return None
+
+
 async def fetch_with_playwright(
     url: str,
     *,
@@ -145,41 +166,67 @@ async def fetch_with_playwright(
             stealth = Stealth()
             await stealth.apply_stealth_async(page)
 
-            # Block unnecessary resources for faster loading
+            # Block unnecessary resources for faster loading (but keep stylesheets for consent forms)
             await page.route(
                 "**/*",
                 lambda route: (
                     route.abort()
-                    if route.request.resource_type in ["image", "media", "font", "stylesheet"]
+                    if route.request.resource_type in ["image", "media", "font"]
                     else route.continue_()
                 ),
             )
 
+            # For DPG Media sites, accept cookies on homepage first
+            # This avoids the privacy gate redirect that can return wrong articles
+            dpg_homepage = _get_dpg_homepage(url)
+            if dpg_homepage:
+                log.debug("playwright_dpg_homepage_first", homepage=dpg_homepage)
+                try:
+                    await page.goto(dpg_homepage, wait_until="networkidle", timeout=timeout_ms)
+                    await asyncio.sleep(1)
+
+                    # Accept cookies on homepage
+                    consent_button = await page.query_selector(
+                        'button:has-text("Akkoord"), '
+                        'button:has-text("Accept"), '
+                        'button:has-text("Accepteer"), '
+                        '[data-testid="uc-accept-all-button"]'
+                    )
+                    if consent_button:
+                        log.debug("playwright_clicking_consent_on_homepage")
+                        await consent_button.click()
+                        await asyncio.sleep(2)
+                except Exception as e:
+                    log.warning("playwright_homepage_consent_failed", error=str(e))
+                    # Continue anyway, might work without homepage consent
+
             log.debug("playwright_navigating", timeout_ms=timeout_ms)
 
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                await page.goto(url, wait_until="networkidle", timeout=timeout_ms)
             except Exception as nav_error:
                 log.warning("playwright_navigation_timeout", error=str(nav_error))
                 # Try to continue anyway, page might have partially loaded
 
-            # Wait a moment for consent dialog to appear
+            # Wait a moment for any remaining JS to render
             await asyncio.sleep(1)
 
-            # Handle consent dialogs (common for Dutch news sites)
-            try:
-                # Try common consent button patterns
-                consent_button = await page.query_selector(
-                    'button:has-text("Akkoord"), '
-                    'button:has-text("Accept"), '
-                    '[data-testid="uc-accept-all-button"]'
-                )
-                if consent_button:
-                    log.debug("playwright_clicking_consent")
-                    await consent_button.click()
-                    await asyncio.sleep(1)
-            except Exception:
-                pass  # No consent dialog or click failed, continue
+            # For non-DPG sites, still try to handle consent dialogs
+            if not dpg_homepage:
+                try:
+                    consent_button = await page.query_selector(
+                        'button:has-text("Akkoord"), '
+                        'button:has-text("Accept"), '
+                        'button:has-text("Accepteer"), '
+                        '[data-testid="uc-accept-all-button"]'
+                    )
+                    if consent_button:
+                        log.debug("playwright_clicking_consent")
+                        await consent_button.click()
+                        await asyncio.sleep(2)
+                except Exception as e:
+                    log.debug("playwright_consent_error", error=str(e))
+                    pass  # No consent dialog or click failed, continue
 
             # Wait for content if selector specified
             if wait_for_selector:
