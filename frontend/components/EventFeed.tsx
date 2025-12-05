@@ -134,17 +134,29 @@ interface EmptyStateProps {
   categoryLabel?: string;
   searchQuery?: string;
   onClearSearch?: () => void;
+  onSearchAllPeriods?: () => void;
+  isSearchingAllPeriods?: boolean;
 }
 
-function EmptyState({ onRetry, categoryLabel, searchQuery, onClearSearch }: EmptyStateProps) {
+function EmptyState({
+  onRetry,
+  categoryLabel,
+  searchQuery,
+  onClearSearch,
+  onSearchAllPeriods,
+  isSearchingAllPeriods,
+}: EmptyStateProps) {
   let message: string;
   let hint: string;
 
   if (searchQuery) {
-    message = `Geen events gevonden voor "${searchQuery}".`;
-    hint = categoryLabel
-      ? "Probeer een andere zoekterm of wis de zoekfilter."
-      : "Probeer een andere zoekterm.";
+    if (isSearchingAllPeriods) {
+      message = `Geen events gevonden voor "${searchQuery}" in alle periodes.`;
+      hint = "Probeer een andere zoekterm.";
+    } else {
+      message = `Geen events gevonden voor "${searchQuery}" in deze periode.`;
+      hint = "Zoek in alle periodes of probeer een andere zoekterm.";
+    }
   } else if (categoryLabel) {
     message = `Geen events in de categorie "${categoryLabel}".`;
     hint = "Probeer een andere categorie of bekijk alle events.";
@@ -157,7 +169,16 @@ function EmptyState({ onRetry, categoryLabel, searchQuery, onClearSearch }: Empt
     <div className="rounded-2xl border border-slate-700 bg-slate-800 p-6 text-center text-slate-300">
       <p className="text-sm font-medium">{message}</p>
       <p className="mt-1 text-sm">{hint}</p>
-      <div className="mt-4 flex items-center justify-center gap-3">
+      <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+        {searchQuery && !isSearchingAllPeriods && onSearchAllPeriods && (
+          <button
+            type="button"
+            onClick={onSearchAllPeriods}
+            className="inline-flex items-center justify-center rounded-full border border-brand-500/60 bg-brand-500/10 px-4 py-2 text-sm font-semibold text-brand-300 transition-colors hover:bg-brand-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
+          >
+            Zoek in alle periodes
+          </button>
+        )}
         {searchQuery && onClearSearch && (
           <button
             type="button"
@@ -190,6 +211,7 @@ function buildSwrKey(filters: EventListFilters): string {
   if (filters.category && filters.category !== "all") params.set("category", filters.category);
   if (filters.minSources !== undefined && filters.minSources > 1) params.set("minSources", String(filters.minSources));
   if (filters.search?.trim()) params.set("search", filters.search.trim());
+  if (filters.searchAllPeriods) params.set("allPeriods", "true");
   return `/api/events?${params.toString()}`;
 }
 
@@ -199,6 +221,7 @@ export default function EventFeed() {
   const [searchQuery, setSearchQuery] = useState("");
   const [minSources, setMinSources] = useState(1);
   const [daysBack, setDaysBack] = useState(DEFAULT_DAYS_BACK);
+  const [searchAllPeriods, setSearchAllPeriods] = useState(false);
 
   // Build filters object for server-side query
   const filters: EventListFilters = useMemo(() => ({
@@ -206,7 +229,8 @@ export default function EventFeed() {
     category: activeCategory,
     minSources,
     search: searchQuery,
-  }), [daysBack, activeCategory, minSources, searchQuery]);
+    searchAllPeriods,
+  }), [daysBack, activeCategory, minSources, searchQuery, searchAllPeriods]);
 
   // SWR key changes when filters change, triggering a new fetch
   const swrKey = useMemo(() => buildSwrKey(filters), [filters]);
@@ -238,6 +262,19 @@ export default function EventFeed() {
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
+    // Reset searchAllPeriods when search query changes
+    if (searchAllPeriods) {
+      setSearchAllPeriods(false);
+    }
+  }, [searchAllPeriods]);
+
+  const handleSearchAllPeriods = useCallback(() => {
+    setSearchAllPeriods(true);
+  }, []);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery("");
+    setSearchAllPeriods(false);
   }, []);
 
   const handleMinSourcesChange = useCallback((value: number) => {
@@ -295,7 +332,9 @@ export default function EventFeed() {
             onRetry={handleRefresh}
             categoryLabel={activeCategoryLabel}
             searchQuery={searchQuery.trim() || undefined}
-            onClearSearch={() => setSearchQuery("")}
+            onClearSearch={handleClearSearch}
+            onSearchAllPeriods={handleSearchAllPeriods}
+            isSearchingAllPeriods={searchAllPeriods}
           />
         ) : (
           <div className="grid gap-6">

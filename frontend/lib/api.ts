@@ -39,7 +39,12 @@ export interface EventListFilters {
   category?: string;
   minSources?: number;
   search?: string;
+  /** When true, ignores daysBack filter and searches all events (with limit) */
+  searchAllPeriods?: boolean;
 }
+
+/** Maximum events returned when searching all periods */
+const SEARCH_ALL_LIMIT = 50;
 
 const FALLBACK_API_BASE_URL = "http://localhost:8000";
 const rawBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
@@ -200,12 +205,7 @@ export async function listEvents(
   filters?: EventListFilters,
   options?: ApiFetchOptions
 ): Promise<ApiResponse<EventListItem[]>> {
-  const { daysBack = 7, category, minSources = 1, search } = filters ?? {};
-
-  // Calculate the cutoff date for filtering
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - daysBack);
-  const cutoffIso = cutoffDate.toISOString();
+  const { daysBack = 7, category, minSources = 1, search, searchAllPeriods = false } = filters ?? {};
 
   // Build query with server-side filters
   let query = supabase
@@ -214,8 +214,14 @@ export async function listEvents(
       *,
       llm_insights (summary)
     `)
-    .is('archived_at', null)
-    .gte('last_updated_at', cutoffIso);
+    .is('archived_at', null);
+
+  // Apply date filter unless searching all periods
+  if (!searchAllPeriods) {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysBack);
+    query = query.gte('last_updated_at', cutoffDate.toISOString());
+  }
 
   // Filter by category (event_type)
   if (category && category !== 'all') {
@@ -232,8 +238,13 @@ export async function listEvents(
     query = query.ilike('title', `%${search.trim()}%`);
   }
 
-  // Order by most recently updated
-  const { data, error } = await query.order('last_updated_at', { ascending: false });
+  // Order by most recently updated and apply limit for all-periods search
+  query = query.order('last_updated_at', { ascending: false });
+  if (searchAllPeriods) {
+    query = query.limit(SEARCH_ALL_LIMIT);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw new ApiClientError(error.message, 500, {
