@@ -156,6 +156,7 @@ export interface EventListItem {
   spectrum_distribution?: SpectrumDistribution | null;
   source_breakdown?: EventSourceBreakdownEntry[] | null;
   llm_provider?: string | null;
+  event_type?: string | null;
 }
 
 export interface EventFeedMeta extends Record<string, unknown> {

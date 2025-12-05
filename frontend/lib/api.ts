@@ -227,6 +227,7 @@ export async function listEvents(options?: ApiFetchOptions): Promise<ApiResponse
       first_seen_at: event.first_seen_at,
       last_updated_at: event.last_updated_at,
       spectrum_distribution: event.spectrum_distribution,
+      event_type: event.event_type || null,
     };
   });
 

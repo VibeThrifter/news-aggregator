@@ -1,10 +1,13 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 
 import { ApiClientError, EventFeedMeta, listEvents } from "@/lib/api";
+import { DEFAULT_CATEGORY, getCategoryLabel } from "@/lib/categories";
 
+import CategoryNav from "./CategoryNav";
 import EventCard from "./EventCard";
 import StatusBanner from "./StatusBanner";
 
@@ -123,11 +126,24 @@ function ErrorState({ message, onRetry, isRetrying }: ErrorStateProps) {
   );
 }
 
-function EmptyState({ onRetry }: { onRetry: () => void }) {
+interface EmptyStateProps {
+  onRetry: () => void;
+  categoryLabel?: string;
+}
+
+function EmptyState({ onRetry, categoryLabel }: EmptyStateProps) {
+  const message = categoryLabel
+    ? `Geen events in de categorie "${categoryLabel}".`
+    : "Er zijn nog geen events beschikbaar.";
+
   return (
     <div className="rounded-2xl border border-slate-700 bg-slate-800 p-6 text-center text-slate-300">
-      <p className="text-sm font-medium">Er zijn nog geen events beschikbaar.</p>
-      <p className="mt-1 text-sm">Controleer later opnieuw of forceer een nieuwe ingest-run.</p>
+      <p className="text-sm font-medium">{message}</p>
+      <p className="mt-1 text-sm">
+        {categoryLabel
+          ? "Probeer een andere categorie of bekijk alle events."
+          : "Controleer later opnieuw of forceer een nieuwe ingest-run."}
+      </p>
       <button
         type="button"
         onClick={onRetry}
@@ -144,6 +160,9 @@ type EventFeedResponse = Awaited<ReturnType<typeof listEvents>>;
 const EVENTS_ENDPOINT = "/api/v1/events";
 
 export default function EventFeed() {
+  const searchParams = useSearchParams();
+  const activeCategory = searchParams.get("category") ?? DEFAULT_CATEGORY;
+
   const { data, error, isLoading, isValidating, mutate } = useSWR<EventFeedResponse>(
     EVENTS_ENDPOINT,
     () => listEvents(),
@@ -153,9 +172,25 @@ export default function EventFeed() {
   );
 
   const normalisedMeta = normaliseMeta((data?.meta as EventFeedMeta | undefined) ?? undefined);
-  const events = data?.data ?? [];
+
+  // Memoize allEvents to avoid changing reference on every render
+  const allEvents = useMemo(() => data?.data ?? [], [data?.data]);
+
+  // Filter events by category (client-side filtering)
+  const filteredEvents = useMemo(() => {
+    if (activeCategory === DEFAULT_CATEGORY) {
+      return allEvents;
+    }
+    return allEvents.filter((event) => event.event_type === activeCategory);
+  }, [allEvents, activeCategory]);
+
   const errorMessage = error ? resolveErrorMessage(error) : null;
-  const totalEvents = normalisedMeta.totalEvents ?? events.length;
+  const totalEvents = normalisedMeta.totalEvents ?? allEvents.length;
+  const filteredCount = filteredEvents.length;
+
+  // Get label for empty state
+  const activeCategoryLabel =
+    activeCategory !== DEFAULT_CATEGORY ? getCategoryLabel(activeCategory) : undefined;
 
   const handleRefresh = useCallback(() => {
     void mutate(undefined, { revalidate: true });
@@ -163,6 +198,10 @@ export default function EventFeed() {
 
   return (
     <div className="space-y-6">
+      {/* Category Navigation */}
+      <CategoryNav activeCategory={activeCategory} />
+
+      {/* Status Banner */}
       <StatusBanner
         lastUpdated={normalisedMeta.lastUpdated ?? null}
         llmProvider={normalisedMeta.llmProvider ?? null}
@@ -173,19 +212,22 @@ export default function EventFeed() {
         error={errorMessage}
       />
 
-      {errorMessage ? (
-        <ErrorState message={errorMessage} onRetry={handleRefresh} isRetrying={isValidating} />
-      ) : isLoading && !data ? (
-        <LoadingSkeleton />
-      ) : events.length === 0 ? (
-        <EmptyState onRetry={handleRefresh} />
-      ) : (
-        <div className="grid gap-6">
-          {events.map((event) => (
-            <EventCard key={event.id} event={event} />
-          ))}
-        </div>
-      )}
+      {/* Event Feed */}
+      <div id="event-feed" role="tabpanel" aria-label="Event feed">
+        {errorMessage ? (
+          <ErrorState message={errorMessage} onRetry={handleRefresh} isRetrying={isValidating} />
+        ) : isLoading && !data ? (
+          <LoadingSkeleton />
+        ) : filteredEvents.length === 0 ? (
+          <EmptyState onRetry={handleRefresh} categoryLabel={activeCategoryLabel} />
+        ) : (
+          <div className="grid gap-6">
+            {filteredEvents.map((event) => (
+              <EventCard key={event.id} event={event} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

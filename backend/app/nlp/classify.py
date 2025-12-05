@@ -21,7 +21,6 @@ VALID_EVENT_TYPES = [
     "business",
     "entertainment",
     "weather",
-    "royal",
     "other",
 ]
 
@@ -47,7 +46,7 @@ async def classify_event_type_llm(
 
     prompt = f"""Classify this Dutch news article into ONE category.
 
-Categories: legal, politics, crime, sports, international, business, entertainment, weather, royal, other
+Categories: legal, politics, crime, sports, international, business, entertainment, weather, other
 
 Title: {title}
 Content: {content_excerpt}
@@ -57,8 +56,7 @@ Rules:
 - crime: murders, robberies, violence, arrests, investigations
 - politics: government, elections, ministers, parliament, parties
 - sports: all sports, competitions, races, training, athletes
-- entertainment: culture, celebrities, restaurants, arts, music, film
-- royal: Dutch royal family members
+- entertainment: culture, celebrities, restaurants, arts, music, film, royal family
 - international: foreign affairs, global events, international conflicts
 - business: economy, companies, markets, stocks, banking
 - weather: storms, forecasts, climate events, temperature

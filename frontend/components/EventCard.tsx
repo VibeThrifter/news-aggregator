@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import { EventListItem, resolveEventExportUrl } from "@/lib/api";
+import { getCategoryForEventType } from "@/lib/categories";
 import {
   SPECTRUM_STYLES,
   formatEventTimeframe,
@@ -32,12 +33,20 @@ export function EventCard({ event }: EventCardProps) {
   const lastUpdated = event.last_updated_at ? new Date(event.last_updated_at) : null;
   const csvHref = resolveEventExportUrl(event.id);
   const detailHref = resolveEventSlug(event);
+  const category = getCategoryForEventType(event.event_type);
 
   return (
     <article className="flex flex-col gap-6 rounded-2xl border border-slate-700 bg-slate-800 p-6 shadow-sm transition-shadow hover:shadow-md focus-within:shadow-md">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-400">Event</p>
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${category.color} ${category.bgColor} ${category.borderColor}`}
+              data-testid="category-badge"
+            >
+              {category.label}
+            </span>
+          </div>
           <p className="text-sm text-slate-300">{timeframeLabel}</p>
         </div>
         <div className="flex items-center gap-2 rounded-full border border-slate-600 bg-slate-700/50 px-4 py-2 text-sm font-medium text-slate-200">
