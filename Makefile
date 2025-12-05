@@ -35,6 +35,8 @@ backend-install: ## Install backend dependencies (Python/FastAPI with venv + pip
 	@echo "Installing Python dependencies..."
 	@. $(VENV)/bin/activate && pip install --upgrade pip
 	@. $(VENV)/bin/activate && pip install -r requirements.txt
+	@echo "Installing Playwright browser..."
+	@. $(VENV)/bin/activate && playwright install chromium
 	@echo "✅ Backend dependencies installed"
 
 download-spacy: ## Download Dutch spaCy model required for NLP enrichment

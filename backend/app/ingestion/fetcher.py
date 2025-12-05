@@ -18,6 +18,10 @@ from backend.app.ingestion.profiles import (
     load_persisted_cookies,
     persist_cookies,
 )
+from backend.app.ingestion.playwright_fetch import (
+    fetch_with_playwright,
+    PlaywrightFetchError,
+)
 
 DEFAULT_TIMEOUT = 15.0
 USER_AGENT = "News360Ingest/0.1 (+https://github.com/news-360/mvp)"
@@ -240,6 +244,19 @@ async def fetch_article_html(
 
     resolved_profile = profile or DEFAULT_PROFILE
     log = (logger or get_logger(__name__)).bind(url=url, source=resolved_profile.id)
+
+    # Route to Playwright for JavaScript-rendered pages
+    if resolved_profile.fetch_strategy == "playwright":
+        log.debug("using_playwright_fetch")
+        try:
+            return await fetch_with_playwright(
+                url,
+                timeout_ms=int(timeout * 1000),
+                logger=log,
+            )
+        except PlaywrightFetchError as exc:
+            log.warning("playwright_fetch_failed", error=str(exc))
+            raise ArticleFetchError(f"Playwright failed to fetch article from {url}") from exc
 
     try:
         async for attempt in AsyncRetrying(
