@@ -32,6 +32,14 @@ class Settings(BaseSettings):
         default="https://www.nu.nl/rss/Algemeen",
         description="RSS feed URL for NU.nl news"
     )
+    rss_ad_url: str = Field(
+        default="https://www.ad.nl/home/rss.xml",
+        description="RSS feed URL for AD.nl news"
+    )
+    rss_rtl_url: str = Field(
+        default="https://www.rtl.nl/rss.xml",
+        description="RSS feed URL for RTL Nieuws"
+    )
 
     # Scheduler Configuration
     scheduler_interval_minutes: int = Field(
@@ -39,6 +47,18 @@ class Settings(BaseSettings):
         ge=1,
         le=1440,
         description="Interval in minutes for RSS feed polling"
+    )
+    insight_backfill_interval_minutes: int = Field(
+        default=30,
+        ge=5,
+        le=1440,
+        description="Interval in minutes for backfilling missing LLM insights"
+    )
+    insight_backfill_batch_size: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Maximum number of events to process per backfill run"
     )
 
     # Database Configuration

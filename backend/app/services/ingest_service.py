@@ -19,8 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from backend.app.core.config import get_settings
 from backend.app.db.session import get_sessionmaker
 from backend.app.feeds.base import FeedItem, FeedReader, FeedReaderError
+from backend.app.feeds.ad import AdRssReader
 from backend.app.feeds.nos import NosRssReader
 from backend.app.feeds.nunl import NuRssReader
+from backend.app.feeds.rtl import RtlRssReader
 from backend.app.ingestion import (
     ArticleFetchError,
     ArticleParseError,
@@ -73,6 +75,20 @@ class IngestService:
             self.readers[nunl_reader.id] = nunl_reader
             self.reader_profiles[nunl_reader.id] = nunl_profile
             logger.info("Registered feed reader", reader_id=nunl_reader.id, url=self.settings.rss_nunl_url)
+
+            # Register AD.nl RSS reader
+            ad_profile = self._resolve_profile("ad_rss", default_url=self.settings.rss_ad_url)
+            ad_reader = AdRssReader(str(ad_profile.feed_url or self.settings.rss_ad_url))
+            self.readers[ad_reader.id] = ad_reader
+            self.reader_profiles[ad_reader.id] = ad_profile
+            logger.info("Registered feed reader", reader_id=ad_reader.id, url=self.settings.rss_ad_url)
+
+            # Register RTL Nieuws RSS reader
+            rtl_profile = self._resolve_profile("rtl_rss", default_url=self.settings.rss_rtl_url)
+            rtl_reader = RtlRssReader(str(rtl_profile.feed_url or self.settings.rss_rtl_url))
+            self.readers[rtl_reader.id] = rtl_reader
+            self.reader_profiles[rtl_reader.id] = rtl_profile
+            logger.info("Registered feed reader", reader_id=rtl_reader.id, url=self.settings.rss_rtl_url)
 
             logger.info("Feed reader registration complete", total_readers=len(self.readers))
 

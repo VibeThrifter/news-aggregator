@@ -19,3 +19,9 @@ sources:
     parser: trafilatura
     requires_js: true
     cookie_ttl_minutes: 0
+  rtl_rss:
+    feed_url: https://www.rtl.nl/rss.xml
+    fetch_strategy: simple
+    user_agent: News360Fetcher/1.0 (+https://github.com/news-aggregator)
+    parser: trafilatura
+    cookie_ttl_minutes: 0
