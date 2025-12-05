@@ -7,7 +7,6 @@ import {
   ApiClientError,
   getEventDetail,
   getEventInsights,
-  resolveEventExportUrl,
 } from "@/lib/api";
 import type {
   AggregationResponse,
@@ -174,7 +173,6 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
   const showInsights = hasInsightsContent(insights);
   const articles = event?.articles ?? [];
   const spectrumBadges = event ? resolveSpectrumBadges(event.spectrum_distribution) : [];
-  const exportUrl = event ? resolveEventExportUrl(event.id) : null;
 
   const insightsFallbackReason = useMemo(() => {
     if (insightsError) {
@@ -235,15 +233,6 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
               </dl>
             ) : null}
           </div>
-          {exportUrl ? (
-            <a
-              href={exportUrl}
-              download
-              className="inline-flex items-center gap-2 rounded-full border border-aurora-400/60 bg-aurora-500/10 px-4 py-2 text-sm font-semibold text-aurora-100 transition hover:bg-aurora-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-aurora-500 focus-visible:ring-offset-2"
-            >
-              Download CSV
-            </a>
-          ) : null}
         </div>
         {spectrumBadges.length ? (
           <div>
