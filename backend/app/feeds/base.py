@@ -24,6 +24,7 @@ class FeedItem:
     summary: Optional[str]  # Description/excerpt from feed
     published_at: datetime  # Normalized to ISO format
     source_metadata: Dict[str, Any]  # Source-specific data
+    image_url: Optional[str] = None  # Image URL from RSS enclosure
 
     def __post_init__(self):
         """Validate required fields after initialization."""

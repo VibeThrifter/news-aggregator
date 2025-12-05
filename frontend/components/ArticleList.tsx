@@ -57,6 +57,17 @@ export function ArticleList({ articles }: ArticleListProps) {
             rel="noopener noreferrer"
             className="group flex flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-800/80 shadow-sm transition-all hover:border-slate-600 hover:shadow-md"
           >
+            {/* Article image */}
+            {article.image_url && (
+              <div className="relative aspect-video w-full overflow-hidden bg-slate-900">
+                <img
+                  src={article.image_url}
+                  alt=""
+                  className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                  loading="lazy"
+                />
+              </div>
+            )}
             {/* Card content */}
             <div className="flex flex-1 flex-col gap-3 p-4">
               {/* Header with favicon and source */}

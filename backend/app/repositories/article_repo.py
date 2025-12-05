@@ -85,6 +85,7 @@ class ArticleRepository:
             source_name=feed_item.source_metadata.get("name"),
             source_metadata=feed_item.source_metadata,
             published_at=feed_item.published_at,
+            image_url=feed_item.image_url,
             fetched_at=datetime.now(timezone.utc),
         )
 
@@ -106,8 +107,17 @@ class ArticleRepository:
                 error=str(exc),
             )
             # try to re-read to return existing if inserted concurrently
-            result = await self.session.execute(stmt)
-            existing = result.scalar_one()
+            # Need to create a fresh query after rollback
+            refetch_stmt = select(Article).where(Article.url == feed_item.url)
+            refetch_result = await self.session.execute(refetch_stmt)
+            existing = refetch_result.scalar_one_or_none()
+            if existing is None:
+                # Should not happen, but handle gracefully
+                self.log.error(
+                    "article_not_found_after_integrity_error",
+                    url=feed_item.url,
+                )
+                raise ValueError(f"Article not found after integrity error: {feed_item.url}")
             return ArticlePersistenceResult(article=existing, created=False)
         except SQLAlchemyError as exc:  # pragma: no cover - defensive
             await self.session.rollback()

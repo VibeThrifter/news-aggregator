@@ -154,6 +154,7 @@ export interface EventArticle {
   spectrum?: string | null;
   published_at?: string | null;
   summary?: string | null;
+  image_url?: string | null;
 }
 
 export interface EventDetail extends EventListItem {

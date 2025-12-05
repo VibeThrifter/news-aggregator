@@ -55,6 +55,7 @@ class Article(Base):
     extracted_locations: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     event_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
     )

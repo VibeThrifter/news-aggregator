@@ -154,13 +154,17 @@ class NosRssReader(FeedReader):
             "author": getattr(entry, "author", ""),
         }
 
+        # Extract image URL from enclosure
+        image_url = self._extract_image_url(entry)
+
         return FeedItem(
             guid=guid,
             url=url,
             title=title,
             summary=summary,
             published_at=published_at,
-            source_metadata=source_metadata
+            source_metadata=source_metadata,
+            image_url=image_url,
         )
 
     def _parse_date(self, entry: Any) -> datetime:
@@ -201,3 +205,28 @@ class NosRssReader(FeedReader):
         clean_text = re.sub(r"\s+", " ", clean_text).strip()
 
         return clean_text
+
+    def _extract_image_url(self, entry: Any) -> str | None:
+        """Extract image URL from RSS enclosure or media:content."""
+        # Try enclosures first (standard RSS 2.0)
+        enclosures = getattr(entry, "enclosures", [])
+        for enc in enclosures:
+            enc_type = getattr(enc, "type", "") or ""
+            enc_url = getattr(enc, "href", None) or getattr(enc, "url", None)
+            if enc_url and enc_type.startswith("image/"):
+                return enc_url
+
+        # Try media:content (Media RSS extension)
+        media_content = getattr(entry, "media_content", [])
+        for media in media_content:
+            media_type = media.get("type", "") or media.get("medium", "")
+            media_url = media.get("url")
+            if media_url and ("image" in media_type or media_type == ""):
+                return media_url
+
+        # Try media:thumbnail
+        media_thumbnail = getattr(entry, "media_thumbnail", [])
+        if media_thumbnail and len(media_thumbnail) > 0:
+            return media_thumbnail[0].get("url")
+
+        return None

@@ -263,6 +263,7 @@ export async function getEventDetail(eventId: string | number, options?: ApiFetc
     source: ea.articles.source_name || 'Unknown',
     summary: ea.articles.summary,
     published_at: ea.articles.published_at,
+    image_url: ea.articles.image_url,
   }));
 
   const eventDetail: EventDetail = {
