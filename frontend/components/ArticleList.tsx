@@ -24,6 +24,15 @@ function buildSpectrumClassName(spectrum?: string | null): string {
   }`;
 }
 
+function getSourceFavicon(url: string): string {
+  try {
+    const hostname = new URL(url).hostname;
+    return `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
+  } catch {
+    return "";
+  }
+}
+
 export function ArticleList({ articles }: ArticleListProps) {
   if (!articles.length) {
     return (
@@ -34,41 +43,56 @@ export function ArticleList({ articles }: ArticleListProps) {
   }
 
   return (
-    <div className="overflow-hidden rounded-3xl border border-slate-700 bg-slate-800/80 shadow-sm">
-      <ul className="divide-y divide-slate-700">
-        {articles.map((article) => {
-          const published = parseIsoDate(article.published_at);
-          const spectrumLabel = article.spectrum ? SPECTRUM_LABELS[article.spectrum] ?? article.spectrum : null;
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {articles.map((article) => {
+        const published = parseIsoDate(article.published_at);
+        const spectrumLabel = article.spectrum ? SPECTRUM_LABELS[article.spectrum] ?? article.spectrum : null;
+        const favicon = getSourceFavicon(article.url);
 
-          return (
-            <li key={article.id} className="flex flex-col gap-2 px-5 py-4 md:flex-row md:items-center md:justify-between">
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <a
-                    href={article.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 text-base font-semibold text-brand-400 transition hover:text-brand-300"
-                  >
-                    <ExternalLink size={16} />
-                    <span className="max-w-[28rem] truncate leading-tight">{article.title}</span>
-                  </a>
-                  <span className={buildSpectrumClassName(article.spectrum)}>
-                    {spectrumLabel ?? "Onbekend"}
-                  </span>
-                </div>
-                <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{article.source}</p>
-                {article.summary ? (
-                  <p className="max-w-3xl text-sm text-slate-300">{article.summary}</p>
-                ) : null}
+        return (
+          <a
+            key={article.id}
+            href={article.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group flex flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-800/80 shadow-sm transition-all hover:border-slate-600 hover:shadow-md"
+          >
+            {/* Card content */}
+            <div className="flex flex-1 flex-col gap-3 p-4">
+              {/* Header with favicon and source */}
+              <div className="flex items-center gap-2">
+                {favicon && (
+                  <img
+                    src={favicon}
+                    alt=""
+                    className="h-4 w-4 rounded"
+                    loading="lazy"
+                  />
+                )}
+                <span className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                  {article.source}
+                </span>
+                <span className={buildSpectrumClassName(article.spectrum)}>
+                  {spectrumLabel ?? "Onbekend"}
+                </span>
               </div>
-              <div className="text-xs font-medium text-slate-400">
-                {published ? dateTimeFormatter.format(published) : "Publicatiedatum onbekend"}
+
+              {/* Title */}
+              <h3 className="flex-1 text-sm font-semibold leading-snug text-slate-100 group-hover:text-brand-300 transition-colors">
+                {article.title}
+              </h3>
+
+              {/* Footer with date and external link icon */}
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>
+                  {published ? dateTimeFormatter.format(published) : "Datum onbekend"}
+                </span>
+                <ExternalLink size={14} className="opacity-50 group-hover:opacity-100 transition-opacity" />
               </div>
-            </li>
-          );
-        })}
-      </ul>
+            </div>
+          </a>
+        );
+      })}
     </div>
   );
 }
