@@ -21,6 +21,7 @@ import {
   resolveSpectrumBadges,
 } from "@/lib/format";
 import { ArticleList } from "@/components/ArticleList";
+import { ArticleLookupProvider } from "@/components/ArticleLookupContext";
 import { ClusterGrid } from "@/components/ClusterGrid";
 import { ContradictionList } from "@/components/ContradictionList";
 import { CoverageGapsList } from "@/components/CoverageGapsList";
@@ -199,8 +200,9 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
   }
 
   return (
-    <div className="space-y-12 pb-16">
-      <header className="space-y-6 rounded-3xl border border-white/10 bg-white/[0.04] p-8 shadow-glow backdrop-blur">
+    <ArticleLookupProvider articles={articles}>
+      <div className="space-y-12 pb-16">
+        <header className="space-y-6 rounded-3xl border border-white/10 bg-white/[0.04] p-8 shadow-glow backdrop-blur">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-aurora-400">Event detail</p>
@@ -454,6 +456,7 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
         </div>
         <ArticleList articles={articles} />
       </section>
-    </div>
+      </div>
+    </ArticleLookupProvider>
   );
 }

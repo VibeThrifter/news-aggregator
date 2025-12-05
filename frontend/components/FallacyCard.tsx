@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import { AlertCircle } from "lucide-react";
 import type { Fallacy } from "@/lib/types";
-import { SourceTag } from "@/components/SourceTag";
+import { SourceIconLink } from "@/components/SourceIconLink";
 
 interface FallacyCardProps {
   item: Fallacy;
@@ -16,9 +16,9 @@ export function FallacyCard({ item, index }: FallacyCardProps) {
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.07 }}
-      className="relative overflow-hidden rounded-3xl border border-amber-400/40 bg-amber-500/10 p-6 backdrop-blur"
+      className="relative rounded-3xl border border-amber-400/40 bg-amber-500/10 p-6 backdrop-blur"
     >
-      <div className="absolute inset-0 bg-gradient-to-br from-amber-400/20 to-transparent opacity-40 pointer-events-none" />
+      <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-amber-400/20 to-transparent opacity-40 pointer-events-none" />
       <div className="relative space-y-3 text-slate-50">
         <div className="flex items-center gap-2 text-amber-200">
           <AlertCircle size={20} />
@@ -30,15 +30,7 @@ export function FallacyCard({ item, index }: FallacyCardProps) {
         </p>
         <div className="flex flex-wrap gap-2 pt-2">
           {item.sources.map((url) => (
-            <a
-              key={url}
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-full border border-amber-300/40 bg-amber-400/10 px-3 py-1 text-xs text-amber-100 transition hover:bg-amber-400/20"
-            >
-              Bron
-            </a>
+            <SourceIconLink key={url} url={url} />
           ))}
         </div>
       </div>

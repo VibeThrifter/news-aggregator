@@ -107,3 +107,17 @@ export function resolveEventSlug(event: Pick<EventListItem, "id" | "slug">): str
   }
   return `/event/${encodeURIComponent(String(event.id))}`;
 }
+
+export function getDomainFromUrl(url: string): string {
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname.replace(/^www\./, "");
+  } catch {
+    return "bron";
+  }
+}
+
+export function getFaviconUrl(url: string): string {
+  const domain = getDomainFromUrl(url);
+  return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+}
