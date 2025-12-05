@@ -283,20 +283,6 @@ export function MediaAnalysisList({ items }: MediaAnalysisListProps) {
                 <p className="text-sm text-red-100">{item.framing_by_omission}</p>
               </div>
             )}
-            {item.copy_paste_score && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                  Kopie-score:
-                </span>
-                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                  item.copy_paste_score === 'hoog' ? 'bg-red-500/20 text-red-300' :
-                  item.copy_paste_score === 'middel' ? 'bg-yellow-500/20 text-yellow-300' :
-                  'bg-green-500/20 text-green-300'
-                }`}>
-                  {item.copy_paste_score}
-                </span>
-              </div>
-            )}
             {(item.anonymous_source_count !== undefined && item.anonymous_source_count > 0) && (
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -313,14 +299,6 @@ export function MediaAnalysisList({ items }: MediaAnalysisListProps) {
                   Narratief
                 </p>
                 <p className="text-sm text-slate-200">{item.narrative_alignment}</p>
-              </div>
-            )}
-            {item.what_if_wrong && (
-              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-amber-300">
-                  Wat als dit fout is?
-                </p>
-                <p className="text-sm text-amber-100">{item.what_if_wrong}</p>
               </div>
             )}
           </div>
