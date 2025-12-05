@@ -836,3 +836,125 @@ Stories 5.1 - 5.3 complete. Enhanced health endpoint with component checks and r
   - Documented usage in README with examples and expected output
   - Deleted obsolete `scripts/test_insight_generation.py`
   - `scripts/evaluate_clustering.py` remains as complementary production monitoring tool
+
+---
+**Story ID:** 6.1
+**Epic ID:** Epic 6 – UX & Navigation Enhancements
+**Title:** Implement Category Filter Navigation on Homepage
+**Objective:** Allow users to filter news events by category using a professional, NOS/NU.nl-style horizontal navigation bar on the homepage, with URL-based state for shareability.
+
+**Background/Context:**
+- Source: User request for category-based filtering on homepage.
+- Reference: Backend already classifies articles via LLM into categories (legal, politics, crime, sports, international, business, entertainment, weather, royal, other) in `backend/app/nlp/classify.py`.
+- Design inspiration: [NOS.nl](https://nos.nl) horizontal category tabs, [NU.nl](https://nu.nl) pill-style navigation.
+- Current State: `EventFeed.tsx` fetches all events via `/api/v1/events`. Events have `event_type` field from backend but it's not exposed in API response or used in frontend.
+- Target Paths:
+  - Backend: `backend/app/routers/events.py` (add filter param), `backend/app/repositories/event_repo.py`
+  - Frontend: `frontend/components/CategoryNav.tsx` (new), `frontend/components/EventFeed.tsx` (extend), `frontend/app/page.tsx`
+
+**Design Specification:**
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  360° Nieuws                                              [Refresh] │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌─────┐ ┌──────────┐ ┌─────────┐ ┌───────┐ ┌───────┐ ┌─────────┐  │
+│  │Alles│ │Binnenland│ │Buitenland│ │Sport │ │Cultuur│ │Misdaad  │  │
+│  └─────┘ └──────────┘ └─────────┘ └───────┘ └───────┘ └─────────┘  │
+│    ▲ active (underline + bold)                                      │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │ Event Card 1                                                    ││
+│  │ [category badge] Title...                                       ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │ Event Card 2                                                    ││
+│  └─────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**UI/UX Requirements:**
+1. **Navigation Style** (NOS-inspired):
+   - Horizontal scrollable tab bar under header
+   - "Alles" (All) as default/first option - shows all events
+   - Active tab: bold text, colored underline (brand color), no background change
+   - Inactive tabs: regular weight, subtle hover effect
+   - Mobile: horizontally scrollable with fade edges, no wrapping
+   - Desktop: centered tabs with even spacing
+
+2. **Category Mapping** (backend → frontend labels):
+   | Backend `event_type` | Dutch Label | Icon (optional) |
+   |---------------------|-------------|-----------------|
+   | (all)               | Alles       | - |
+   | politics            | Politiek    | - |
+   | international       | Buitenland  | - |
+   | crime               | Misdaad     | - |
+   | sports              | Sport       | - |
+   | entertainment       | Cultuur     | - |
+   | business            | Economie    | - |
+   | legal               | Rechtszaken | - |
+   | weather             | Weer        | - |
+   | royal               | Koningshuis | - |
+   | other               | Overig      | - |
+
+3. **Performance Requirements:**
+   - Client-side filtering initially (filter already-loaded events)
+   - No loading flash when switching categories
+   - Preserve scroll position when changing category
+   - URL query param `?category=politics` for shareability
+   - Browser back/forward navigation support
+
+4. **Category Badge on Cards:**
+   - Small colored badge/pill showing category on each EventCard
+   - Consistent color per category (e.g., politics=blue, crime=red, sports=green)
+   - Subtle, not overwhelming the card design
+
+**Acceptance Criteria (AC):**
+- Given the homepage when it loads, then a horizontal category navigation bar displays below the header with "Alles" selected by default showing all events.
+- Given a user clicks a category tab (e.g., "Politiek"), then the event feed filters instantly to show only events of that category, the tab becomes active, and URL updates to `?category=politics`.
+- Given a URL with `?category=crime` when the page loads, then the "Misdaad" tab is active and only crime events are displayed.
+- Given the viewport is mobile (<768px) when viewing the category bar, then tabs are horizontally scrollable with smooth scroll behavior.
+- Given an event card when rendered, then it displays a small category badge with the Dutch category label.
+- Given a category with zero events when selected, then an empty state message appears: "Geen events in deze categorie."
+
+**Subtask Checklist:**
+- [ ] **Backend**: Extend `/api/v1/events` endpoint to accept optional `?category=<type>` query parameter for server-side filtering.
+- [ ] **Backend**: Add `event_type` field to events API response model if not already present.
+- [ ] **Backend**: Write integration test for category filter endpoint.
+- [ ] **Frontend**: Create `frontend/components/CategoryNav.tsx` component with horizontal scrollable tabs.
+- [ ] **Frontend**: Implement category state management using URL search params (`useSearchParams` from Next.js).
+- [ ] **Frontend**: Update `EventFeed.tsx` to read category from URL and filter events.
+- [ ] **Frontend**: Add category badge to `EventCard.tsx` with color coding.
+- [ ] **Frontend**: Create `frontend/lib/categories.ts` with category mapping (slug → Dutch label → color).
+- [ ] **Frontend**: Style navigation bar with Tailwind:
+  - Fixed position under header (sticky)
+  - Horizontal scroll on mobile with `-webkit-overflow-scrolling: touch`
+  - Smooth transitions for active state
+  - Dark mode compatible
+- [ ] **Frontend**: Add empty state for categories with no events.
+- [ ] **Frontend**: Ensure keyboard navigation (arrow keys, enter to select).
+- [ ] **Frontend**: Add Playwright E2E test for category filtering (`@category-filter` tag).
+- [ ] **Accessibility**: Ensure `role="tablist"`, `role="tab"`, `aria-selected` attributes.
+- [ ] Update README with category filter documentation.
+- [ ] Run `npm run lint`, `npm run test`, and Playwright tests.
+
+**Testing Requirements:**
+- Backend: Integration test for `/api/v1/events?category=politics` returning filtered results.
+- Frontend: Jest unit tests for CategoryNav component rendering states.
+- E2E: Playwright test verifying category switching updates URL and filters events.
+- Accessibility: aXe or manual check for keyboard navigation and ARIA attributes.
+- Definition of Done: ACs met, all tests passing, responsive design verified on mobile/desktop.
+
+**Technical Notes:**
+- Use Next.js App Router `useSearchParams()` for URL state management
+- Consider `nuqs` library for type-safe URL search params (optional)
+- Events API already returns `event_type` - verify this is included in response
+- Initial implementation: client-side filter. Future optimization: server-side if dataset grows.
+- Category counts in tabs are stretch goal (requires additional API data)
+
+**Story Wrap Up (To be filled in AFTER agent execution):**
+- **Agent Model Used:** _pending_
+- **Agent Credit or Cost:** _pending_
+- **Date/Time Completed:** _pending_
+- **Commit Hash:** _pending_
+- **Change Log:** _pending_

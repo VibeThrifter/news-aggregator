@@ -2,6 +2,9 @@
 
 This document provides Claude Code with essential context and guidelines for working on the 360° News Aggregator project.
 
+## Rules
+- Never commit without asking
+
 ## 📋 Project Overview
 
 A proof-of-concept news aggregation system that demonstrates pluralistic news consumption through:
