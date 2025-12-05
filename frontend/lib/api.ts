@@ -176,6 +176,19 @@ export const ApiClient = {
   },
 };
 
+function extractTitleFromSummary(summary: string | null | undefined): { title: string | null; description: string | null } {
+  if (!summary) {
+    return { title: null, description: null };
+  }
+  // Split on first sentence ending (. ! ?)
+  const match = summary.match(/^(.+?[.!?])\s*(.*)$/s);
+  if (match) {
+    return { title: match[1].trim(), description: match[2].trim() || null };
+  }
+  // No sentence ending found, use whole text as title
+  return { title: summary, description: null };
+}
+
 export async function listEvents(options?: ApiFetchOptions): Promise<ApiResponse<EventListItem[]>> {
   // Fetch events with their LLM insights (summary) via a join
   const { data, error } = await supabase
@@ -196,15 +209,20 @@ export async function listEvents(options?: ApiFetchOptions): Promise<ApiResponse
   }
 
   const events: EventListItem[] = (data || []).map((event: any) => {
-    // Use LLM-generated summary as the description for the event card
-    const insightSummary = event.llm_insights?.summary;
+    // llm_insights is an array from Supabase join, get first element
+    const insightSummary = event.llm_insights?.[0]?.summary;
+    const { title: llmTitle, description: llmDescription } = extractTitleFromSummary(insightSummary);
 
     return {
       id: event.id,
       slug: event.slug,
-      title: event.title || `Event ${event.id}`,
-      description: insightSummary || event.description,
+      // Use LLM-generated title if available, otherwise fall back to event title
+      title: llmTitle || event.title || `Event ${event.id}`,
+      // Use LLM description (rest of summary), or null if no LLM insights
+      description: llmDescription,
       summary: insightSummary,
+      // Flag to indicate if this event has LLM-generated content
+      has_llm_insights: !!insightSummary,
       article_count: event.article_count || 0,
       first_seen_at: event.first_seen_at,
       last_updated_at: event.last_updated_at,

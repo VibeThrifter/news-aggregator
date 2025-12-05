@@ -127,6 +127,7 @@ export interface EventListItem {
   title: string;
   description?: string | null;
   summary?: string | null;
+  has_llm_insights?: boolean;
   first_seen_at?: string | null;
   last_updated_at?: string | null;
   article_count: number;

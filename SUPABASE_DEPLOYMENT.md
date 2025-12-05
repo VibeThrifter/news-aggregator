@@ -5,9 +5,9 @@
 1. Go to https://supabase.com → Your Project → Settings → Database
 2. Copy these values:
    - **Connection String** (under "Connection string" → "URI"):
-     `postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres`
+     `postgresql://postgres:[YOUR-PASSWORD]@db.xfqvwplrgwubbgbumzwk.supabase.co:5432/postgres`
    - **Direct Connection** (for backend):
-     `postgresql://postgres:[password]@db.[project-ref].supabase.co:5432/postgres`
+     `postgresql://postgres:[YOUR-PASSWORD]@db.xfqvwplrgwubbgbumzwk.supabase.co:5432/postgres`
    
 3. Go to Settings → API
    - Copy **Project URL**: `https://[project-ref].supabase.co`

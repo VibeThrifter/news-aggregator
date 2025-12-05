@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
 
 import { EventListItem, resolveEventExportUrl } from "@/lib/api";
 import {
@@ -23,34 +22,12 @@ function buildSpectrumClassName(spectrumKey: string): string {
   }`;
 }
 
-function extractTitleAndDescription(summary: string | null | undefined): { title: string; description: string | null } {
-  if (!summary) {
-    return { title: "", description: null };
-  }
-  // Split on first sentence ending (. ! ?)
-  const match = summary.match(/^(.+?[.!?])\s*(.*)$/s);
-  if (match) {
-    return { title: match[1].trim(), description: match[2].trim() || null };
-  }
-  // No sentence ending found, use whole text as title
-  return { title: summary, description: null };
-}
-
 export interface EventCardProps {
   event: EventListItem;
 }
 
 export function EventCard({ event }: EventCardProps) {
-  const spectrumBadges = useMemo(
-    () => resolveSpectrumBadges(event.spectrum_distribution),
-    [event.spectrum_distribution],
-  );
-
-  const { title: summaryTitle, description: summaryDescription } = useMemo(
-    () => extractTitleAndDescription(event.description),
-    [event.description],
-  );
-
+  const spectrumBadges = resolveSpectrumBadges(event.spectrum_distribution);
   const timeframeLabel = formatEventTimeframe(event.first_seen_at, event.last_updated_at);
   const lastUpdated = event.last_updated_at ? new Date(event.last_updated_at) : null;
   const csvHref = resolveEventExportUrl(event.id);
@@ -70,12 +47,18 @@ export function EventCard({ event }: EventCardProps) {
       </header>
 
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-slate-100">
-          {summaryTitle || event.title}
-        </h2>
-        {summaryDescription ? (
-          <p className="text-sm leading-relaxed text-slate-300">{summaryDescription}</p>
-        ) : null}
+        {event.has_llm_insights ? (
+          <>
+            <h2 className="text-lg font-semibold text-slate-100">
+              {event.title}
+            </h2>
+            {event.description ? (
+              <p className="text-sm leading-relaxed text-slate-300">{event.description}</p>
+            ) : null}
+          </>
+        ) : (
+          <p className="text-sm italic text-slate-400">Samenvatting wordt gegenereerd...</p>
+        )}
       </div>
 
       {spectrumBadges.length > 0 ? (

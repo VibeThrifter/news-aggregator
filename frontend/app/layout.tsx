@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import "@/styles/globals.css";
@@ -7,11 +7,12 @@ export const metadata: Metadata = {
   title: "360° Nieuwsaggregator",
   description: "Moderne Nederlandse nieuwsaggregator met eventdetectie en pluriforme analyses.",
   applicationName: "360° Nieuwsaggregator",
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 1,
-  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
