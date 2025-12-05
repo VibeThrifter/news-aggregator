@@ -74,10 +74,6 @@ describe("EventFeed", () => {
     expect(screen.getByText("Voorbeeld event")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Bekijk event" })).toHaveAttribute("href", "/event/voorbeeld-event");
     expect(screen.getByText(/Mistral/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Download CSV" })).toHaveAttribute(
-      "href",
-      expect.stringContaining("/api/v1/exports/events/42"),
-    );
   });
 
   it("renders an error state when the feed fails to load", () => {

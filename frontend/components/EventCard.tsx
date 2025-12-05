@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { EventListItem, resolveEventExportUrl } from "@/lib/api";
+import { EventListItem } from "@/lib/api";
 import { getCategoryForEventType } from "@/lib/categories";
 import {
   SPECTRUM_STYLES,
@@ -31,7 +31,6 @@ export function EventCard({ event }: EventCardProps) {
   const spectrumBadges = resolveSpectrumBadges(event.spectrum_distribution);
   const timeframeLabel = formatEventTimeframe(event.first_seen_at, event.last_updated_at);
   const lastUpdated = event.last_updated_at ? new Date(event.last_updated_at) : null;
-  const csvHref = resolveEventExportUrl(event.id);
   const detailHref = resolveEventSlug(event);
   const category = getCategoryForEventType(event.event_type);
 
@@ -89,22 +88,12 @@ export function EventCard({ event }: EventCardProps) {
         <p className="text-xs text-slate-400">
           {lastUpdated ? `Laatst bijgewerkt ${dateTimeFormatter.format(lastUpdated)}` : "Laatste update onbekend"}
         </p>
-        <div className="flex flex-wrap gap-3">
-          <Link
-            href={detailHref}
-            className="inline-flex items-center justify-center rounded-full bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
-          >
-            Bekijk event
-          </Link>
-          <a
-            href={csvHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center rounded-full border border-slate-600 bg-slate-700/50 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
-          >
-            Download CSV
-          </a>
-        </div>
+        <Link
+          href={detailHref}
+          className="inline-flex items-center justify-center rounded-full bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
+        >
+          Bekijk event
+        </Link>
       </footer>
     </article>
   );
