@@ -161,19 +161,47 @@ interface MediaAnalysisListProps {
   items: MediaAnalysis[];
 }
 
+const SOURCE_DOMAINS: Record<string, string> = {
+  "NOS": "nos.nl",
+  "nos": "nos.nl",
+  "NU.nl": "nu.nl",
+  "nu.nl": "nu.nl",
+  "NU": "nu.nl",
+  "nu": "nu.nl",
+};
+
+function getSourceFavicon(source: string): string {
+  const domain = SOURCE_DOMAINS[source];
+  if (domain) {
+    return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+  }
+  return "";
+}
+
 export function MediaAnalysisList({ items }: MediaAnalysisListProps) {
   if (!items.length) return null;
 
   return (
     <div className="space-y-4">
-      {items.map((item, index) => (
+      {items.map((item, index) => {
+        const favicon = getSourceFavicon(item.source);
+        return (
         <div
           key={index}
           className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-5"
         >
           <div className="space-y-3">
             <div className="flex items-center gap-3">
-              <span className="text-2xl">&#128240;</span>
+              {favicon ? (
+                <img
+                  src={favicon}
+                  alt=""
+                  className="h-8 w-8 rounded"
+                  loading="lazy"
+                />
+              ) : (
+                <span className="text-2xl">&#128240;</span>
+              )}
               <div>
                 <p className="text-lg font-semibold text-white">{item.source}</p>
                 <p className="text-xs font-semibold uppercase tracking-wide text-rose-300">
@@ -219,7 +247,8 @@ export function MediaAnalysisList({ items }: MediaAnalysisListProps) {
             </div>
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
