@@ -14,6 +14,7 @@ import structlog
 from .config import get_settings
 from ..events.maintenance import get_event_maintenance_service
 from ..services.ingest_service import get_ingest_service
+from ..services.insight_service import InsightService
 
 logger = structlog.get_logger()
 
@@ -27,6 +28,7 @@ class NewsAggregatorScheduler:
         self.scheduler = AsyncIOScheduler()
         self.ingest_service = get_ingest_service()
         self.maintenance_service = get_event_maintenance_service()
+        self.insight_service = InsightService(settings=self.settings)
         self._is_running = False
 
     def setup_jobs(self) -> None:
@@ -41,8 +43,19 @@ class NewsAggregatorScheduler:
             max_instances=1  # Prevent overlapping executions
         )
 
+        # Insight backfill job - catches up on events missing LLM insights
+        self.scheduler.add_job(
+            func=self._insight_backfill_job,
+            trigger=IntervalTrigger(minutes=self.settings.insight_backfill_interval_minutes),
+            id="insight_backfill",
+            name="Insight Backfill",
+            replace_existing=True,
+            max_instances=1,
+        )
+
         logger.info("Scheduled jobs configured",
                    rss_interval_minutes=self.settings.scheduler_interval_minutes,
+                   insight_backfill_interval_minutes=self.settings.insight_backfill_interval_minutes,
                    maintenance_interval_hours=self.settings.event_maintenance_interval_hours)
 
         self.scheduler.add_job(
@@ -77,6 +90,22 @@ class NewsAggregatorScheduler:
         except Exception as e:
             job_logger.error("RSS feed polling job failed", error=str(e))
             # Don't re-raise - let scheduler continue with next execution
+
+    async def _insight_backfill_job(self) -> None:
+        """Generate insights for events that are missing them."""
+
+        correlation_id = str(uuid.uuid4())
+        job_logger = logger.bind(correlation_id=correlation_id, job="insight_backfill")
+
+        try:
+            job_logger.info("Starting insight backfill job")
+            stats = await self.insight_service.backfill_missing_insights(
+                limit=self.settings.insight_backfill_batch_size,
+                correlation_id=correlation_id,
+            )
+            job_logger.info("Insight backfill job completed", **stats)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            job_logger.error("Insight backfill job failed", error=str(exc))
 
     async def _event_maintenance_job(self) -> None:
         """Refresh event centroids, archive stale events, and heal the vector index."""
@@ -155,6 +184,30 @@ class NewsAggregatorScheduler:
             }
         except Exception as e:
             logger.error("Manual event maintenance failed", error=str(e), correlation_id=correlation_id)
+            return {
+                "success": False,
+                "error": str(e),
+                "correlation_id": correlation_id
+            }
+
+    async def run_insight_backfill_now(self, limit: int | None = None) -> dict:
+        """Manually trigger insight backfill (for testing/admin)."""
+        correlation_id = str(uuid.uuid4())
+        batch_size = limit or self.settings.insight_backfill_batch_size
+        logger.info("Manual insight backfill triggered", correlation_id=correlation_id, limit=batch_size)
+
+        try:
+            stats = await self.insight_service.backfill_missing_insights(
+                limit=batch_size,
+                correlation_id=correlation_id,
+            )
+            return {
+                "success": True,
+                "correlation_id": correlation_id,
+                **stats
+            }
+        except Exception as e:
+            logger.error("Manual insight backfill failed", error=str(e), correlation_id=correlation_id)
             return {
                 "success": False,
                 "error": str(e),

@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, List
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import aliased
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
-from backend.app.db.models import LLMInsight
+from backend.app.db.models import Event, LLMInsight
 from backend.app.db.session import get_sessionmaker
 from backend.app.llm.client import (
     BaseLLMClient,
@@ -201,6 +203,88 @@ class InsightService:
             "prompt_length": package.prompt_length,
         }
         return metadata
+
+    async def backfill_missing_insights(
+        self,
+        *,
+        limit: int = 10,
+        correlation_id: str | None = None,
+    ) -> Dict[str, Any]:
+        """Generate insights for events that are missing them.
+
+        This method is designed to be called periodically by a scheduler job
+        to catch up on events that didn't get insights due to server restarts
+        or other failures.
+
+        Args:
+            limit: Maximum number of events to process per run (rate limiting)
+            correlation_id: Optional correlation ID for logging
+
+        Returns:
+            Statistics about the backfill run
+        """
+        log = logger.bind(correlation_id=correlation_id, component="backfill")
+
+        # Find active events without insights, ordered by most recently updated first
+        async with self.session_factory() as session:
+            # Subquery to find event_ids that have insights
+            insight_subq = select(LLMInsight.event_id).distinct().subquery()
+
+            # Select active events without insights
+            stmt = (
+                select(Event.id)
+                .outerjoin(insight_subq, Event.id == insight_subq.c.event_id)
+                .where(
+                    Event.archived_at.is_(None),  # Only active events
+                    insight_subq.c.event_id.is_(None),  # No insight exists
+                )
+                .order_by(Event.last_updated_at.desc())  # Most recent first
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            event_ids: List[int] = [row[0] for row in result.fetchall()]
+
+        if not event_ids:
+            log.info("backfill_no_events_needed")
+            return {
+                "events_found": 0,
+                "events_processed": 0,
+                "events_failed": 0,
+            }
+
+        log.info("backfill_starting", events_to_process=len(event_ids))
+
+        processed = 0
+        failed = 0
+        failed_ids: List[int] = []
+
+        for event_id in event_ids:
+            try:
+                await self.generate_for_event(event_id, correlation_id=correlation_id)
+                processed += 1
+                log.info("backfill_event_completed", event_id=event_id)
+            except Exception as exc:
+                failed += 1
+                failed_ids.append(event_id)
+                log.warning(
+                    "backfill_event_failed",
+                    event_id=event_id,
+                    error=str(exc),
+                )
+
+        log.info(
+            "backfill_completed",
+            events_found=len(event_ids),
+            events_processed=processed,
+            events_failed=failed,
+        )
+
+        return {
+            "events_found": len(event_ids),
+            "events_processed": processed,
+            "events_failed": failed,
+            "failed_event_ids": failed_ids if failed_ids else None,
+        }
 
 
 __all__ = ["InsightGenerationOutcome", "InsightService"]

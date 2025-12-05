@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 SpectrumLabel = Literal["mainstream", "links", "rechts", "alternatief", "overheid", "sociale_media"]
 ClaimPresentation = Literal["feit", "advies", "mening", "voorspelling"]
@@ -109,6 +109,20 @@ class AuthorityAnalysis(BaseModel):
     independence_check: str = Field(default="", description="Onafhankelijk van wie? Gefinancierd door wie?")
     critical_questions: List[str] = Field(default_factory=list, description="Sceptische vragen bij deze autoriteit")
 
+    @model_validator(mode="before")
+    @classmethod
+    def convert_nulls_to_empty_strings(cls, data: dict) -> dict:
+        """Convert null values to empty strings for optional string fields."""
+        if isinstance(data, dict):
+            nullable_fields = [
+                "actual_role", "scope_creep", "composition_question",
+                "funding_sources", "track_record", "independence_check"
+            ]
+            for field in nullable_fields:
+                if field in data and data[field] is None:
+                    data[field] = ""
+        return data
+
 
 class MediaAnalysis(BaseModel):
     """Kritische analyse van de berichtgeving zelf."""
@@ -124,6 +138,23 @@ class MediaAnalysis(BaseModel):
     narrative_alignment: str = Field(default="", description="Past dit bij een bepaald narratief of agenda?")
     what_if_wrong: str = Field(default="", description="Wat zijn de gevolgen als hun framing fout is?")
 
+    @model_validator(mode="before")
+    @classmethod
+    def convert_nulls_to_empty_strings(cls, data: dict) -> dict:
+        """Convert null values to empty strings for optional string fields."""
+        if isinstance(data, dict):
+            nullable_fields = [
+                "sourcing_pattern", "framing_by_omission", "copy_paste_score",
+                "narrative_alignment", "what_if_wrong"
+            ]
+            for field in nullable_fields:
+                if field in data and data[field] is None:
+                    data[field] = ""
+            # Handle anonymous_source_count being null
+            if "anonymous_source_count" in data and data["anonymous_source_count"] is None:
+                data["anonymous_source_count"] = 0
+        return data
+
 
 class ScientificPlurality(BaseModel):
     """Analyse van wetenschappelijke pluraliteit bij claims met wetenschappelijke onderbouwing."""
@@ -135,6 +166,15 @@ class ScientificPlurality(BaseModel):
     notable_dissenters: str = Field(default="", description="Bekende wetenschappers met afwijkende mening")
     assessment: str = Field(..., min_length=1, description="Beoordeling van de pluraliteit in de berichtgeving")
 
+    @model_validator(mode="before")
+    @classmethod
+    def convert_nulls(cls, data: dict) -> dict:
+        """Convert null values to appropriate defaults."""
+        if isinstance(data, dict):
+            if "notable_dissenters" in data and data["notable_dissenters"] is None:
+                data["notable_dissenters"] = ""
+        return data
+
 
 class StatisticalIssue(BaseModel):
     """Een misleidende of onjuist gepresenteerde statistiek."""
@@ -143,6 +183,15 @@ class StatisticalIssue(BaseModel):
     issue: str = Field(..., min_length=1, description="Wat er misleidend aan is")
     better_framing: str = Field(default="", description="Hoe het beter gepresenteerd zou kunnen worden")
 
+    @model_validator(mode="before")
+    @classmethod
+    def convert_nulls(cls, data: dict) -> dict:
+        """Convert null values to appropriate defaults."""
+        if isinstance(data, dict):
+            if "better_framing" in data and data["better_framing"] is None:
+                data["better_framing"] = ""
+        return data
+
 
 class TimingAnalysis(BaseModel):
     """Analyse van de timing van het nieuwsbericht."""
@@ -150,6 +199,17 @@ class TimingAnalysis(BaseModel):
     why_now: str = Field(..., min_length=1, description="Waarom is dit nu nieuws?")
     cui_bono: str = Field(default="", description="Wie profiteert van deze timing?")
     upcoming_events: str = Field(default="", description="Relevante aankomende beslissingen of gebeurtenissen")
+
+    @model_validator(mode="before")
+    @classmethod
+    def convert_nulls(cls, data: dict) -> dict:
+        """Convert null values to appropriate defaults."""
+        if isinstance(data, dict):
+            nullable_fields = ["cui_bono", "upcoming_events"]
+            for field in nullable_fields:
+                if field in data and data[field] is None:
+                    data[field] = ""
+        return data
 
 
 class FactualPayload(BaseModel):

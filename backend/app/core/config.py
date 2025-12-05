@@ -40,6 +40,14 @@ class Settings(BaseSettings):
         default="https://www.rtl.nl/rss.xml",
         description="RSS feed URL for RTL Nieuws"
     )
+    rss_telegraaf_url: str = Field(
+        default="https://www.telegraaf.nl/rss",
+        description="RSS feed URL for De Telegraaf"
+    )
+    rss_volkskrant_url: str = Field(
+        default="https://www.volkskrant.nl/voorpagina/rss.xml",
+        description="RSS feed URL for de Volkskrant"
+    )
 
     # Scheduler Configuration
     scheduler_interval_minutes: int = Field(

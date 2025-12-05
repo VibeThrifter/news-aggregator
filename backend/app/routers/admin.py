@@ -118,3 +118,15 @@ async def trigger_generate_insights(event_id: int):
             message="Insight generation failed",
             details={"reason": str(e)},
         )
+
+
+@router.post("/trigger/backfill-insights")
+async def trigger_backfill_insights(limit: int | None = None):
+    """Manually trigger insight backfill for events missing insights.
+
+    Args:
+        limit: Optional maximum number of events to process (default: from config)
+    """
+    scheduler = get_scheduler()
+    result = await scheduler.run_insight_backfill_now(limit=limit)
+    return result

@@ -141,6 +141,37 @@ make clean             # Clean up generated files
 - **REST API**: Backend endpoints for admin/trigger functions
 - **Event Detail**: Complete detail pages with timeline, clusters, contradictions, fallacies, frames
 - **RSS Polling**: Automated every 15 minutes via APScheduler (backend)
+- **Insight Backfill**: Scheduled job every 30 minutes catches up on missing LLM insights
+
+### Scheduled Jobs (APScheduler)
+
+| Job | Interval | Description |
+| --- | -------- | ----------- |
+| RSS Feed Polling | 15 min | Polls all RSS feeds for new articles |
+| Insight Backfill | 30 min | Generates LLM insights for events missing them |
+| Event Maintenance | 24 hours | Refreshes centroids, archives stale events |
+
+### Admin Endpoints
+
+```bash
+# Trigger RSS polling manually
+curl -X POST "http://localhost:8000/admin/trigger/poll-feeds"
+
+# Trigger insight backfill (default 10 events)
+curl -X POST "http://localhost:8000/admin/trigger/backfill-insights"
+
+# Trigger insight backfill with custom limit
+curl -X POST "http://localhost:8000/admin/trigger/backfill-insights?limit=50"
+
+# Generate insight for specific event
+curl -X POST "http://localhost:8000/admin/trigger/generate-insights/{event_id}"
+
+# Trigger event maintenance
+curl -X POST "http://localhost:8000/admin/trigger/maintenance"
+
+# Check scheduler status
+curl "http://localhost:8000/admin/scheduler/status"
+```
 
 ### What NOT to Do
 - ❌ Don't install Poetry (project uses venv + pip)
