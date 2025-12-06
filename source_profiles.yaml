@@ -25,3 +25,30 @@ sources:
     user_agent: News360Fetcher/1.0 (+https://github.com/news-aggregator)
     parser: trafilatura
     cookie_ttl_minutes: 0
+  telegraaf_rss:
+    feed_url: https://www.telegraaf.nl/rss
+    fetch_strategy: playwright
+    user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+    parser: trafilatura
+    requires_js: true
+    cookie_ttl_minutes: 0
+  volkskrant_rss:
+    feed_url: https://www.volkskrant.nl/voorpagina/rss.xml
+    fetch_strategy: playwright
+    user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+    parser: trafilatura
+    requires_js: true
+    cookie_ttl_minutes: 0
+  parool_rss:
+    feed_url: https://www.parool.nl/voorpagina/rss.xml
+    fetch_strategy: playwright
+    user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+    parser: trafilatura
+    requires_js: true
+    cookie_ttl_minutes: 0
+  anderekrant_rss:
+    feed_url: https://deanderekrant.nl/feed/
+    fetch_strategy: simple
+    user_agent: News360Fetcher/1.0 (+https://github.com/news-aggregator)
+    parser: trafilatura
+    cookie_ttl_minutes: 0

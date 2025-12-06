@@ -23,6 +23,10 @@ from backend.app.feeds.ad import AdRssReader
 from backend.app.feeds.nos import NosRssReader
 from backend.app.feeds.nunl import NuRssReader
 from backend.app.feeds.rtl import RtlRssReader
+from backend.app.feeds.telegraaf import TelegraafRssReader
+from backend.app.feeds.volkskrant import VolkskrantRssReader
+from backend.app.feeds.parool import ParoolRssReader
+from backend.app.feeds.anderekrant import AndereKrantRssReader
 from backend.app.ingestion import (
     ArticleFetchError,
     ArticleParseError,
@@ -89,6 +93,34 @@ class IngestService:
             self.readers[rtl_reader.id] = rtl_reader
             self.reader_profiles[rtl_reader.id] = rtl_profile
             logger.info("Registered feed reader", reader_id=rtl_reader.id, url=self.settings.rss_rtl_url)
+
+            # Register De Telegraaf RSS reader
+            telegraaf_profile = self._resolve_profile("telegraaf_rss", default_url=self.settings.rss_telegraaf_url)
+            telegraaf_reader = TelegraafRssReader(str(telegraaf_profile.feed_url or self.settings.rss_telegraaf_url))
+            self.readers[telegraaf_reader.id] = telegraaf_reader
+            self.reader_profiles[telegraaf_reader.id] = telegraaf_profile
+            logger.info("Registered feed reader", reader_id=telegraaf_reader.id, url=self.settings.rss_telegraaf_url)
+
+            # Register de Volkskrant RSS reader
+            volkskrant_profile = self._resolve_profile("volkskrant_rss", default_url=self.settings.rss_volkskrant_url)
+            volkskrant_reader = VolkskrantRssReader(str(volkskrant_profile.feed_url or self.settings.rss_volkskrant_url))
+            self.readers[volkskrant_reader.id] = volkskrant_reader
+            self.reader_profiles[volkskrant_reader.id] = volkskrant_profile
+            logger.info("Registered feed reader", reader_id=volkskrant_reader.id, url=self.settings.rss_volkskrant_url)
+
+            # Register Het Parool RSS reader
+            parool_profile = self._resolve_profile("parool_rss", default_url=self.settings.rss_parool_url)
+            parool_reader = ParoolRssReader(str(parool_profile.feed_url or self.settings.rss_parool_url))
+            self.readers[parool_reader.id] = parool_reader
+            self.reader_profiles[parool_reader.id] = parool_profile
+            logger.info("Registered feed reader", reader_id=parool_reader.id, url=self.settings.rss_parool_url)
+
+            # Register De Andere Krant RSS reader
+            anderekrant_profile = self._resolve_profile("anderekrant_rss", default_url=self.settings.rss_anderekrant_url)
+            anderekrant_reader = AndereKrantRssReader(str(anderekrant_profile.feed_url or self.settings.rss_anderekrant_url))
+            self.readers[anderekrant_reader.id] = anderekrant_reader
+            self.reader_profiles[anderekrant_reader.id] = anderekrant_profile
+            logger.info("Registered feed reader", reader_id=anderekrant_reader.id, url=self.settings.rss_anderekrant_url)
 
             logger.info("Feed reader registration complete", total_readers=len(self.readers))
 

@@ -48,6 +48,14 @@ class Settings(BaseSettings):
         default="https://www.volkskrant.nl/voorpagina/rss.xml",
         description="RSS feed URL for de Volkskrant"
     )
+    rss_parool_url: str = Field(
+        default="https://www.parool.nl/voorpagina/rss.xml",
+        description="RSS feed URL for Het Parool"
+    )
+    rss_anderekrant_url: str = Field(
+        default="https://deanderekrant.nl/feed/",
+        description="RSS feed URL for De Andere Krant"
+    )
 
     # Scheduler Configuration
     scheduler_interval_minutes: int = Field(

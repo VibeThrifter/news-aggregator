@@ -269,20 +269,38 @@ class TestIngestService:
         with patch('backend.app.services.ingest_service.get_settings') as mock_settings:
             mock_settings.return_value.rss_nos_url = "https://mock-nos.nl/rss"
             mock_settings.return_value.rss_nunl_url = "https://mock-nu.nl/rss"
+            mock_settings.return_value.rss_ad_url = "https://mock-ad.nl/rss"
+            mock_settings.return_value.rss_rtl_url = "https://mock-rtl.nl/rss"
+            mock_settings.return_value.rss_telegraaf_url = "https://mock-telegraaf.nl/rss"
+            mock_settings.return_value.rss_volkskrant_url = "https://mock-volkskrant.nl/rss"
+            mock_settings.return_value.rss_parool_url = "https://mock-parool.nl/rss"
+            mock_settings.return_value.rss_anderekrant_url = "https://mock-anderekrant.nl/rss"
             self.service = IngestService()
 
     def test_reader_registration(self):
         """Test that readers are properly registered."""
-        assert len(self.service.readers) == 2
+        assert len(self.service.readers) == 8
         assert "nos_rss" in self.service.readers
         assert "nunl_rss" in self.service.readers
+        assert "ad_rss" in self.service.readers
+        assert "rtl_rss" in self.service.readers
+        assert "telegraaf_rss" in self.service.readers
+        assert "volkskrant_rss" in self.service.readers
+        assert "parool_rss" in self.service.readers
+        assert "anderekrant_rss" in self.service.readers
 
     def test_get_reader_info(self):
         """Test reader info retrieval."""
         info = self.service.get_reader_info()
-        assert info["total_count"] == 2
+        assert info["total_count"] == 8
         assert "nos_rss" in info["readers"]
         assert "nunl_rss" in info["readers"]
+        assert "ad_rss" in info["readers"]
+        assert "rtl_rss" in info["readers"]
+        assert "telegraaf_rss" in info["readers"]
+        assert "volkskrant_rss" in info["readers"]
+        assert "parool_rss" in info["readers"]
+        assert "anderekrant_rss" in info["readers"]
 
         nos_info = info["readers"]["nos_rss"]
         assert nos_info["id"] == "nos_rss"
@@ -317,10 +335,10 @@ class TestIngestService:
 
         # Verify results
         assert results["success"] is True
-        assert results["total_readers"] == 2
-        assert results["successful_readers"] == 2
+        assert results["total_readers"] == 8
+        assert results["successful_readers"] == 8
         assert results["failed_readers"] == 0
-        assert results["total_items"] == 2  # 1 item per reader
+        assert results["total_items"] == 8  # 1 item per reader
         assert len(results["errors"]) == 0
 
     @pytest.mark.asyncio
@@ -340,23 +358,24 @@ class TestIngestService:
 
         self.service.process_feed_items = AsyncMock(side_effect=mock_process)
 
-        # Mock one success, one failure
+        # Mock readers: first one fails, rest succeed
         readers = list(self.service.readers.values())
-        readers[0].fetch = AsyncMock(return_value=mock_items)
+        readers[0].fetch = AsyncMock(side_effect=FeedReaderError("Test error"))
         readers[0].__aenter__ = AsyncMock(return_value=readers[0])
         readers[0].__aexit__ = AsyncMock(return_value=None)
 
-        readers[1].fetch = AsyncMock(side_effect=FeedReaderError("Test error"))
-        readers[1].__aenter__ = AsyncMock(return_value=readers[1])
-        readers[1].__aexit__ = AsyncMock(return_value=None)
+        for reader in readers[1:]:
+            reader.fetch = AsyncMock(return_value=mock_items)
+            reader.__aenter__ = AsyncMock(return_value=reader)
+            reader.__aexit__ = AsyncMock(return_value=None)
 
         results = await self.service.poll_feeds()
 
         # Verify results
         assert results["success"] is False
-        assert results["successful_readers"] == 1
+        assert results["successful_readers"] == 7  # 7 out of 8 succeed
         assert results["failed_readers"] == 1
-        assert results["total_items"] == 1
+        assert results["total_items"] == 7
         assert len(results["errors"]) == 1
         assert "Test error" in results["errors"][0]["error"]
 
@@ -391,8 +410,8 @@ class TestIngestService:
         results = await self.service.test_readers()
 
         # Verify all readers tested
-        assert len(results) == 2
-        for reader_id in ["nos_rss", "nunl_rss"]:
+        assert len(results) == 8
+        for reader_id in ["nos_rss", "nunl_rss", "ad_rss", "rtl_rss", "telegraaf_rss", "volkskrant_rss", "parool_rss", "anderekrant_rss"]:
             assert reader_id in results
             assert results[reader_id]["status"] == "ok"
 
