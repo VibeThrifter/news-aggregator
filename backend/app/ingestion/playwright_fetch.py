@@ -213,10 +213,13 @@ async def fetch_with_playwright(
             # For non-DPG sites, still try to handle consent dialogs
             if not dpg_homepage:
                 try:
+                    # Try various consent button selectors
                     consent_button = await page.query_selector(
                         'button:has-text("Akkoord"), '
                         'button:has-text("Accept"), '
                         'button:has-text("Accepteer"), '
+                        'button:has-text("Toestaan"), '
+                        'div:has-text("Toestaan"), '
                         '[data-testid="uc-accept-all-button"]'
                     )
                     if consent_button:

@@ -28,6 +28,9 @@ from backend.app.feeds.volkskrant import VolkskrantRssReader
 from backend.app.feeds.parool import ParoolRssReader
 from backend.app.feeds.anderekrant import AndereKrantRssReader
 from backend.app.feeds.trouw import TrouwRssReader
+from backend.app.feeds.geenstijl import GeenStijlAtomReader
+from backend.app.feeds.ninefornews import NineForNewsRssReader
+from backend.app.feeds.nieuwrechts import NieuwRechtsRssReader
 from backend.app.ingestion import (
     ArticleFetchError,
     ArticleParseError,
@@ -129,6 +132,27 @@ class IngestService:
             self.readers[trouw_reader.id] = trouw_reader
             self.reader_profiles[trouw_reader.id] = trouw_profile
             logger.info("Registered feed reader", reader_id=trouw_reader.id, url=self.settings.rss_trouw_url)
+
+            # Register GeenStijl Atom reader
+            geenstijl_profile = self._resolve_profile("geenstijl_atom", default_url=self.settings.rss_geenstijl_url)
+            geenstijl_reader = GeenStijlAtomReader(str(geenstijl_profile.feed_url or self.settings.rss_geenstijl_url))
+            self.readers[geenstijl_reader.id] = geenstijl_reader
+            self.reader_profiles[geenstijl_reader.id] = geenstijl_profile
+            logger.info("Registered feed reader", reader_id=geenstijl_reader.id, url=self.settings.rss_geenstijl_url)
+
+            # Register NineForNews RSS reader
+            ninefornews_profile = self._resolve_profile("ninefornews_rss", default_url=self.settings.rss_ninefornews_url)
+            ninefornews_reader = NineForNewsRssReader(str(ninefornews_profile.feed_url or self.settings.rss_ninefornews_url))
+            self.readers[ninefornews_reader.id] = ninefornews_reader
+            self.reader_profiles[ninefornews_reader.id] = ninefornews_profile
+            logger.info("Registered feed reader", reader_id=ninefornews_reader.id, url=self.settings.rss_ninefornews_url)
+
+            # Register NieuwRechts RSS reader
+            nieuwrechts_profile = self._resolve_profile("nieuwrechts_rss", default_url=self.settings.rss_nieuwrechts_url)
+            nieuwrechts_reader = NieuwRechtsRssReader(str(nieuwrechts_profile.feed_url or self.settings.rss_nieuwrechts_url))
+            self.readers[nieuwrechts_reader.id] = nieuwrechts_reader
+            self.reader_profiles[nieuwrechts_reader.id] = nieuwrechts_profile
+            logger.info("Registered feed reader", reader_id=nieuwrechts_reader.id, url=self.settings.rss_nieuwrechts_url)
 
             logger.info("Feed reader registration complete", total_readers=len(self.readers))
 
@@ -404,66 +428,80 @@ class IngestService:
                     )
                     continue
 
-                try:
-                    html = await fetch_article_html(
-                        item.url,
-                        profile=profile,
-                        client=client,
-                        logger=logger_ctx.bind(article_url=item.url),
+                # Check if feed already provides full content (e.g., GeenStijl Atom feed)
+                full_text_from_feed = item.source_metadata.get("full_text_from_feed")
+                if full_text_from_feed and len(full_text_from_feed.strip()) > 100:
+                    logger_ctx.info(
+                        "using_full_text_from_feed",
+                        url=item.url,
+                        guid=item.guid,
+                        text_length=len(full_text_from_feed),
                     )
-                except ArticleFetchError:
-                    # Use RSS summary as fallback when full article fetch fails
-                    if item.summary and len(item.summary.strip()) > 0:
-                        logger_ctx.info(
-                            "article_fetch_failed_using_rss_summary",
-                            url=item.url,
-                            guid=item.guid,
-                            summary_length=len(item.summary),
-                        )
-                        # Create minimal parsed result with RSS summary
-                        parsed = ArticleParseResult(text=item.summary, summary=item.summary[:320])
-                    else:
-                        logger_ctx.warning(
-                            "article_fetch_failed_skip",
-                            url=item.url,
-                            guid=item.guid,
-                            reason="no_rss_summary",
-                        )
-                        yield {"status": "fetch_failures", "article_id": None}
-                        continue
+                    parsed = ArticleParseResult(
+                        text=full_text_from_feed,
+                        summary=full_text_from_feed[:320]
+                    )
                 else:
-                    # Only parse HTML if fetch succeeded
                     try:
-                        parsed = parse_article_html(html, url=item.url)
-                    except ArticleParseError:
-                        if profile and profile.parser and profile.parser != "trafilatura":
-                            fallback_text = naive_extract_text(html)
-                            if fallback_text:
-                                summary = fallback_text[:320] or (item.summary or "")
-                                parsed = ArticleParseResult(text=fallback_text, summary=summary)
-                                logger_ctx.info(
-                                    "article_parse_fallback",
-                                    parser=profile.parser,
-                                    url=item.url,
-                                    guid=item.guid,
-                                )
+                        html = await fetch_article_html(
+                            item.url,
+                            profile=profile,
+                            client=client,
+                            logger=logger_ctx.bind(article_url=item.url),
+                        )
+                    except ArticleFetchError:
+                        # Use RSS summary as fallback when full article fetch fails
+                        if item.summary and len(item.summary.strip()) > 0:
+                            logger_ctx.info(
+                                "article_fetch_failed_using_rss_summary",
+                                url=item.url,
+                                guid=item.guid,
+                                summary_length=len(item.summary),
+                            )
+                            # Create minimal parsed result with RSS summary
+                            parsed = ArticleParseResult(text=item.summary, summary=item.summary[:320])
+                        else:
+                            logger_ctx.warning(
+                                "article_fetch_failed_skip",
+                                url=item.url,
+                                guid=item.guid,
+                                reason="no_rss_summary",
+                            )
+                            yield {"status": "fetch_failures", "article_id": None}
+                            continue
+                    else:
+                        # Only parse HTML if fetch succeeded
+                        try:
+                            parsed = parse_article_html(html, url=item.url)
+                        except ArticleParseError:
+                            if profile and profile.parser and profile.parser != "trafilatura":
+                                fallback_text = naive_extract_text(html)
+                                if fallback_text:
+                                    summary = fallback_text[:320] or (item.summary or "")
+                                    parsed = ArticleParseResult(text=fallback_text, summary=summary)
+                                    logger_ctx.info(
+                                        "article_parse_fallback",
+                                        parser=profile.parser,
+                                        url=item.url,
+                                        guid=item.guid,
+                                    )
+                                else:
+                                    logger_ctx.warning(
+                                        "article_parse_failed_skip",
+                                        url=item.url,
+                                        guid=item.guid,
+                                        reason="fallback_empty",
+                                    )
+                                    yield {"status": "parse_failures", "article_id": None}
+                                    continue
                             else:
                                 logger_ctx.warning(
                                     "article_parse_failed_skip",
                                     url=item.url,
                                     guid=item.guid,
-                                    reason="fallback_empty",
                                 )
                                 yield {"status": "parse_failures", "article_id": None}
                                 continue
-                        else:
-                            logger_ctx.warning(
-                                "article_parse_failed_skip",
-                                url=item.url,
-                                guid=item.guid,
-                            )
-                            yield {"status": "parse_failures", "article_id": None}
-                            continue
 
                 persistence = await repo.upsert_from_feed_item(item, parsed)
                 if persistence.created:

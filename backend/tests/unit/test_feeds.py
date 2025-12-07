@@ -275,11 +275,15 @@ class TestIngestService:
             mock_settings.return_value.rss_volkskrant_url = "https://mock-volkskrant.nl/rss"
             mock_settings.return_value.rss_parool_url = "https://mock-parool.nl/rss"
             mock_settings.return_value.rss_anderekrant_url = "https://mock-anderekrant.nl/rss"
+            mock_settings.return_value.rss_trouw_url = "https://mock-trouw.nl/rss"
+            mock_settings.return_value.rss_geenstijl_url = "https://mock-geenstijl.nl/atom"
+            mock_settings.return_value.rss_ninefornews_url = "https://mock-ninefornews.nl/feed"
+            mock_settings.return_value.rss_nieuwrechts_url = "https://mock-nieuwrechts.nl/rss"
             self.service = IngestService()
 
     def test_reader_registration(self):
         """Test that readers are properly registered."""
-        assert len(self.service.readers) == 8
+        assert len(self.service.readers) == 12
         assert "nos_rss" in self.service.readers
         assert "nunl_rss" in self.service.readers
         assert "ad_rss" in self.service.readers
@@ -288,11 +292,15 @@ class TestIngestService:
         assert "volkskrant_rss" in self.service.readers
         assert "parool_rss" in self.service.readers
         assert "anderekrant_rss" in self.service.readers
+        assert "trouw_rss" in self.service.readers
+        assert "geenstijl_atom" in self.service.readers
+        assert "ninefornews_rss" in self.service.readers
+        assert "nieuwrechts_rss" in self.service.readers
 
     def test_get_reader_info(self):
         """Test reader info retrieval."""
         info = self.service.get_reader_info()
-        assert info["total_count"] == 8
+        assert info["total_count"] == 12
         assert "nos_rss" in info["readers"]
         assert "nunl_rss" in info["readers"]
         assert "ad_rss" in info["readers"]
@@ -301,6 +309,10 @@ class TestIngestService:
         assert "volkskrant_rss" in info["readers"]
         assert "parool_rss" in info["readers"]
         assert "anderekrant_rss" in info["readers"]
+        assert "trouw_rss" in info["readers"]
+        assert "geenstijl_atom" in info["readers"]
+        assert "ninefornews_rss" in info["readers"]
+        assert "nieuwrechts_rss" in info["readers"]
 
         nos_info = info["readers"]["nos_rss"]
         assert nos_info["id"] == "nos_rss"
@@ -335,10 +347,10 @@ class TestIngestService:
 
         # Verify results
         assert results["success"] is True
-        assert results["total_readers"] == 8
-        assert results["successful_readers"] == 8
+        assert results["total_readers"] == 12
+        assert results["successful_readers"] == 12
         assert results["failed_readers"] == 0
-        assert results["total_items"] == 8  # 1 item per reader
+        assert results["total_items"] == 12  # 1 item per reader
         assert len(results["errors"]) == 0
 
     @pytest.mark.asyncio
@@ -373,9 +385,9 @@ class TestIngestService:
 
         # Verify results
         assert results["success"] is False
-        assert results["successful_readers"] == 7  # 7 out of 8 succeed
+        assert results["successful_readers"] == 11  # 11 out of 12 succeed
         assert results["failed_readers"] == 1
-        assert results["total_items"] == 7
+        assert results["total_items"] == 11
         assert len(results["errors"]) == 1
         assert "Test error" in results["errors"][0]["error"]
 
@@ -410,8 +422,8 @@ class TestIngestService:
         results = await self.service.test_readers()
 
         # Verify all readers tested
-        assert len(results) == 8
-        for reader_id in ["nos_rss", "nunl_rss", "ad_rss", "rtl_rss", "telegraaf_rss", "volkskrant_rss", "parool_rss", "anderekrant_rss"]:
+        assert len(results) == 12
+        for reader_id in ["nos_rss", "nunl_rss", "ad_rss", "rtl_rss", "telegraaf_rss", "volkskrant_rss", "parool_rss", "anderekrant_rss", "trouw_rss", "geenstijl_atom", "ninefornews_rss", "nieuwrechts_rss"]:
             assert reader_id in results
             assert results[reader_id]["status"] == "ok"
 

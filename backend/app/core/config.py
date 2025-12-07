@@ -60,6 +60,18 @@ class Settings(BaseSettings):
         default="https://www.trouw.nl/voorpagina/rss.xml",
         description="RSS feed URL for Trouw"
     )
+    rss_geenstijl_url: str = Field(
+        default="https://www.geenstijl.nl/feeds/recent.atom",
+        description="Atom feed URL for GeenStijl"
+    )
+    rss_nieuwrechts_url: str = Field(
+        default="https://nieuwrechts.nl/rss",
+        description="RSS feed URL for NieuwRechts"
+    )
+    rss_ninefornews_url: str = Field(
+        default="https://www.ninefornews.nl/feed/",
+        description="RSS feed URL for NineForNews"
+    )
 
     # Scheduler Configuration
     scheduler_interval_minutes: int = Field(

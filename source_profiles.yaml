@@ -59,3 +59,27 @@ sources:
     parser: trafilatura
     requires_js: true
     cookie_ttl_minutes: 0
+  geenstijl_atom:
+    feed_url: https://www.geenstijl.nl/feeds/recent.atom
+    fetch_strategy: simple
+    user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+    parser: trafilatura
+    cookie_ttl_minutes: 0
+    # Note: GeenStijl's Atom feed provides full article content in <content> tag
+    # No Playwright needed - full text is extracted directly from feed
+  ninefornews_rss:
+    feed_url: https://www.ninefornews.nl/feed/
+    fetch_strategy: playwright
+    user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+    parser: trafilatura
+    requires_js: true
+    cookie_ttl_minutes: 0
+    # Note: Cloudflare protection requires Playwright for article fetch
+  nieuwrechts_rss:
+    feed_url: https://nieuwrechts.nl/rss
+    fetch_strategy: playwright
+    user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+    parser: trafilatura
+    requires_js: true
+    cookie_ttl_minutes: 0
+    # Note: NieuwRechts is an Angular SPA - requires Playwright for full article content
