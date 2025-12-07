@@ -12,8 +12,9 @@ from apscheduler.triggers.interval import IntervalTrigger
 import structlog
 
 from .config import get_settings
+from ..db.session import ensure_healthy_connection, get_sessionmaker
 from ..events.maintenance import get_event_maintenance_service
-from ..services.ingest_service import get_ingest_service
+from ..services.ingest_service import IngestService
 from ..services.insight_service import InsightService
 
 logger = structlog.get_logger()
@@ -26,10 +27,36 @@ class NewsAggregatorScheduler:
         """Initialize scheduler with configuration."""
         self.settings = get_settings()
         self.scheduler = AsyncIOScheduler()
-        self.ingest_service = get_ingest_service()
-        self.maintenance_service = get_event_maintenance_service()
-        self.insight_service = InsightService(settings=self.settings)
+        # Services are lazily initialized to get fresh session factories
+        self._ingest_service: Optional[IngestService] = None
+        self._maintenance_service = None
+        self._insight_service: Optional[InsightService] = None
         self._is_running = False
+
+    def _get_ingest_service(self) -> IngestService:
+        """Get or create ingest service with current session factory."""
+        if self._ingest_service is None:
+            self._ingest_service = IngestService(session_factory=get_sessionmaker())
+        return self._ingest_service
+
+    def _get_maintenance_service(self):
+        """Get or create maintenance service."""
+        if self._maintenance_service is None:
+            self._maintenance_service = get_event_maintenance_service()
+        return self._maintenance_service
+
+    def _get_insight_service(self) -> InsightService:
+        """Get or create insight service with current settings."""
+        if self._insight_service is None:
+            self._insight_service = InsightService(settings=self.settings)
+        return self._insight_service
+
+    def _reset_services(self) -> None:
+        """Reset all services to pick up fresh connections after DB reset."""
+        self._ingest_service = None
+        self._maintenance_service = None
+        self._insight_service = None
+        logger.info("scheduler_services_reset")
 
     def setup_jobs(self) -> None:
         """Set up scheduled jobs."""
@@ -75,8 +102,15 @@ class NewsAggregatorScheduler:
         try:
             job_logger.info("Starting RSS feed polling job")
 
+            # Ensure database connection is healthy before proceeding
+            if not await ensure_healthy_connection():
+                job_logger.error("Database connection unhealthy, skipping poll cycle")
+                self._reset_services()
+                return
+
             # Call the ingest service to poll feeds
-            results = await self.ingest_service.poll_feeds(correlation_id=correlation_id)
+            ingest_service = self._get_ingest_service()
+            results = await ingest_service.poll_feeds(correlation_id=correlation_id)
 
             if results["success"]:
                 job_logger.info("RSS feed polling job completed successfully",
@@ -89,6 +123,8 @@ class NewsAggregatorScheduler:
 
         except Exception as e:
             job_logger.error("RSS feed polling job failed", error=str(e))
+            # Reset services so next run gets fresh connections
+            self._reset_services()
             # Don't re-raise - let scheduler continue with next execution
 
     async def _insight_backfill_job(self) -> None:
@@ -99,13 +135,22 @@ class NewsAggregatorScheduler:
 
         try:
             job_logger.info("Starting insight backfill job")
-            stats = await self.insight_service.backfill_missing_insights(
+
+            # Ensure database connection is healthy before proceeding
+            if not await ensure_healthy_connection():
+                job_logger.error("Database connection unhealthy, skipping backfill cycle")
+                self._reset_services()
+                return
+
+            insight_service = self._get_insight_service()
+            stats = await insight_service.backfill_missing_insights(
                 limit=self.settings.insight_backfill_batch_size,
                 correlation_id=correlation_id,
             )
             job_logger.info("Insight backfill job completed", **stats)
         except Exception as exc:  # pragma: no cover - defensive logging
             job_logger.error("Insight backfill job failed", error=str(exc))
+            self._reset_services()
 
     async def _event_maintenance_job(self) -> None:
         """Refresh event centroids, archive stale events, and heal the vector index."""
@@ -115,10 +160,19 @@ class NewsAggregatorScheduler:
 
         try:
             job_logger.info("Starting event maintenance job")
-            stats = await self.maintenance_service.run(correlation_id=correlation_id)
+
+            # Ensure database connection is healthy before proceeding
+            if not await ensure_healthy_connection():
+                job_logger.error("Database connection unhealthy, skipping maintenance cycle")
+                self._reset_services()
+                return
+
+            maintenance_service = self._get_maintenance_service()
+            stats = await maintenance_service.run(correlation_id=correlation_id)
             job_logger.info("Event maintenance job completed", **stats.as_dict())
         except Exception as exc:  # pragma: no cover - defensive logging
             job_logger.error("Event maintenance job failed", error=str(exc))
+            self._reset_services()
 
     def start(self) -> None:
         """Start the scheduler."""
@@ -160,10 +214,21 @@ class NewsAggregatorScheduler:
         logger.info("Manual RSS feed polling triggered", correlation_id=correlation_id)
 
         try:
-            results = await self.ingest_service.poll_feeds(correlation_id=correlation_id)
+            # Ensure database connection is healthy before proceeding
+            if not await ensure_healthy_connection():
+                self._reset_services()
+                return {
+                    "success": False,
+                    "error": "Database connection unhealthy after reset attempt",
+                    "correlation_id": correlation_id
+                }
+
+            ingest_service = self._get_ingest_service()
+            results = await ingest_service.poll_feeds(correlation_id=correlation_id)
             return results
         except Exception as e:
             logger.error("Manual RSS feed polling failed", error=str(e), correlation_id=correlation_id)
+            self._reset_services()
             return {
                 "success": False,
                 "error": str(e),
@@ -176,7 +241,17 @@ class NewsAggregatorScheduler:
         logger.info("Manual event maintenance triggered", correlation_id=correlation_id)
 
         try:
-            stats = await self.maintenance_service.run(correlation_id=correlation_id)
+            # Ensure database connection is healthy before proceeding
+            if not await ensure_healthy_connection():
+                self._reset_services()
+                return {
+                    "success": False,
+                    "error": "Database connection unhealthy after reset attempt",
+                    "correlation_id": correlation_id
+                }
+
+            maintenance_service = self._get_maintenance_service()
+            stats = await maintenance_service.run(correlation_id=correlation_id)
             return {
                 "success": True,
                 "correlation_id": correlation_id,
@@ -184,6 +259,7 @@ class NewsAggregatorScheduler:
             }
         except Exception as e:
             logger.error("Manual event maintenance failed", error=str(e), correlation_id=correlation_id)
+            self._reset_services()
             return {
                 "success": False,
                 "error": str(e),
@@ -197,7 +273,17 @@ class NewsAggregatorScheduler:
         logger.info("Manual insight backfill triggered", correlation_id=correlation_id, limit=batch_size)
 
         try:
-            stats = await self.insight_service.backfill_missing_insights(
+            # Ensure database connection is healthy before proceeding
+            if not await ensure_healthy_connection():
+                self._reset_services()
+                return {
+                    "success": False,
+                    "error": "Database connection unhealthy after reset attempt",
+                    "correlation_id": correlation_id
+                }
+
+            insight_service = self._get_insight_service()
+            stats = await insight_service.backfill_missing_insights(
                 limit=batch_size,
                 correlation_id=correlation_id,
             )
@@ -208,6 +294,7 @@ class NewsAggregatorScheduler:
             }
         except Exception as e:
             logger.error("Manual insight backfill failed", error=str(e), correlation_id=correlation_id)
+            self._reset_services()
             return {
                 "success": False,
                 "error": str(e),

@@ -98,6 +98,79 @@ def _extract_entities(raw: Iterable[dict] | None) -> tuple[set[str], set[str], s
     return all_texts, person_texts, location_texts, payload
 
 
+# Sport-specific keywords for distinguishing different sports
+# Each tuple contains keywords that belong to the SAME sport category
+SPORT_CATEGORIES = {
+    "voetbal": {"voetbal", "wk voetbal", "ek voetbal", "eredivisie", "champions league",
+                "elftal", "oranje", "ajax", "feyenoord", "psv", "goal", "penalty",
+                "fifa", "uefa", "trainer", "opstelling"},
+    "schaatsen": {"schaatsen", "schaats", "ijs", "ijsbaan", "world cup", "heerenveen",
+                  "thialf", "500 meter", "1000 meter", "1500 meter", "5000 meter",
+                  "10000 meter", "sprint", "allround", "knsb", "isu"},
+    "wielrennen": {"wielrennen", "fiets", "etappe", "peloton", "tour", "giro", "vuelta",
+                   "klassieker", "sprint", "bergrit", "tijdrit"},
+    "tennis": {"tennis", "wimbledon", "roland garros", "us open", "australian open",
+               "atp", "wta", "set", "game", "tiebreak"},
+    "formule 1": {"formule 1", "f1", "grand prix", "verstappen", "red bull", "pit stop",
+                  "pole position", "circuit", "race"},
+    "zwemmen": {"zwemmen", "zwem", "baantjes", "crawl", "schoolslag", "vlinder",
+                "estafette", "medley"},
+    "atletiek": {"atletiek", "marathon", "sprint", "hoogspringen", "verspringen",
+                 "kogelstoten", "speerwerpen"},
+    "hockey": {"hockey", "stick", "shootout", "drag", "strafcorner"},
+    "volleybal": {"volleybal", "smash", "block", "service", "set"},
+    "basketbal": {"basketbal", "nba", "dunk", "rebound", "three-pointer"},
+    "darts": {"darts", "pdc", "bdo", "checkout", "dubbel", "triple"},
+    "snooker": {"snooker", "biljart", "pot", "cue", "century"},
+    "golf": {"golf", "hole", "birdie", "par", "bogey", "putt"},
+}
+
+
+def _detect_sport_category(text: str) -> set[str]:
+    """Detect which sport categories are present in text."""
+    text_lower = text.lower()
+    detected = set()
+    for sport, keywords in SPORT_CATEGORIES.items():
+        for keyword in keywords:
+            if keyword in text_lower:
+                detected.add(sport)
+                break  # Found this sport, move to next
+    return detected
+
+
+def _are_different_sports(article: Article, event_articles: List[Article]) -> bool:
+    """
+    Check if article and event articles are about different sports.
+
+    Returns True if we can definitively determine they are different sports,
+    False otherwise (including when we can't determine).
+    """
+    if not event_articles:
+        return False
+
+    # Extract text from article
+    article_text = f"{article.title or ''} {article.content or ''}"
+    article_sports = _detect_sport_category(article_text)
+
+    if not article_sports:
+        return False  # Can't determine sport for article
+
+    # Extract text from all event articles
+    event_sports: set[str] = set()
+    for event_article in event_articles:
+        event_text = f"{event_article.title or ''} {event_article.content or ''}"
+        event_sports.update(_detect_sport_category(event_text))
+
+    if not event_sports:
+        return False  # Can't determine sport for event
+
+    # If there's no overlap in detected sports, they're different
+    if not article_sports.intersection(event_sports):
+        return True
+
+    return False
+
+
 def _article_to_features(article: Article) -> tuple[ArticleFeatures, List[Dict[str, Optional[str]]]]:
     embedding = _deserialize_embedding(article.embedding)
     tfidf_vector = _sanitize_tfidf(article.tfidf_vector)
@@ -247,6 +320,20 @@ class EventService:
                         event_id=event.id,
                         note="Will evaluate score before deciding",
                     )
+
+                # SPORTS HARD CONSTRAINT: Different sports = different events
+                # Check for sport-specific keywords regardless of event_type classification
+                # (classification may fail or be inconsistent)
+                event_articles_list = event_articles_map.get(event.id, [])
+                is_different_sport = _are_different_sports(article, event_articles_list)
+                if is_different_sport:
+                    correlation_log.debug(
+                        "sports_type_mismatch",
+                        article_id=article.id,
+                        event_id=event.id,
+                        note="Different sports detected, skipping candidate",
+                    )
+                    continue
 
                 # CRIME/ACCIDENT HARD CONSTRAINTS: Different locations or dates = different events
                 if article.event_type in ('crime',) and event.event_type in ('crime',):
@@ -414,6 +501,7 @@ class EventService:
                     article=article,
                     candidates=llm_candidates,
                     correlation_id=correlation_id,
+                    event_articles_map=event_articles_map,
                 )
 
                 # Find the selected event in our candidates
@@ -640,13 +728,16 @@ class EventService:
         article: Article,
         candidates: List[tuple[Event, float]],
         correlation_id: str | None = None,
+        event_articles_map: dict[int, List[Article]] | None = None,
     ) -> int | None:
         """Use LLM to select the best matching event from candidates, or None for new event."""
         if not self.llm_client or not candidates:
             return None
 
+        event_articles_map = event_articles_map or {}
+
         # Build prompt with article and candidate events
-        article_text = f"{article.title}\n\n{article.content[:1200]}"
+        article_text = f"{article.title}\n\n{article.content[:1200] if article.content else ''}"
         article_locations = ", ".join(article.extracted_locations or ['unknown'])
         article_date = article.published_at.strftime('%Y-%m-%d') if article.published_at else 'unknown'
 
@@ -657,11 +748,29 @@ class EventService:
             if event.description:
                 event_desc += f"  Summary: {event.description[:200]}\n"
             event_desc += f"  Type: {event.event_type or 'unknown'}\n"
-            event_desc += f"  Articles: {event.article_count}\n"
+
+            # Include sample article titles AND content snippets for better context
+            event_articles = event_articles_map.get(event.id, [])
+            if event_articles:
+                sample_articles = []
+                for a in event_articles[:3]:
+                    if a.title:
+                        # Include first 150 chars of content to help distinguish similar topics
+                        snippet = ""
+                        if a.content:
+                            snippet = a.content[:150].replace('\n', ' ').strip()
+                            if len(a.content) > 150:
+                                snippet += "..."
+                        sample_articles.append(f"'{a.title}'" + (f" ({snippet})" if snippet else ""))
+                if sample_articles:
+                    event_desc += f"  Sample articles:\n"
+                    for sample in sample_articles:
+                        event_desc += f"    - {sample}\n"
+
             event_desc += f"  Last updated: {event.last_updated_at.strftime('%Y-%m-%d') if event.last_updated_at else 'unknown'}\n"
             candidates_text.append(event_desc)
 
-        prompt = f"""You are clustering news articles. Decide if this NEW article belongs to an existing event or should create a NEW_EVENT.
+        prompt = f"""You cluster Dutch news articles into events. Decide: does this article belong to an existing event, or is it NEW_EVENT?
 
 NEW ARTICLE:
 Type: {article.event_type or 'unknown'}
@@ -672,25 +781,31 @@ Text: {article_text}
 CANDIDATE EVENTS:
 {chr(10).join(candidates_text)}
 
-MATCHING CRITERIA:
-✓ SAME EVENT if:
-  • Exact same incident (same victim, same accident, same political decision)
-  • Same specific people/organizations involved
-  • Same specific location (for local events like crimes, accidents)
-  • Continuation/update of the SAME story
-  • Within 1-2 days for breaking news
+DECISION RULES:
 
-✗ DIFFERENT EVENT if:
-  • Different victims or suspects (even if similar crime type)
-  • Different locations for local events (crimes, accidents, local news)
-  • Same general topic but distinct incidents (e.g., two separate robberies)
-  • Different specific entities/names involved
-  • More than 2 days apart for breaking news
+SAME EVENT = exact same real-world incident:
+• Same specific people, victims, or organizations
+• Same location AND same incident type
+• Direct continuation of the same story
 
-CRITICAL FOR CRIMES: Different victim names OR different cities = ALWAYS different events.
+DIFFERENT EVENT (= NEW_EVENT):
+• Different people/victims (even if same crime type)
+• Different cities (even if same topic)
+• Different sport (voetbal ≠ schaatsen ≠ wielrennen ≠ F1 ≠ tennis)
+• Different competition (WK voetbal ≠ World Cup schaatsen)
+• Same topic but separate incidents
 
-Respond with ONLY:
-"EVENT_1" or "EVENT_2" or "EVENT_3" or "NEW_EVENT"
+EXAMPLES:
+• "WK voetbal loting" vs "World Cup schaatsen Heerenveen" → NEW_EVENT (different sports!)
+• "Ajax wint van PSV" vs "Feyenoord verliest" → NEW_EVENT (different matches)
+• "Steekpartij Amsterdam" vs "Steekpartij Rotterdam" → NEW_EVENT (different cities)
+• "Kabinet valt" vs "Formatie update" → SAME EVENT (same political crisis)
+
+WARNING: "World Cup" / "WK" appears in MANY different sports. Always check WHICH sport by reading the article content snippets!
+
+IMPORTANT: Read the sample article content snippets carefully - they reveal the actual topic (e.g., "schaatsen", "voetbal", "wielrennen").
+
+Respond with ONLY: "EVENT_1" or "EVENT_2" or "EVENT_3" or "NEW_EVENT"
 
 Response:"""
 

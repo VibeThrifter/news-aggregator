@@ -27,6 +27,7 @@ from backend.app.feeds.telegraaf import TelegraafRssReader
 from backend.app.feeds.volkskrant import VolkskrantRssReader
 from backend.app.feeds.parool import ParoolRssReader
 from backend.app.feeds.anderekrant import AndereKrantRssReader
+from backend.app.feeds.trouw import TrouwRssReader
 from backend.app.ingestion import (
     ArticleFetchError,
     ArticleParseError,
@@ -121,6 +122,13 @@ class IngestService:
             self.readers[anderekrant_reader.id] = anderekrant_reader
             self.reader_profiles[anderekrant_reader.id] = anderekrant_profile
             logger.info("Registered feed reader", reader_id=anderekrant_reader.id, url=self.settings.rss_anderekrant_url)
+
+            # Register Trouw RSS reader
+            trouw_profile = self._resolve_profile("trouw_rss", default_url=self.settings.rss_trouw_url)
+            trouw_reader = TrouwRssReader(str(trouw_profile.feed_url or self.settings.rss_trouw_url))
+            self.readers[trouw_reader.id] = trouw_reader
+            self.reader_profiles[trouw_reader.id] = trouw_profile
+            logger.info("Registered feed reader", reader_id=trouw_reader.id, url=self.settings.rss_trouw_url)
 
             logger.info("Feed reader registration complete", total_readers=len(self.readers))
 
@@ -387,6 +395,15 @@ class IngestService:
             follow_redirects=True,
         ) as client:
             for item in items:
+                # Skip De Andere Krant edition promo pages (not real articles)
+                if item.title and "Uitgave" in item.title and item.title.strip().startswith("20"):
+                    logger_ctx.debug(
+                        "skipping_edition_promo",
+                        title=item.title,
+                        url=item.url,
+                    )
+                    continue
+
                 try:
                     html = await fetch_article_html(
                         item.url,

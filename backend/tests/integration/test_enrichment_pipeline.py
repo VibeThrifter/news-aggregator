@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 from array import array
 from datetime import datetime, timezone
-from typing import Iterator
 
 import pytest
 from sqlalchemy import select
@@ -40,21 +38,23 @@ class DummyModel:
 
 
 @pytest.fixture
-def session_factory(tmp_path) -> Iterator[async_sessionmaker[AsyncSession]]:
-    loop = asyncio.get_event_loop()
+def session_factory(tmp_path) -> async_sessionmaker[AsyncSession]:
+    import asyncio
+
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path/'enrich.db'}", future=True)
 
-    async def _prepare() -> None:
+    async def setup():
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        return async_sessionmaker(engine, expire_on_commit=False)
 
-    loop.run_until_complete(_prepare())
-
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-
-    yield factory
-
-    loop.run_until_complete(engine.dispose())
+    loop = asyncio.new_event_loop()
+    try:
+        factory = loop.run_until_complete(setup())
+        yield factory
+    finally:
+        loop.run_until_complete(engine.dispose())
+        loop.close()
 
 
 class StubEmbeddingService:
@@ -65,6 +65,9 @@ class StubEmbeddingService:
 class StubEntityExtractor:
     def extract(self, text: str):
         return [{"text": "Den Haag", "label": "LOC", "start": 28, "end": 36}]
+
+    def extract_dates(self, text: str):
+        return []
 
 
 @pytest.mark.asyncio

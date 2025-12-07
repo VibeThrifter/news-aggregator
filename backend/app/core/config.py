@@ -56,6 +56,10 @@ class Settings(BaseSettings):
         default="https://deanderekrant.nl/feed/",
         description="RSS feed URL for De Andere Krant"
     )
+    rss_trouw_url: str = Field(
+        default="https://www.trouw.nl/voorpagina/rss.xml",
+        description="RSS feed URL for Trouw"
+    )
 
     # Scheduler Configuration
     scheduler_interval_minutes: int = Field(
@@ -65,15 +69,15 @@ class Settings(BaseSettings):
         description="Interval in minutes for RSS feed polling"
     )
     insight_backfill_interval_minutes: int = Field(
-        default=30,
+        default=15,
         ge=5,
         le=1440,
         description="Interval in minutes for backfilling missing LLM insights"
     )
     insight_backfill_batch_size: int = Field(
-        default=10,
+        default=30,
         ge=1,
-        le=50,
+        le=100,
         description="Maximum number of events to process per backfill run"
     )
 
@@ -86,7 +90,7 @@ class Settings(BaseSettings):
     # ML and AI Configuration
     embedding_model_name: str = Field(
         default="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-        description="Name of the embedding model for article vectorization"
+        description="Embedding model for article vectorization",
     )
     embedding_dimension: int = Field(
         default=384,

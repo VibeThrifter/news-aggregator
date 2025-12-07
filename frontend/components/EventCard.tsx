@@ -65,7 +65,12 @@ export function EventCard({ event }: EventCardProps) {
             ) : null}
           </>
         ) : (
-          <p className="text-sm italic text-slate-400">Samenvatting wordt gegenereerd...</p>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-400">
+              Wacht op analyse
+            </span>
+            <span className="text-sm text-slate-400">Event #{event.id}</span>
+          </div>
         )}
       </div>
 
@@ -80,9 +85,7 @@ export function EventCard({ event }: EventCardProps) {
             </li>
           ))}
         </ul>
-      ) : (
-        <p className="text-sm text-slate-400">Bronverdeling wordt berekend zodra er meer gegevens beschikbaar zijn.</p>
-      )}
+      ) : null}
 
       <footer className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-slate-400">

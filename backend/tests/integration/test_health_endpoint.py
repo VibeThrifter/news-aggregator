@@ -186,8 +186,15 @@ async def test_health_endpoint_vector_index_warning_when_missing(tmp_path: Path)
         "jobs": {}
     }
 
+    # Mock database check to return healthy (avoid real DB connection issues in tests)
+    mock_db_check = {
+        "status": "healthy",
+        "message": "Database connection successful"
+    }
+
     with patch("backend.app.routers.health.check_vector_index", return_value=mock_vector_check), \
-         patch("backend.app.routers.health.check_scheduler", return_value=mock_scheduler_check):
+         patch("backend.app.routers.health.check_scheduler", return_value=mock_scheduler_check), \
+         patch("backend.app.routers.health.check_database", return_value=mock_db_check):
         async with httpx.AsyncClient(app=app, base_url="http://test") as client:
             response = await client.get("/health")
 

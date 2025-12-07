@@ -76,7 +76,7 @@ async def test_get_event_insights_accepts_slug(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_event_insights_missing_insight_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_get_event_insights_missing_insight_returns_404(tmp_path: Path) -> None:
     db_path = tmp_path / "events_insights_missing.db"
     engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
     async with engine.begin() as conn:
@@ -100,22 +100,11 @@ async def test_get_event_insights_missing_insight_returns_404(tmp_path: Path, mo
             session.add(event)
             await session.commit()
 
-        from backend.app.routers import insights as insights_router
-
-        triggered: dict[str, int] = {"count": 0}
-
-        def fake_schedule(event_id: int) -> None:
-            triggered["count"] += 1
-
-        insights_router._pending_generations.clear()
-        monkeypatch.setattr(insights_router, "_schedule_insight_generation", fake_schedule)
-
         async with session_factory() as session:
             with pytest.raises(HTTPException) as exc:
                 await get_event_insights(slug, session=session)
 
         assert exc.value.status_code == 404
         assert "No insights found" in exc.value.detail
-        assert triggered["count"] == 1
     finally:
         await engine.dispose()

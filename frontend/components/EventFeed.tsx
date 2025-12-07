@@ -212,6 +212,7 @@ function buildSwrKey(filters: EventListFilters): string {
   if (filters.minSources !== undefined && filters.minSources > 1) params.set("minSources", String(filters.minSources));
   if (filters.search?.trim()) params.set("search", filters.search.trim());
   if (filters.searchAllPeriods) params.set("allPeriods", "true");
+  if (filters.includeWithoutInsights) params.set("admin", "true");
   return `/api/events?${params.toString()}`;
 }
 
@@ -222,6 +223,7 @@ export default function EventFeed() {
   const [minSources, setMinSources] = useState(1);
   const [daysBack, setDaysBack] = useState(DEFAULT_DAYS_BACK);
   const [searchAllPeriods, setSearchAllPeriods] = useState(false);
+  const [adminMode, setAdminMode] = useState(false);
 
   // Build filters object for server-side query
   const filters: EventListFilters = useMemo(() => ({
@@ -230,7 +232,8 @@ export default function EventFeed() {
     minSources,
     search: searchQuery,
     searchAllPeriods,
-  }), [daysBack, activeCategory, minSources, searchQuery, searchAllPeriods]);
+    includeWithoutInsights: adminMode,
+  }), [daysBack, activeCategory, minSources, searchQuery, searchAllPeriods, adminMode]);
 
   // SWR key changes when filters change, triggering a new fetch
   const swrKey = useMemo(() => buildSwrKey(filters), [filters]);
@@ -285,6 +288,10 @@ export default function EventFeed() {
     setDaysBack(value);
   }, []);
 
+  const handleAdminModeToggle = useCallback(() => {
+    setAdminMode((prev) => !prev);
+  }, []);
+
   return (
     <div className="space-y-6">
       {/* Category Navigation */}
@@ -307,6 +314,18 @@ export default function EventFeed() {
             value={minSources}
             onChange={handleMinSourcesChange}
           />
+          <button
+            type="button"
+            onClick={handleAdminModeToggle}
+            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+              adminMode
+                ? "border-amber-500/60 bg-amber-500/20 text-amber-300"
+                : "border-slate-600 bg-slate-700/50 text-slate-400 hover:text-slate-300"
+            }`}
+            title="Toon ook events zonder LLM analyse"
+          >
+            Admin
+          </button>
         </div>
       </div>
 

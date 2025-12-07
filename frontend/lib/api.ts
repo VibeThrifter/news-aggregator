@@ -41,6 +41,8 @@ export interface EventListFilters {
   search?: string;
   /** When true, ignores daysBack filter and searches all events (with limit) */
   searchAllPeriods?: boolean;
+  /** Admin mode: include events without LLM insights */
+  includeWithoutInsights?: boolean;
 }
 
 /** Maximum events returned when searching all periods */
@@ -205,14 +207,16 @@ export async function listEvents(
   filters?: EventListFilters,
   options?: ApiFetchOptions
 ): Promise<ApiResponse<EventListItem[]>> {
-  const { daysBack = 7, category, minSources = 1, search, searchAllPeriods = false } = filters ?? {};
+  const { daysBack = 7, category, minSources = 1, search, searchAllPeriods = false, includeWithoutInsights = false } = filters ?? {};
 
   // Build query with server-side filters
+  // By default, only show events with LLM insights (to avoid showing article titles which is copyright)
+  // Admin mode (includeWithoutInsights) shows all events
   let query = supabase
     .from('events')
     .select(`
       *,
-      llm_insights (summary)
+      llm_insights${includeWithoutInsights ? '' : '!inner'} (summary)
     `)
     .is('archived_at', null);
 

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator
 
 import pytest
 from sqlalchemy import select
@@ -15,21 +13,23 @@ from backend.app.ingestion import ArticleFetchError
 from backend.app.services.ingest_service import IngestService
 
 @pytest.fixture
-def session_factory(tmp_path) -> Iterator[async_sessionmaker[AsyncSession]]:
-    loop = asyncio.get_event_loop()
+def session_factory(tmp_path) -> async_sessionmaker[AsyncSession]:
+    import asyncio
+
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path/'test.db'}", future=True)
 
-    async def _prepare() -> None:
+    async def setup():
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        return async_sessionmaker(engine, expire_on_commit=False)
 
-    loop.run_until_complete(_prepare())
-
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-
-    yield factory
-
-    loop.run_until_complete(engine.dispose())
+    loop = asyncio.new_event_loop()
+    try:
+        factory = loop.run_until_complete(setup())
+        yield factory
+    finally:
+        loop.run_until_complete(engine.dispose())
+        loop.close()
 
 
 @pytest.fixture

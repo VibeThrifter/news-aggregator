@@ -26,8 +26,8 @@ def _get_playwright():
 def _get_stealth():
     global _stealth_module
     if _stealth_module is None:
-        from playwright_stealth import Stealth
-        _stealth_module = Stealth
+        from playwright_stealth import stealth_async
+        _stealth_module = stealth_async
     return _stealth_module
 
 
@@ -162,9 +162,8 @@ async def fetch_with_playwright(
             page = await context.new_page()
 
             # Apply stealth to reduce bot detection
-            Stealth = _get_stealth()
-            stealth = Stealth()
-            await stealth.apply_stealth_async(page)
+            stealth_async = _get_stealth()
+            await stealth_async(page)
 
             # Block unnecessary resources for faster loading (but keep stylesheets for consent forms)
             await page.route(
