@@ -59,6 +59,7 @@ Thumbs.db
 
 # ML model cache (downloaded by sentence-transformers)
 data/models/
+backend/data/models/models--*/
 
 # Runtime data files
 data/app.db
