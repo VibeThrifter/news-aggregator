@@ -12,29 +12,11 @@ import feedparser
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from .base import FeedReader, FeedItem, FeedReaderError
+from .base import FeedReader, FeedItem, FeedReaderError, http_client
 
 
 class AndereKrantRssReader(FeedReader):
     """RSS reader for De Andere Krant feeds."""
-
-    def __init__(self, feed_url: str):
-        """Initialize De Andere Krant RSS reader."""
-        super().__init__(feed_url)
-        self._session: httpx.AsyncClient | None = None
-
-    @property
-    def session(self) -> httpx.AsyncClient:
-        """Lazy-initialize HTTP client on first use."""
-        if self._session is None or self._session.is_closed:
-            self._session = httpx.AsyncClient(
-                timeout=30.0,
-                follow_redirects=True,
-                headers={
-                    "User-Agent": "News-Aggregator/1.0 (+https://github.com/yourusername/news-aggregator)"
-                }
-            )
-        return self._session
 
     @property
     def id(self) -> str:
@@ -47,7 +29,7 @@ class AndereKrantRssReader(FeedReader):
         return {
             "name": "De Andere Krant",
             "full_name": "De Andere Krant",
-            "spectrum": "alternative",
+            "spectrum": "alternative",  # Alternative media, shown separately
             "country": "NL",
             "language": "nl",
             "media_type": "alternative_weekly"
@@ -71,12 +53,14 @@ class AndereKrantRssReader(FeedReader):
         try:
             self.logger.info("Fetching De Andere Krant RSS feed", feed_url=self.feed_url)
 
-            # Fetch RSS content with HTTPX
-            response = await self.session.get(self.feed_url)
-            response.raise_for_status()
+            # Fetch RSS content with properly managed HTTP client
+            async with http_client() as client:
+                response = await client.get(self.feed_url)
+                response.raise_for_status()
+                content = response.content
 
-            # Parse with feedparser
-            feed = feedparser.parse(response.content)
+            # Parse with feedparser (outside context - client no longer needed)
+            feed = feedparser.parse(content)
 
             if feed.bozo:
                 self.logger.warning("RSS feed has parsing issues",
@@ -87,6 +71,11 @@ class AndereKrantRssReader(FeedReader):
             for entry in feed.entries:
                 try:
                     item = self._parse_entry(entry, feed)
+                    # Filter out non-news content (edition announcements, promotional content)
+                    if self._is_meta_content(item):
+                        self.logger.debug("Skipping meta content",
+                                        title=item.title)
+                        continue
                     items.append(item)
                 except Exception as e:
                     self.logger.warning("Failed to parse feed entry",
@@ -223,3 +212,41 @@ class AndereKrantRssReader(FeedReader):
         clean_text = re.sub(r"\s+", " ", clean_text).strip()
 
         return clean_text
+
+    def _is_meta_content(self, item: FeedItem) -> bool:
+        """
+        Detect non-news content like edition announcements, promotional content,
+        and tables of contents that should not be treated as news events.
+        """
+        title_lower = item.title.lower()
+        summary_lower = (item.summary or "").lower()
+
+        # Edition/issue announcements (e.g., "uitgave 48 gepubliceerd")
+        if re.search(r"uitgave\s+\d+", title_lower):
+            return True
+
+        # "Deze week in De Andere Krant" type content
+        if "deze week in" in title_lower or "deze editie" in title_lower:
+            return True
+
+        # Subscription/sales promotions
+        promo_patterns = [
+            r"abonnement",
+            r"verkooppunt",
+            r"bestel\s+(nu|hier|direct)",
+            r"neem\s+een\s+abonnement",
+        ]
+        for pattern in promo_patterns:
+            if re.search(pattern, title_lower) or re.search(pattern, summary_lower):
+                return True
+
+        # Table of contents indicators (listing multiple topics with "en", "ook", etc.)
+        # These are meta-articles summarizing an edition
+        if summary_lower:
+            # Count topic indicators - if many different topics mentioned, likely a TOC
+            topic_markers = ["daarnaast", "ook", "verder", "tevens", "bovendien"]
+            marker_count = sum(1 for m in topic_markers if m in summary_lower)
+            if marker_count >= 3:
+                return True
+
+        return False

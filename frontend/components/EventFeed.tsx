@@ -8,11 +8,23 @@ import { ApiClientError, EventFeedMeta, EventListFilters, listEvents } from "@/l
 import { DEFAULT_CATEGORY, getCategoryLabel } from "@/lib/categories";
 
 import CategoryNav from "./CategoryNav";
-import DaysBackFilter from "./DaysBackFilter";
+import DateRangeFilter from "./DateRangeFilter";
 import EventCard from "./EventCard";
 import MinSourcesFilter from "./MinSourcesFilter";
 import SearchBar from "./SearchBar";
+import { SourceFilter, SourceInfo } from "./SourceFilter";
 import StatusBanner from "./StatusBanner";
+
+// Default to last 7 days
+function getDefaultDateRange(): { startDate: string; endDate: string } {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - 7);
+  return {
+    startDate: start.toISOString().split("T")[0],
+    endDate: end.toISOString().split("T")[0],
+  };
+}
 
 interface NormalisedMeta {
   lastUpdated?: string | null;
@@ -202,12 +214,11 @@ function EmptyState({
 
 type EventFeedResponse = Awaited<ReturnType<typeof listEvents>>;
 
-const DEFAULT_DAYS_BACK = 7;
-
 // Build a stable SWR key from filters
 function buildSwrKey(filters: EventListFilters): string {
   const params = new URLSearchParams();
-  if (filters.daysBack !== undefined) params.set("days", String(filters.daysBack));
+  if (filters.startDate) params.set("startDate", filters.startDate);
+  if (filters.endDate) params.set("endDate", filters.endDate);
   if (filters.category && filters.category !== "all") params.set("category", filters.category);
   if (filters.minSources !== undefined && filters.minSources > 1) params.set("minSources", String(filters.minSources));
   if (filters.search?.trim()) params.set("search", filters.search.trim());
@@ -221,19 +232,21 @@ export default function EventFeed() {
   const activeCategory = searchParams.get("category") ?? DEFAULT_CATEGORY;
   const [searchQuery, setSearchQuery] = useState("");
   const [minSources, setMinSources] = useState(1);
-  const [daysBack, setDaysBack] = useState(DEFAULT_DAYS_BACK);
+  const [dateRange, setDateRange] = useState(getDefaultDateRange);
   const [searchAllPeriods, setSearchAllPeriods] = useState(false);
   const [adminMode, setAdminMode] = useState(false);
+  const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
 
   // Build filters object for server-side query
   const filters: EventListFilters = useMemo(() => ({
-    daysBack,
+    startDate: dateRange.startDate,
+    endDate: dateRange.endDate,
     category: activeCategory,
     minSources,
     search: searchQuery,
     searchAllPeriods,
     includeWithoutInsights: adminMode,
-  }), [daysBack, activeCategory, minSources, searchQuery, searchAllPeriods, adminMode]);
+  }), [dateRange, activeCategory, minSources, searchQuery, searchAllPeriods, adminMode]);
 
   // SWR key changes when filters change, triggering a new fetch
   const swrKey = useMemo(() => buildSwrKey(filters), [filters]);
@@ -248,12 +261,43 @@ export default function EventFeed() {
 
   const normalisedMeta = normaliseMeta((data?.meta as EventFeedMeta | undefined) ?? undefined);
 
-  // Events are already filtered server-side, no client-side filtering needed
-  const events = useMemo(() => data?.data ?? [], [data?.data]);
+  // Extract all unique sources from all events for the filter
+  const availableSources: SourceInfo[] = useMemo(() => {
+    const sourceMap = new Map<string, number>();
+    for (const event of data?.data ?? []) {
+      for (const entry of event.source_breakdown ?? []) {
+        const current = sourceMap.get(entry.source) ?? 0;
+        sourceMap.set(entry.source, current + entry.article_count);
+      }
+    }
+    return Array.from(sourceMap.entries()).map(([name, articleCount]) => ({
+      name,
+      articleCount,
+    }));
+  }, [data?.data]);
+
+  // Initialize selected sources when data loads (select all by default)
+  const [hasInitializedSources, setHasInitializedSources] = useState(false);
+  if (availableSources.length > 0 && selectedSources.size === 0 && !hasInitializedSources) {
+    setSelectedSources(new Set(availableSources.map((s) => s.name)));
+    setHasInitializedSources(true);
+  }
+
+  // Filter events by selected sources (client-side)
+  const events = useMemo(() => {
+    const allEvents = data?.data ?? [];
+    // If no sources selected or all sources selected, show all events
+    if (selectedSources.size === 0 || selectedSources.size === availableSources.length) {
+      return allEvents;
+    }
+    // Filter events that have at least one article from a selected source
+    return allEvents.filter((event) =>
+      (event.source_breakdown ?? []).some((entry) => selectedSources.has(entry.source))
+    );
+  }, [data?.data, selectedSources, availableSources.length]);
 
   const errorMessage = error ? resolveErrorMessage(error) : null;
   const totalEvents = normalisedMeta.totalEvents ?? events.length;
-  const eventCount = events.length;
 
   // Get label for empty state
   const activeCategoryLabel =
@@ -284,12 +328,26 @@ export default function EventFeed() {
     setMinSources(value);
   }, []);
 
-  const handleDaysBackChange = useCallback((value: number) => {
-    setDaysBack(value);
+  const handleStartDateChange = useCallback((value: string | null) => {
+    setDateRange((prev) => ({
+      ...prev,
+      startDate: value ?? "",
+    }));
+  }, []);
+
+  const handleEndDateChange = useCallback((value: string | null) => {
+    setDateRange((prev) => ({
+      ...prev,
+      endDate: value ?? "",
+    }));
   }, []);
 
   const handleAdminModeToggle = useCallback(() => {
     setAdminMode((prev) => !prev);
+  }, []);
+
+  const handleSourceSelectionChange = useCallback((sources: Set<string>) => {
+    setSelectedSources(sources);
   }, []);
 
   return (
@@ -305,14 +363,21 @@ export default function EventFeed() {
           placeholder="Zoek in events..."
           className="flex-1"
         />
-        <div className="flex items-center gap-4">
-          <DaysBackFilter
-            value={daysBack}
-            onChange={handleDaysBackChange}
+        <div className="flex flex-wrap items-center gap-4">
+          <DateRangeFilter
+            startDate={dateRange.startDate}
+            endDate={dateRange.endDate}
+            onStartDateChange={handleStartDateChange}
+            onEndDateChange={handleEndDateChange}
           />
           <MinSourcesFilter
             value={minSources}
             onChange={handleMinSourcesChange}
+          />
+          <SourceFilter
+            sources={availableSources}
+            selectedSources={selectedSources}
+            onSelectionChange={handleSourceSelectionChange}
           />
           <button
             type="button"

@@ -14,12 +14,11 @@ import type {
   EventDetailMeta,
 } from "@/lib/api";
 import {
-  SPECTRUM_STYLES,
   formatEventTimeframe,
   parseIsoDate,
-  resolveSpectrumBadges,
 } from "@/lib/format";
 import { ArticleList } from "@/components/ArticleList";
+import { SpectrumBar } from "@/components/SpectrumBar";
 import { ArticleLookupProvider } from "@/components/ArticleLookupContext";
 import { ClusterGrid } from "@/components/ClusterGrid";
 import { ContradictionList } from "@/components/ContradictionList";
@@ -72,12 +71,6 @@ function normaliseMeta(event: EventDetail, meta?: EventDetailMeta): EventMetaSum
     lastUpdatedLabel: formatDate(lastUpdated),
     firstSeenLabel: formatDate(firstSeen),
   };
-}
-
-function buildSpectrumClassName(spectrumKey: string): string {
-  return `inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${
-    SPECTRUM_STYLES[spectrumKey] ?? "border-slate-600 bg-slate-700 text-slate-200"
-  }`;
 }
 
 function buildErrorMessage(error: unknown, fallback: string): string {
@@ -172,7 +165,6 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
   const insights = insightsResponse?.data ?? null;
   const showInsights = hasInsightsContent(insights);
   const articles = event?.articles ?? [];
-  const spectrumBadges = event ? resolveSpectrumBadges(event.spectrum_distribution) : [];
 
   const insightsFallbackReason = useMemo(() => {
     if (insightsError) {
@@ -234,23 +226,10 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
             ) : null}
           </div>
         </div>
-        {spectrumBadges.length ? (
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Bronverdeling</p>
-            <ul className="mt-3 flex flex-wrap gap-2">
-              {spectrumBadges.map((badge) => (
-                <li key={badge.key}>
-                  <span className={buildSpectrumClassName(badge.key)}>
-                    {badge.label}
-                    <span className="ml-2 text-sm font-bold normal-case tracking-normal">
-                      {numberFormatter.format(badge.count)}
-                    </span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400 mb-3">Bronverdeling</p>
+          <SpectrumBar sourceBreakdown={event.source_breakdown} />
+        </div>
       </header>
 
       {insightsFallbackReason ? <InsightsFallback eventId={event.id} reason={insightsFallbackReason} /> : null}

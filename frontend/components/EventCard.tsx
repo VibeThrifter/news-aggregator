@@ -5,11 +5,10 @@ import Link from "next/link";
 import { EventListItem } from "@/lib/api";
 import { getCategoryForEventType } from "@/lib/categories";
 import {
-  SPECTRUM_STYLES,
   formatEventTimeframe,
   resolveEventSlug,
-  resolveSpectrumBadges,
 } from "@/lib/format";
+import { SpectrumBar } from "@/components/SpectrumBar";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("nl-NL", {
   dateStyle: "medium",
@@ -17,18 +16,11 @@ const dateTimeFormatter = new Intl.DateTimeFormat("nl-NL", {
 });
 const numberFormatter = new Intl.NumberFormat("nl-NL");
 
-function buildSpectrumClassName(spectrumKey: string): string {
-  return `inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium ${
-    SPECTRUM_STYLES[spectrumKey] ?? "border-slate-600 bg-slate-700 text-slate-200"
-  }`;
-}
-
 export interface EventCardProps {
   event: EventListItem;
 }
 
 export function EventCard({ event }: EventCardProps) {
-  const spectrumBadges = resolveSpectrumBadges(event.spectrum_distribution);
   const timeframeLabel = formatEventTimeframe(event.first_seen_at, event.last_updated_at);
   const lastUpdated = event.last_updated_at ? new Date(event.last_updated_at) : null;
   const detailHref = resolveEventSlug(event);
@@ -74,18 +66,7 @@ export function EventCard({ event }: EventCardProps) {
         )}
       </div>
 
-      {spectrumBadges.length > 0 ? (
-        <ul className="flex flex-wrap gap-2" aria-label="Bronverdeling">
-          {spectrumBadges.map((badge) => (
-            <li key={badge.key}>
-              <span className={buildSpectrumClassName(badge.key)}>
-                <span>{badge.label}</span>
-                <span className="font-semibold">{numberFormatter.format(badge.count)}</span>
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <SpectrumBar sourceBreakdown={event.source_breakdown} compact />
 
       <footer className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-slate-400">

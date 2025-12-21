@@ -140,7 +140,7 @@ export type SpectrumDistribution =
 export interface EventSourceBreakdownEntry {
   source: string;
   article_count: number;
-  spectrum?: string | null;
+  spectrum?: string | number | null; // 0-10 scale or legacy string
 }
 
 export interface EventListItem {
@@ -175,7 +175,7 @@ export interface EventArticle {
   title: string;
   url: string;
   source: string;
-  spectrum?: string | null;
+  spectrum?: string | number | null; // 0-10 scale or legacy string
   published_at?: string | null;
   summary?: string | null;
   image_url?: string | null;

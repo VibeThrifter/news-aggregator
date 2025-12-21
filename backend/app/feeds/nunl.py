@@ -12,28 +12,11 @@ import feedparser
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from .base import FeedReader, FeedItem, FeedReaderError
+from .base import FeedReader, FeedItem, FeedReaderError, http_client
 
 
 class NuRssReader(FeedReader):
     """RSS reader for NU.nl news feeds."""
-
-    def __init__(self, feed_url: str):
-        """Initialize NU.nl RSS reader."""
-        super().__init__(feed_url)
-        self._session: httpx.AsyncClient | None = None
-
-    @property
-    def session(self) -> httpx.AsyncClient:
-        """Lazy-initialize HTTP client on first use."""
-        if self._session is None or self._session.is_closed:
-            self._session = httpx.AsyncClient(
-                timeout=30.0,
-                headers={
-                    "User-Agent": "News-Aggregator/1.0 (+https://github.com/yourusername/news-aggregator)"
-                }
-            )
-        return self._session
 
     @property
     def id(self) -> str:
@@ -46,7 +29,7 @@ class NuRssReader(FeedReader):
         return {
             "name": "NU.nl",
             "full_name": "NU.nl",
-            "spectrum": "center-right",  # NU.nl is considered center-right commercial
+            "spectrum": 6,  # NU.nl is considered center-right commercial (0=far-left, 10=far-right)
             "country": "NL",
             "language": "nl",
             "media_type": "commercial"
@@ -70,12 +53,14 @@ class NuRssReader(FeedReader):
         try:
             self.logger.info("Fetching NU.nl RSS feed", feed_url=self.feed_url)
 
-            # Fetch RSS content with HTTPX
-            response = await self.session.get(self.feed_url)
-            response.raise_for_status()
+            # Fetch RSS content with properly managed HTTP client
+            async with http_client() as client:
+                response = await client.get(self.feed_url)
+                response.raise_for_status()
+                content = response.content
 
-            # Parse with feedparser
-            feed = feedparser.parse(response.content)
+            # Parse with feedparser (outside context - client no longer needed)
+            feed = feedparser.parse(content)
 
             if feed.bozo:
                 self.logger.warning("RSS feed has parsing issues",

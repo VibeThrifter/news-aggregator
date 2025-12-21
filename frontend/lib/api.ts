@@ -35,11 +35,14 @@ export interface ApiResponse<T> {
 }
 
 export interface EventListFilters {
-  daysBack?: number;
+  /** Start date for filtering (YYYY-MM-DD format) */
+  startDate?: string;
+  /** End date for filtering (YYYY-MM-DD format) */
+  endDate?: string;
   category?: string;
   minSources?: number;
   search?: string;
-  /** When true, ignores daysBack filter and searches all events (with limit) */
+  /** When true, ignores date filter and searches all events (with limit) */
   searchAllPeriods?: boolean;
   /** Admin mode: include events without LLM insights */
   includeWithoutInsights?: boolean;
@@ -207,7 +210,7 @@ export async function listEvents(
   filters?: EventListFilters,
   options?: ApiFetchOptions
 ): Promise<ApiResponse<EventListItem[]>> {
-  const { daysBack = 7, category, minSources = 1, search, searchAllPeriods = false, includeWithoutInsights = false } = filters ?? {};
+  const { startDate, endDate, category, minSources = 1, search, searchAllPeriods = false, includeWithoutInsights = false } = filters ?? {};
 
   // Build query with server-side filters
   // By default, only show events with LLM insights (to avoid showing article titles which is copyright)
@@ -216,15 +219,26 @@ export async function listEvents(
     .from('events')
     .select(`
       *,
-      llm_insights${includeWithoutInsights ? '' : '!inner'} (summary)
+      llm_insights${includeWithoutInsights ? '' : '!inner'} (summary),
+      event_articles (
+        articles (
+          source_name,
+          source_metadata
+        )
+      )
     `)
     .is('archived_at', null);
 
-  // Apply date filter unless searching all periods
+  // Apply date range filter unless searching all periods
   if (!searchAllPeriods) {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - daysBack);
-    query = query.gte('last_updated_at', cutoffDate.toISOString());
+    if (startDate) {
+      // Start of day in UTC
+      query = query.gte('last_updated_at', `${startDate}T00:00:00.000Z`);
+    }
+    if (endDate) {
+      // End of day in UTC (23:59:59.999)
+      query = query.lte('last_updated_at', `${endDate}T23:59:59.999Z`);
+    }
   }
 
   // Filter by category (event_type)
@@ -263,6 +277,23 @@ export async function listEvents(
     const insightSummary = event.llm_insights?.[0]?.summary;
     const { title: llmTitle, description: llmDescription } = extractTitleFromSummary(insightSummary);
 
+    // Build source_breakdown from event_articles
+    const sourceBreakdownMap = new Map<string, { source: string; article_count: number; spectrum: string | number | null }>();
+    for (const ea of event.event_articles || []) {
+      const article = ea.articles;
+      if (!article) continue;
+      const source = article.source_name || 'Unknown';
+      const spectrum = article.source_metadata?.spectrum || null;
+      const key = `${source}|${spectrum || ''}`;
+      const existing = sourceBreakdownMap.get(key);
+      if (existing) {
+        existing.article_count++;
+      } else {
+        sourceBreakdownMap.set(key, { source, article_count: 1, spectrum });
+      }
+    }
+    const source_breakdown: EventSourceBreakdownEntry[] = Array.from(sourceBreakdownMap.values());
+
     return {
       id: event.id,
       slug: event.slug,
@@ -277,6 +308,7 @@ export async function listEvents(
       first_seen_at: event.first_seen_at,
       last_updated_at: event.last_updated_at,
       spectrum_distribution: event.spectrum_distribution,
+      source_breakdown,
       event_type: event.event_type || null,
     };
   });
@@ -330,10 +362,28 @@ export async function getEventDetail(eventId: string | number, options?: ApiFetc
     title: ea.articles.title,
     url: ea.articles.url,
     source: ea.articles.source_name || 'Unknown',
+    spectrum: ea.articles.source_metadata?.spectrum || null,
     summary: ea.articles.summary,
     published_at: ea.articles.published_at,
     image_url: ea.articles.image_url,
   }));
+
+  // Build source_breakdown from articles
+  const sourceBreakdownMap = new Map<string, { source: string; article_count: number; spectrum: string | number | null }>();
+  for (const article of articles) {
+    const key = `${article.source}|${article.spectrum || ''}`;
+    const existing = sourceBreakdownMap.get(key);
+    if (existing) {
+      existing.article_count++;
+    } else {
+      sourceBreakdownMap.set(key, {
+        source: article.source,
+        article_count: 1,
+        spectrum: article.spectrum || null,
+      });
+    }
+  }
+  const source_breakdown: EventSourceBreakdownEntry[] = Array.from(sourceBreakdownMap.values());
 
   const eventDetail: EventDetail = {
     id: event.id,
@@ -344,6 +394,7 @@ export async function getEventDetail(eventId: string | number, options?: ApiFetc
     first_seen_at: event.first_seen_at,
     last_updated_at: event.last_updated_at,
     spectrum_distribution: event.spectrum_distribution,
+    source_breakdown,
     articles,
   };
 

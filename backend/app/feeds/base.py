@@ -6,12 +6,19 @@ along with shared data models for normalized feed items.
 """
 
 from abc import ABC, abstractmethod
+from contextlib import asynccontextmanager
 from datetime import datetime
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import AsyncIterator, List, Dict, Any, Optional
+import httpx
 import structlog
 
 logger = structlog.get_logger()
+
+# Default timeout for feed fetching (seconds)
+DEFAULT_FEED_TIMEOUT = 30.0
+# Default User-Agent for feed requests
+DEFAULT_USER_AGENT = "News-Aggregator/1.0 (+https://github.com/news-aggregator)"
 
 
 @dataclass
@@ -96,3 +103,24 @@ class FeedReader(ABC):
 class FeedReaderError(Exception):
     """Exception raised when feed reading fails."""
     pass
+
+
+@asynccontextmanager
+async def http_client(
+    timeout: float = DEFAULT_FEED_TIMEOUT,
+    user_agent: str = DEFAULT_USER_AGENT,
+) -> AsyncIterator[httpx.AsyncClient]:
+    """
+    Context manager for HTTP client with proper lifecycle management.
+
+    This ensures the client is always closed after use, preventing connection leaks.
+    """
+    client = httpx.AsyncClient(
+        timeout=timeout,
+        headers={"User-Agent": user_agent},
+        follow_redirects=True,
+    )
+    try:
+        yield client
+    finally:
+        await client.aclose()

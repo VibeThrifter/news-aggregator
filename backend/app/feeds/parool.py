@@ -12,29 +12,14 @@ import feedparser
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from .base import FeedReader, FeedItem, FeedReaderError
+from .base import FeedReader, FeedItem, FeedReaderError, http_client, DEFAULT_FEED_TIMEOUT
+
+# Custom User-Agent for DPG Media sites
+DPG_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 
 class ParoolRssReader(FeedReader):
     """RSS reader for Het Parool news feeds."""
-
-    def __init__(self, feed_url: str):
-        """Initialize Parool RSS reader."""
-        super().__init__(feed_url)
-        self._session: httpx.AsyncClient | None = None
-
-    @property
-    def session(self) -> httpx.AsyncClient:
-        """Lazy-initialize HTTP client on first use."""
-        if self._session is None or self._session.is_closed:
-            self._session = httpx.AsyncClient(
-                timeout=30.0,
-                follow_redirects=True,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                }
-            )
-        return self._session
 
     @property
     def id(self) -> str:
@@ -47,7 +32,7 @@ class ParoolRssReader(FeedReader):
         return {
             "name": "Het Parool",
             "full_name": "Het Parool",
-            "spectrum": "center-left",  # Parool is considered progressive/center-left
+            "spectrum": 3,  # Parool is progressive/center-left, slightly right of Volkskrant (0=far-left, 10=far-right)
             "country": "NL",
             "language": "nl",
             "media_type": "regional_daily",
@@ -72,12 +57,14 @@ class ParoolRssReader(FeedReader):
         try:
             self.logger.info("Fetching Parool RSS feed", feed_url=self.feed_url)
 
-            # Fetch RSS content with HTTPX
-            response = await self.session.get(self.feed_url)
-            response.raise_for_status()
+            # Fetch RSS content with properly managed HTTP client
+            async with http_client(timeout=DEFAULT_FEED_TIMEOUT, user_agent=DPG_USER_AGENT) as client:
+                response = await client.get(self.feed_url)
+                response.raise_for_status()
+                content = response.content
 
-            # Parse with feedparser
-            feed = feedparser.parse(response.content)
+            # Parse with feedparser (outside context - client no longer needed)
+            feed = feedparser.parse(content)
 
             if feed.bozo:
                 self.logger.warning("RSS feed has parsing issues",

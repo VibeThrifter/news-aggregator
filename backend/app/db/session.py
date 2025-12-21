@@ -27,8 +27,9 @@ def _create_engine() -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
         echo=False,
         pool_pre_ping=True,
         pool_recycle=300,  # Recycle connections after 5 minutes
-        pool_size=5,
-        max_overflow=10,
+        pool_size=10,  # Increased from 5 to handle concurrent feed polling
+        max_overflow=15,  # Increased from 10 for burst capacity
+        pool_timeout=30,  # Wait up to 30 seconds for a connection
     )
     factory = async_sessionmaker(
         engine,

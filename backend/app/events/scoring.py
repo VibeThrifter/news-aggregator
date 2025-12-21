@@ -107,14 +107,25 @@ def compute_hybrid_score(
         now=now,
     )
 
-    # Apply entity penalty: if entity overlap is low (< 0.20),
-    # apply 0.90x penalty to prevent pure semantic clustering.
-    # For very low overlap (< 0.10), apply stronger 0.80x penalty.
+    # Apply entity penalty: if entity overlap is low, apply progressively
+    # stronger penalties to prevent pure semantic clustering of unrelated articles.
+    # This is critical for sources with similar writing styles (e.g., same outlet).
     entity_penalty = 1.0
+    if entity_overlap < 0.30:
+        entity_penalty = 0.95
     if entity_overlap < 0.20:
-        entity_penalty = 0.90
+        entity_penalty = 0.85
     if entity_overlap < 0.10:
-        entity_penalty = 0.80
+        entity_penalty = 0.70
+    if entity_overlap < 0.05:
+        # Near-zero entity overlap = almost certainly different topics
+        entity_penalty = 0.50
+        logger.debug(
+            "strong_entity_penalty_applied",
+            entity_overlap=entity_overlap,
+            penalty=entity_penalty,
+        )
+    elif entity_overlap < 0.10:
         logger.debug(
             "entity_penalty_applied",
             entity_overlap=entity_overlap,

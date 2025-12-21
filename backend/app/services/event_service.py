@@ -214,6 +214,10 @@ def _default_seed_breakdown(has_entities: bool) -> ScoreBreakdown:
     )
 
 
+# Maximum concurrent insight generation tasks to prevent pool exhaustion
+MAX_CONCURRENT_INSIGHT_TASKS = 3
+
+
 class EventService:
     """Coordinate candidate scoring and event persistence."""
 
@@ -241,6 +245,7 @@ class EventService:
         self.insight_refresh_ttl = insight_refresh_ttl or timedelta(minutes=30)
         self._pending_insight_events: set[int] = set()
         self._insight_tasks: dict[int, asyncio.Task[None]] = {}
+        self._insight_semaphore = asyncio.Semaphore(MAX_CONCURRENT_INSIGHT_TASKS)
         self.llm_client = llm_client or (MistralClient() if self.settings.event_llm_enabled else None)
 
     async def assign_article(
@@ -449,6 +454,10 @@ class EventService:
                         boosted_score=boosted_score,
                     )
 
+                # Entity overlap check: very low overlap suggests different topics
+                # Mark candidates with low entity overlap for special handling
+                requires_llm_verification = breakdown.entities < self.settings.event_low_entity_llm_threshold
+
                 # Type-based filtering:
                 # - If types match: accept if score meets threshold
                 # - If types differ: only accept if score > 0.70 (very high confidence)
@@ -463,7 +472,7 @@ class EventService:
                             score=boosted_score,
                             note="Allowing LLM to decide despite type mismatch",
                         )
-                        scored_candidates.append((event, breakdown, boosted_score))
+                        scored_candidates.append((event, breakdown, boosted_score, requires_llm_verification))
                     else:
                         correlation_log.debug(
                             "low_confidence_cross_type_skip",
@@ -474,7 +483,7 @@ class EventService:
                         )
                 else:
                     # Types match or one is None - use normal threshold
-                    scored_candidates.append((event, breakdown, boosted_score))
+                    scored_candidates.append((event, breakdown, boosted_score, requires_llm_verification))
 
             # Sort candidates by boosted score (highest first)
             scored_candidates.sort(key=lambda x: x[2], reverse=True)
@@ -484,18 +493,26 @@ class EventService:
             best_breakdown: ScoreBreakdown | None = None
             best_boosted_score: float = 0.0
 
+            # Check if any candidate requires LLM verification due to low entity overlap
+            any_requires_llm = any(req for _, _, _, req in scored_candidates)
+
             # Filter candidates by minimum LLM threshold
             llm_candidates = [
                 (event, score)
-                for event, breakdown, score in scored_candidates
+                for event, breakdown, score, _ in scored_candidates
                 if score >= self.settings.event_llm_min_score
             ][:self.settings.event_llm_top_n]
 
-            # Use LLM for final decision if enabled and we have candidates
-            if self.settings.event_llm_enabled and self.llm_client and llm_candidates:
+            # Use LLM for final decision if:
+            # 1. LLM is enabled and we have candidates, OR
+            # 2. Any candidate has low entity overlap (requires verification to avoid false positives)
+            use_llm = self.settings.event_llm_enabled and self.llm_client and llm_candidates
+            if use_llm or (any_requires_llm and self.llm_client and llm_candidates):
+                reason = "low_entity_overlap_verification" if any_requires_llm else "standard_llm_decision"
                 correlation_log.debug(
                     "using_llm_for_decision",
                     candidates_count=len(llm_candidates),
+                    reason=reason,
                 )
                 selected_event_id = await self._llm_select_best_event(
                     article=article,
@@ -506,7 +523,7 @@ class EventService:
 
                 # Find the selected event in our candidates
                 if selected_event_id:
-                    for event, breakdown, boosted_score in scored_candidates:
+                    for event, breakdown, boosted_score, _ in scored_candidates:
                         if event.id == selected_event_id:
                             best_event = event
                             best_breakdown = breakdown
@@ -519,13 +536,38 @@ class EventService:
                             break
 
             # Fallback to highest scoring candidate if LLM didn't select or is disabled
+            # BUT: if entity overlap is very low and LLM said NEW_EVENT (or wasn't used),
+            # don't automatically assign - this prevents false positives
             if best_event is None and scored_candidates:
-                best_event, best_breakdown, best_boosted_score = scored_candidates[0]
-                correlation_log.debug(
-                    "using_score_based_decision",
-                    event_id=best_event.id,
-                    score=best_boosted_score,
-                )
+                top_event, top_breakdown, top_score, top_requires_llm = scored_candidates[0]
+
+                # If top candidate has very low entity overlap (<0.05), skip automatic assignment
+                # This protects against clustering unrelated articles from same source
+                if top_breakdown.entities < self.settings.event_min_entity_overlap:
+                    correlation_log.info(
+                        "skipping_low_entity_overlap_candidate",
+                        event_id=top_event.id,
+                        score=top_score,
+                        entity_overlap=top_breakdown.entities,
+                        min_required=self.settings.event_min_entity_overlap,
+                    )
+                    # Don't assign - will create new event
+                elif top_requires_llm and self.settings.event_llm_enabled:
+                    # LLM was supposed to verify but said NEW_EVENT or failed
+                    correlation_log.debug(
+                        "llm_rejected_low_entity_candidate",
+                        event_id=top_event.id,
+                        score=top_score,
+                        entity_overlap=top_breakdown.entities,
+                    )
+                    # Don't assign - LLM decided it's a new event
+                else:
+                    best_event, best_breakdown, best_boosted_score = top_event, top_breakdown, top_score
+                    correlation_log.debug(
+                        "using_score_based_decision",
+                        event_id=best_event.id,
+                        score=best_boosted_score,
+                    )
 
             threshold = self.settings.event_score_threshold
             if best_event is not None and best_breakdown is not None and best_boosted_score >= threshold:
@@ -707,18 +749,21 @@ class EventService:
         self._pending_insight_events.add(event_id)
 
         async def _run() -> None:
-            try:
-                await self.insight_service.generate_for_event(event_id, correlation_id=correlation_id)
-            except Exception as exc:  # pragma: no cover - defensive logging
-                self.log.warning(
-                    "insight_autogen_failed",
-                    event_id=event_id,
-                    error=str(exc),
-                    correlation_id=correlation_id,
-                )
-            finally:
-                self._pending_insight_events.discard(event_id)
-                self._insight_tasks.pop(event_id, None)
+            # Use semaphore to limit concurrent insight generations
+            # This prevents database connection pool exhaustion
+            async with self._insight_semaphore:
+                try:
+                    await self.insight_service.generate_for_event(event_id, correlation_id=correlation_id)
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    self.log.warning(
+                        "insight_autogen_failed",
+                        event_id=event_id,
+                        error=str(exc),
+                        correlation_id=correlation_id,
+                    )
+                finally:
+                    self._pending_insight_events.discard(event_id)
+                    self._insight_tasks.pop(event_id, None)
 
         task = asyncio.create_task(_run(), name=f"generate-insights-{event_id}")
         self._insight_tasks[event_id] = task

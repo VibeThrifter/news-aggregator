@@ -13,29 +13,14 @@ import feedparser
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from .base import FeedReader, FeedItem, FeedReaderError
+from .base import FeedReader, FeedItem, FeedReaderError, http_client, DEFAULT_FEED_TIMEOUT
+
+# Browser-like User-Agent for GeenStijl
+GEENSTIJL_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 
 class GeenStijlAtomReader(FeedReader):
     """Atom feed reader for GeenStijl feeds."""
-
-    def __init__(self, feed_url: str):
-        """Initialize GeenStijl Atom reader."""
-        super().__init__(feed_url)
-        self._session: httpx.AsyncClient | None = None
-
-    @property
-    def session(self) -> httpx.AsyncClient:
-        """Lazy-initialize HTTP client on first use."""
-        if self._session is None or self._session.is_closed:
-            self._session = httpx.AsyncClient(
-                timeout=30.0,
-                follow_redirects=True,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                }
-            )
-        return self._session
 
     @property
     def id(self) -> str:
@@ -48,7 +33,7 @@ class GeenStijlAtomReader(FeedReader):
         return {
             "name": "GeenStijl",
             "full_name": "GeenStijl",
-            "spectrum": "right-leaning",  # Opinionated, libertarian-right perspective
+            "spectrum": 8,  # Opinionated, libertarian-right perspective (0=far-left, 10=far-right)
             "country": "NL",
             "language": "nl",
             "media_type": "opinion_blog"
@@ -72,12 +57,14 @@ class GeenStijlAtomReader(FeedReader):
         try:
             self.logger.info("Fetching GeenStijl Atom feed", feed_url=self.feed_url)
 
-            # Fetch Atom content with HTTPX
-            response = await self.session.get(self.feed_url)
-            response.raise_for_status()
+            # Fetch Atom content with properly managed HTTP client
+            async with http_client(timeout=DEFAULT_FEED_TIMEOUT, user_agent=GEENSTIJL_USER_AGENT) as client:
+                response = await client.get(self.feed_url)
+                response.raise_for_status()
+                content = response.content
 
-            # Parse with feedparser (handles both RSS and Atom)
-            feed = feedparser.parse(response.content)
+            # Parse with feedparser (outside context - client no longer needed)
+            feed = feedparser.parse(content)
 
             if feed.bozo:
                 self.logger.warning("Atom feed has parsing issues",

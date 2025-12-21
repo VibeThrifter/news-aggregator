@@ -3,7 +3,7 @@
 import { ExternalLink } from "lucide-react";
 
 import type { EventArticle } from "@/lib/types";
-import { SPECTRUM_LABELS, SPECTRUM_STYLES, parseIsoDate } from "@/lib/format";
+import { SPECTRUM_LABELS, SPECTRUM_STYLES, parseIsoDate, getSpectrumScore, getSpectrumLabel } from "@/lib/format";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("nl-NL", {
   dateStyle: "medium",
@@ -14,14 +14,33 @@ interface ArticleListProps {
   articles: EventArticle[];
 }
 
-function buildSpectrumClassName(spectrum?: string | null): string {
-  if (!spectrum) {
+function buildSpectrumClassName(spectrum?: string | number | null): string {
+  if (spectrum === null || spectrum === undefined) {
     return "inline-flex items-center gap-1 rounded-full border border-slate-600 bg-slate-700 px-3 py-1 text-xs font-medium text-slate-200";
+  }
+
+  // For numeric scores, use gradient based on position
+  if (typeof spectrum === "number") {
+    if (spectrum <= 3) {
+      return "inline-flex items-center gap-1 rounded-full border border-blue-500/60 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-200";
+    } else if (spectrum <= 6) {
+      return "inline-flex items-center gap-1 rounded-full border border-slate-500/60 bg-slate-500/10 px-3 py-1 text-xs font-medium text-slate-200";
+    } else {
+      return "inline-flex items-center gap-1 rounded-full border border-red-500/60 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-200";
+    }
   }
 
   return `inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium ${
     SPECTRUM_STYLES[spectrum] ?? "border-slate-600 bg-slate-700 text-slate-200"
   }`;
+}
+
+function getSpectrumDisplayLabel(spectrum?: string | number | null): string | null {
+  if (spectrum === null || spectrum === undefined) return null;
+  if (typeof spectrum === "number") {
+    return `${getSpectrumLabel(spectrum)} (${spectrum})`;
+  }
+  return SPECTRUM_LABELS[spectrum] ?? spectrum;
 }
 
 function getSourceFavicon(url: string): string {
@@ -46,7 +65,7 @@ export function ArticleList({ articles }: ArticleListProps) {
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {articles.map((article) => {
         const published = parseIsoDate(article.published_at);
-        const spectrumLabel = article.spectrum ? SPECTRUM_LABELS[article.spectrum] ?? article.spectrum : null;
+        const spectrumLabel = getSpectrumDisplayLabel(article.spectrum);
         const favicon = getSourceFavicon(article.url);
 
         return (

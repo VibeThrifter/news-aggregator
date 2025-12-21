@@ -12,28 +12,11 @@ import feedparser
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from .base import FeedReader, FeedItem, FeedReaderError
+from .base import FeedReader, FeedItem, FeedReaderError, http_client
 
 
 class RtlRssReader(FeedReader):
     """RSS reader for RTL Nieuws feeds."""
-
-    def __init__(self, feed_url: str):
-        """Initialize RTL RSS reader."""
-        super().__init__(feed_url)
-        self._session: httpx.AsyncClient | None = None
-
-    @property
-    def session(self) -> httpx.AsyncClient:
-        """Lazy-initialize HTTP client on first use."""
-        if self._session is None or self._session.is_closed:
-            self._session = httpx.AsyncClient(
-                timeout=30.0,
-                headers={
-                    "User-Agent": "News-Aggregator/1.0 (+https://github.com/yourusername/news-aggregator)"
-                }
-            )
-        return self._session
 
     @property
     def id(self) -> str:
@@ -46,7 +29,7 @@ class RtlRssReader(FeedReader):
         return {
             "name": "RTL Nieuws",
             "full_name": "RTL Nederland",
-            "spectrum": "center-right",  # RTL is a commercial broadcaster
+            "spectrum": 5,  # RTL is a commercial broadcaster, center (0=far-left, 10=far-right)
             "country": "NL",
             "language": "nl",
             "media_type": "commercial_broadcaster"
@@ -70,12 +53,14 @@ class RtlRssReader(FeedReader):
         try:
             self.logger.info("Fetching RTL RSS feed", feed_url=self.feed_url)
 
-            # Fetch RSS content with HTTPX
-            response = await self.session.get(self.feed_url)
-            response.raise_for_status()
+            # Fetch RSS content with properly managed HTTP client
+            async with http_client() as client:
+                response = await client.get(self.feed_url)
+                response.raise_for_status()
+                content = response.content
 
-            # Parse with feedparser
-            feed = feedparser.parse(response.content)
+            # Parse with feedparser (outside context - client no longer needed)
+            feed = feedparser.parse(content)
 
             if feed.bozo:
                 self.logger.warning("RSS feed has parsing issues",
@@ -86,6 +71,10 @@ class RtlRssReader(FeedReader):
             for entry in feed.entries:
                 try:
                     item = self._parse_entry(entry, feed)
+                    # Filter out non-news content (TV schedules, entertainment roundups)
+                    if self._is_meta_content(item):
+                        self.logger.debug("Skipping meta content", title=item.title)
+                        continue
                     items.append(item)
                 except Exception as e:
                     self.logger.warning("Failed to parse feed entry",
@@ -230,3 +219,34 @@ class RtlRssReader(FeedReader):
             return media_thumbnail[0].get("url")
 
         return None
+
+    def _is_meta_content(self, item: FeedItem) -> bool:
+        """
+        Detect non-news content like TV schedules, program roundups,
+        and entertainment summaries that should not be treated as news events.
+        """
+        title_lower = item.title.lower()
+        summary_lower = (item.summary or "").lower()
+
+        # TV schedule/programming content
+        schedule_patterns = [
+            r"veel te zien op rtl",
+            r"vanavond op rtl",
+            r"deze week op rtl",
+            r"tv-?gids",
+            r"programma.?overzicht",
+            r"kijk\s*tip",
+        ]
+        for pattern in schedule_patterns:
+            if re.search(pattern, title_lower) or re.search(pattern, summary_lower):
+                return True
+
+        # Generic "what's on" roundups
+        if re.search(r"op (rtl\s*)?[0-9].*met verschillende", summary_lower):
+            return True
+
+        # Day-based TV summaries
+        if re.search(r"op\s+(maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag).*was er veel te zien", summary_lower):
+            return True
+
+        return False

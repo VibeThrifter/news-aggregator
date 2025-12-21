@@ -5,6 +5,7 @@ This module provides APScheduler integration for running RSS feed polling
 and other background jobs according to Story 1.1 requirements.
 """
 
+import asyncio
 import uuid
 from typing import Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -12,6 +13,13 @@ from apscheduler.triggers.interval import IntervalTrigger
 import structlog
 
 from .config import get_settings
+
+# Maximum time allowed for a single poll cycle (5 minutes)
+POLL_CYCLE_TIMEOUT_SECONDS = 300
+# Maximum time allowed for insight backfill (10 minutes)
+INSIGHT_BACKFILL_TIMEOUT_SECONDS = 600
+# Maximum time allowed for maintenance (10 minutes)
+MAINTENANCE_TIMEOUT_SECONDS = 600
 from ..db.session import ensure_healthy_connection, get_sessionmaker
 from ..events.maintenance import get_event_maintenance_service
 from ..services.ingest_service import IngestService
@@ -95,12 +103,12 @@ class NewsAggregatorScheduler:
         )
 
     async def _poll_feeds_job(self) -> None:
-        """Job function for RSS feed polling with correlation ID."""
+        """Job function for RSS feed polling with correlation ID and global timeout."""
         correlation_id = str(uuid.uuid4())
         job_logger = logger.bind(correlation_id=correlation_id, job="poll_rss_feeds")
 
         try:
-            job_logger.info("Starting RSS feed polling job")
+            job_logger.info("Starting RSS feed polling job", timeout_seconds=POLL_CYCLE_TIMEOUT_SECONDS)
 
             # Ensure database connection is healthy before proceeding
             if not await ensure_healthy_connection():
@@ -108,9 +116,20 @@ class NewsAggregatorScheduler:
                 self._reset_services()
                 return
 
-            # Call the ingest service to poll feeds
+            # Call the ingest service to poll feeds with a global timeout
             ingest_service = self._get_ingest_service()
-            results = await ingest_service.poll_feeds(correlation_id=correlation_id)
+            try:
+                results = await asyncio.wait_for(
+                    ingest_service.poll_feeds(correlation_id=correlation_id),
+                    timeout=POLL_CYCLE_TIMEOUT_SECONDS
+                )
+            except asyncio.TimeoutError:
+                job_logger.error(
+                    "RSS feed polling job timed out",
+                    timeout_seconds=POLL_CYCLE_TIMEOUT_SECONDS,
+                )
+                self._reset_services()
+                return
 
             if results["success"]:
                 job_logger.info("RSS feed polling job completed successfully",
@@ -134,7 +153,7 @@ class NewsAggregatorScheduler:
         job_logger = logger.bind(correlation_id=correlation_id, job="insight_backfill")
 
         try:
-            job_logger.info("Starting insight backfill job")
+            job_logger.info("Starting insight backfill job", timeout_seconds=INSIGHT_BACKFILL_TIMEOUT_SECONDS)
 
             # Ensure database connection is healthy before proceeding
             if not await ensure_healthy_connection():
@@ -143,10 +162,22 @@ class NewsAggregatorScheduler:
                 return
 
             insight_service = self._get_insight_service()
-            stats = await insight_service.backfill_missing_insights(
-                limit=self.settings.insight_backfill_batch_size,
-                correlation_id=correlation_id,
-            )
+            try:
+                stats = await asyncio.wait_for(
+                    insight_service.backfill_missing_insights(
+                        limit=self.settings.insight_backfill_batch_size,
+                        correlation_id=correlation_id,
+                    ),
+                    timeout=INSIGHT_BACKFILL_TIMEOUT_SECONDS
+                )
+            except asyncio.TimeoutError:
+                job_logger.error(
+                    "Insight backfill job timed out",
+                    timeout_seconds=INSIGHT_BACKFILL_TIMEOUT_SECONDS,
+                )
+                self._reset_services()
+                return
+
             job_logger.info("Insight backfill job completed", **stats)
         except Exception as exc:  # pragma: no cover - defensive logging
             job_logger.error("Insight backfill job failed", error=str(exc))
@@ -159,7 +190,7 @@ class NewsAggregatorScheduler:
         job_logger = logger.bind(correlation_id=correlation_id, job="event_maintenance")
 
         try:
-            job_logger.info("Starting event maintenance job")
+            job_logger.info("Starting event maintenance job", timeout_seconds=MAINTENANCE_TIMEOUT_SECONDS)
 
             # Ensure database connection is healthy before proceeding
             if not await ensure_healthy_connection():
@@ -168,7 +199,19 @@ class NewsAggregatorScheduler:
                 return
 
             maintenance_service = self._get_maintenance_service()
-            stats = await maintenance_service.run(correlation_id=correlation_id)
+            try:
+                stats = await asyncio.wait_for(
+                    maintenance_service.run(correlation_id=correlation_id),
+                    timeout=MAINTENANCE_TIMEOUT_SECONDS
+                )
+            except asyncio.TimeoutError:
+                job_logger.error(
+                    "Event maintenance job timed out",
+                    timeout_seconds=MAINTENANCE_TIMEOUT_SECONDS,
+                )
+                self._reset_services()
+                return
+
             job_logger.info("Event maintenance job completed", **stats.as_dict())
         except Exception as exc:  # pragma: no cover - defensive logging
             job_logger.error("Event maintenance job failed", error=str(exc))

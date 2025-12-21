@@ -312,6 +312,18 @@ class Settings(BaseSettings):
         le=1.0,
         description="Minimum score required for a candidate to be considered by LLM",
     )
+    event_min_entity_overlap: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=1.0,
+        description="Minimum entity overlap required to cluster articles (below this, force NEW_EVENT)",
+    )
+    event_low_entity_llm_threshold: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description="Entity overlap below this always triggers LLM verification",
+    )
 
     # CORS Configuration
     frontend_origins: str = Field(
