@@ -8,6 +8,7 @@ import type {
   StatisticalIssue,
   TimingAnalysis,
 } from "@/lib/types";
+import { SourceIconLink } from "@/components/SourceIconLink";
 
 interface UnsubstantiatedClaimsListProps {
   items: UnsubstantiatedClaim[];
@@ -26,9 +27,16 @@ export function UnsubstantiatedClaimsList({ items }: UnsubstantiatedClaimsListPr
           <div className="flex items-start gap-3">
             <span className="mt-1 text-2xl">&#x26A0;</span>
             <div className="flex-1 space-y-3">
-              <div>
-                <p className="text-sm font-semibold text-amber-200">Claim</p>
-                <p className="text-base text-white">{item.claim}</p>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-amber-200">Claim</p>
+                  <p className="text-base text-white">{item.claim}</p>
+                </div>
+                {item.article_url && (
+                  <div className="shrink-0">
+                    <SourceIconLink url={item.article_url} />
+                  </div>
+                )}
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
@@ -97,14 +105,21 @@ export function AuthorityAnalysisList({ items }: AuthorityAnalysisListProps) {
           className="rounded-2xl border border-purple-500/30 bg-purple-500/10 p-5"
         >
           <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <span className="text-2xl">&#128101;</span>
-              <div>
-                <p className="text-lg font-semibold text-white">{item.authority}</p>
-                <p className="text-xs font-semibold uppercase tracking-wide text-purple-300">
-                  {item.authority_type}
-                </p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">&#128101;</span>
+                <div>
+                  <p className="text-lg font-semibold text-white">{item.authority}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-purple-300">
+                    {item.authority_type}
+                  </p>
+                </div>
               </div>
+              {item.article_url && (
+                <div className="shrink-0">
+                  <SourceIconLink url={item.article_url} />
+                </div>
+              )}
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -225,23 +240,30 @@ export function MediaAnalysisList({ items }: MediaAnalysisListProps) {
           className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-5"
         >
           <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              {favicon ? (
-                <img
-                  src={favicon}
-                  alt=""
-                  className="h-8 w-8 rounded"
-                  loading="lazy"
-                />
-              ) : (
-                <span className="text-2xl">&#128240;</span>
-              )}
-              <div>
-                <p className="text-lg font-semibold text-white">{item.source}</p>
-                <p className="text-xs font-semibold uppercase tracking-wide text-rose-300">
-                  Toon: {item.tone}
-                </p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                {favicon ? (
+                  <img
+                    src={favicon}
+                    alt=""
+                    className="h-8 w-8 rounded"
+                    loading="lazy"
+                  />
+                ) : (
+                  <span className="text-2xl">&#128240;</span>
+                )}
+                <div>
+                  <p className="text-lg font-semibold text-white">{item.source}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-rose-300">
+                    Toon: {item.tone}
+                  </p>
+                </div>
               </div>
+              {item.article_url && (
+                <div className="shrink-0">
+                  <SourceIconLink url={item.article_url} />
+                </div>
+              )}
             </div>
             {item.sourcing_pattern && (
               <div className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-3">
@@ -393,9 +415,16 @@ export function StatisticalIssuesList({ items }: StatisticalIssuesListProps) {
           <div className="flex items-start gap-3">
             <span className="mt-1 text-2xl">&#128202;</span>
             <div className="flex-1 space-y-3">
-              <div>
-                <p className="text-sm font-semibold text-red-200">Statistische claim</p>
-                <p className="text-base text-white">{item.claim}</p>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-red-200">Statistische claim</p>
+                  <p className="text-base text-white">{item.claim}</p>
+                </div>
+                {item.article_url && (
+                  <div className="shrink-0">
+                    <SourceIconLink url={item.article_url} />
+                  </div>
+                )}
               </div>
               <div className="rounded-xl border border-red-400/30 bg-red-400/10 p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-red-200">

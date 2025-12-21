@@ -60,6 +60,7 @@ export type UnsubstantiatedClaim = {
   claim: string;
   presented_as: string;
   source_in_article: string;
+  article_url?: string | null;
   evidence_provided: string;
   missing_context: string[];
   critical_questions: string[];
@@ -68,6 +69,7 @@ export type UnsubstantiatedClaim = {
 export type AuthorityAnalysis = {
   authority: string;
   authority_type: string;
+  article_url?: string | null;
   claimed_expertise: string;
   actual_role?: string | null;
   scope_creep?: string | null;
@@ -81,6 +83,7 @@ export type AuthorityAnalysis = {
 
 export type MediaAnalysis = {
   source: string;
+  article_url?: string | null;
   tone: string;
   sourcing_pattern?: string | null;
   questions_not_asked: string[];
@@ -94,6 +97,7 @@ export type MediaAnalysis = {
 
 export type StatisticalIssue = {
   claim: string;
+  article_url?: string | null;
   issue: string;
   better_framing?: string | null;
 };

@@ -71,10 +71,11 @@ JSON OUTPUT SCHEMA:
   "fallacies": [{"type": "string - be specific about the fallacy type", "description": "string", "sources": ["url"], "spectrum": "mainstream"}],
   "frames": [{"frame_type": "conflict|human_interest|economisch|moraliteit|verantwoordelijkheid|veiligheid|metafoor|eufemisme|hyperbool|strategisch|consensus|inevitability|authority_deference|fear|progress|nostalgia", "technique": "specific technique used", "description": "2-4 sentences explaining the framing effect", "sources": ["url"], "spectrum": "mainstream"}],
   "coverage_gaps": [{"perspective": "string", "description": "string", "relevance": "why this matters", "potential_sources": ["who could provide this perspective"]}],
-  "unsubstantiated_claims": [{"claim": "literal claim from article", "presented_as": "feit|advies|mening|voorspelling", "source_in_article": "who made this claim", "evidence_provided": "what evidence given, or 'geen'", "missing_context": ["what's left out"], "critical_questions": ["questions that should be asked"]}],
+  "unsubstantiated_claims": [{"claim": "literal claim from article", "presented_as": "feit|advies|mening|voorspelling", "source_in_article": "who made this claim", "article_url": "REQUIRED - exact URL of the article containing this claim", "evidence_provided": "what evidence given, or 'geen'", "missing_context": ["what's left out"], "critical_questions": ["questions that should be asked"]}],
   "authority_analysis": [{
     "authority": "name",
     "authority_type": "describe accurately - avoid generic labels",
+    "article_url": "REQUIRED - exact URL of the article where this authority is cited",
     "claimed_expertise": "domain they claim authority in",
     "actual_role": "what they actually are/do",
     "scope_creep": "string or empty - ALLEEN voor instituties/adviesorganen die buiten hun formele mandaat adviseren (bijv. gezondheidsraad over milieu, klimaatpanel over economie). NIET voor politici of individuen die claims maken.",
@@ -87,6 +88,7 @@ JSON OUTPUT SCHEMA:
   }],
   "media_analysis": [{
     "source": "media outlet name",
+    "article_url": "REQUIRED - exact URL of the article being analyzed",
     "tone": "feitelijk|kritisch|sensationeel|alarmerend|geruststellend|activistisch",
     "sourcing_pattern": "who do they quote? who not?",
     "questions_not_asked": ["important questions the journalist didn't ask"],
@@ -97,10 +99,12 @@ JSON OUTPUT SCHEMA:
     "narrative_alignment": "does this align with a particular narrative or agenda?",
     "what_if_wrong": "what are consequences if their framing is wrong?"
   }],
-  "statistical_issues": null or [{"claim": "the statistical claim", "issue": "what's misleading about it", "better_framing": "how it should be presented"}],
+  "statistical_issues": null or [{"claim": "the statistical claim", "article_url": "REQUIRED - exact URL of the article containing this statistic", "issue": "what's misleading about it", "better_framing": "how it should be presented"}],
   "timing_analysis": null or {"why_now": "why is this news now?", "cui_bono": "who benefits from this timing?", "upcoming_events": "relevant upcoming decisions/events"},
   "scientific_plurality": null or {"topic": "string", "presented_view": "string", "alternative_views_mentioned": true/false, "known_debates": ["string"], "notable_dissenters": "string", "assessment": "string"}
 }
+
+IMPORTANT: For unsubstantiated_claims, authority_analysis, media_analysis, and statistical_issues, ALWAYS include the article_url field with the exact URL of the article where you found this issue. This allows readers to verify your analysis.
 
 Event context:
 {event_context}

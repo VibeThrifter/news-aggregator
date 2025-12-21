@@ -1,7 +1,8 @@
+import Image from "next/image";
 import { ExternalLink } from "lucide-react";
 
 import type { ClusterSource } from "@/lib/types";
-import { SPECTRUM_LABELS, SPECTRUM_STYLES } from "@/lib/format";
+import { getFaviconUrl, SPECTRUM_LABELS, SPECTRUM_STYLES } from "@/lib/format";
 
 function buildSpectrumBadge(spectrum?: string | null) {
   if (!spectrum) {
@@ -21,16 +22,26 @@ function buildSpectrumBadge(spectrum?: string | null) {
 }
 
 export function SourceTag({ title, url, spectrum }: ClusterSource) {
+  const favicon = getFaviconUrl(url);
+
   return (
     <a
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200 transition hover:border-aurora-500/60 hover:text-white"
+      className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-aurora-500/60 hover:text-white"
     >
-      <ExternalLink size={14} className="shrink-0" />
+      <Image
+        src={favicon}
+        alt=""
+        width={14}
+        height={14}
+        className="shrink-0 rounded-sm"
+        unoptimized
+      />
       <span className="min-w-0 truncate">{title}</span>
       {buildSpectrumBadge(spectrum)}
+      <ExternalLink size={10} className="shrink-0 opacity-50" />
     </a>
   );
 }

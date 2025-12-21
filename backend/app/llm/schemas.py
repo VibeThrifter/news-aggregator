@@ -89,6 +89,7 @@ class UnsubstantiatedClaim(BaseModel):
     claim: str = Field(..., min_length=1, description="De letterlijke claim uit het artikel")
     presented_as: str = Field(..., description="Hoe de claim wordt gepresenteerd: feit, advies, mening, voorspelling")
     source_in_article: str = Field(..., min_length=1, description="Wie maakt deze claim in het artikel")
+    article_url: Optional[HttpUrl] = Field(default=None, description="URL van het artikel waarin deze claim voorkomt")
     evidence_provided: str = Field(..., description="Welk bewijs wordt aangedragen (of 'geen')")
     missing_context: List[str] = Field(default_factory=list, description="Welke context ontbreekt")
     critical_questions: List[str] = Field(default_factory=list, description="Vragen die een kritische journalist zou stellen")
@@ -99,6 +100,7 @@ class AuthorityAnalysis(BaseModel):
 
     authority: str = Field(..., min_length=1, description="Naam van de autoriteit/organisatie")
     authority_type: str = Field(..., description="Beschrijf accuraat - vermijd generieke labels")
+    article_url: Optional[HttpUrl] = Field(default=None, description="URL van het artikel waarin deze autoriteit wordt geciteerd")
     claimed_expertise: str = Field(..., min_length=1, description="Op welk terrein claimen zij expertise")
     actual_role: str = Field(default="", description="Wat doen/zijn ze daadwerkelijk")
     scope_creep: str = Field(default="", description="Adviseert buiten mandaat? Bijv. gezondheidsexpert over economie")
@@ -128,6 +130,7 @@ class MediaAnalysis(BaseModel):
     """Kritische analyse van de berichtgeving zelf."""
 
     source: str = Field(..., min_length=1, description="Naam van het medium")
+    article_url: Optional[HttpUrl] = Field(default=None, description="URL van het specifieke artikel dat wordt geanalyseerd")
     tone: str = Field(..., min_length=1, description="Toon: feitelijk, kritisch, sensationeel, alarmerend, geruststellend, activistisch")
     sourcing_pattern: str = Field(default="", description="Wie citeren ze? Wie niet?")
     questions_not_asked: List[str] = Field(default_factory=list, description="Belangrijke vragen die de journalist niet stelde")
@@ -180,6 +183,7 @@ class StatisticalIssue(BaseModel):
     """Een misleidende of onjuist gepresenteerde statistiek."""
 
     claim: str = Field(..., min_length=1, description="De statistische claim uit het artikel")
+    article_url: Optional[HttpUrl] = Field(default=None, description="URL van het artikel met deze statistiek")
     issue: str = Field(..., min_length=1, description="Wat er misleidend aan is")
     better_framing: str = Field(default="", description="Hoe het beter gepresenteerd zou kunnen worden")
 
