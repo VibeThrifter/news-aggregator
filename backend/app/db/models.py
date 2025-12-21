@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -169,3 +170,47 @@ class LLMInsight(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper
         return f"<LLMInsight event_id={self.event_id} provider={self.provider!r}>"
+
+
+class NewsSource(Base):
+    """Configuration for news sources with enabled/main source flags."""
+
+    __tablename__ = "news_sources"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    feed_url: Mapped[str] = mapped_column(String(1024), nullable=False)
+    spectrum: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_main_source: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging helper
+        return f"<NewsSource source_id={self.source_id!r} enabled={self.enabled} is_main={self.is_main_source}>"
+
+
+class LlmConfig(Base):
+    """Configuration for LLM prompts and parameters, editable via admin dashboard."""
+
+    __tablename__ = "llm_config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    config_type: Mapped[str] = mapped_column(String(32), nullable=False)  # prompt, parameter, scoring
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging helper
+        return f"<LlmConfig key={self.key!r} type={self.config_type!r}>"

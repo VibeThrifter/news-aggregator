@@ -232,6 +232,16 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
         </div>
       </header>
 
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-2xl font-semibold text-white">Artikelen</h2>
+          <p className="mt-1 text-sm text-slate-300">
+            Lijst van artikelen die aan dit event gekoppeld zijn met spectrumlabels en publicatietijd.
+          </p>
+        </div>
+        <ArticleList articles={articles} />
+      </section>
+
       {insightsFallbackReason ? <InsightsFallback eventId={event.id} reason={insightsFallbackReason} /> : null}
 
       {showInsights && insights ? (
@@ -414,16 +424,6 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
           ) : null}
         </section>
       ) : null}
-
-      <section className="space-y-4">
-        <div>
-          <h2 className="text-2xl font-semibold text-white">Artikelen</h2>
-          <p className="mt-1 text-sm text-slate-300">
-            Lijst van artikelen die aan dit event gekoppeld zijn met spectrumlabels en publicatietijd.
-          </p>
-        </div>
-        <ArticleList articles={articles} />
-      </section>
       </div>
     </ArticleLookupProvider>
   );

@@ -7,6 +7,7 @@ from .article_repo import (
 )
 from .event_repo import EventCentroidSnapshot, EventMaintenanceBundle, EventRepository
 from .insight_repo import InsightPersistenceResult, InsightRepository
+from .source_repo import NewsSourceRepository, SourcePersistenceResult
 
 __all__ = [
     "ArticleEnrichmentPayload",
@@ -17,4 +18,6 @@ __all__ = [
     "EventMaintenanceBundle",
     "EventRepository",
     "EventCentroidSnapshot",
+    "NewsSourceRepository",
+    "SourcePersistenceResult",
 ]

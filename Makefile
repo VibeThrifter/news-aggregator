@@ -90,13 +90,13 @@ dev: ## Start development servers for both backend and frontend
 	@echo "🚀 Starting development servers..."
 	@echo "Backend will start on http://localhost:8000"
 	@echo "Frontend will start on http://localhost:3000"
-	@. $(VENV)/bin/activate && python -m uvicorn src.web.app:app --reload --port 8000 &
+	@. $(VENV)/bin/activate && PYTHONPATH=. python -m uvicorn backend.app.main:app --reload --port 8000 &
 	@cd $(FRONTEND_DIR) && $(NPM) run dev &
 	@wait
 
 backend-dev: ## Start only the backend development server
 	@echo "🚀 Starting backend server on http://localhost:8000..."
-	@. $(VENV)/bin/activate && python -m uvicorn src.web.app:app --reload --port 8000
+	@. $(VENV)/bin/activate && PYTHONPATH=. python -m uvicorn backend.app.main:app --reload --port 8000
 
 frontend-dev: ## Start only the frontend development server
 	@echo "🚀 Starting frontend server..."
@@ -122,5 +122,5 @@ check-deps: ## Check if required tools are installed
 
 validate: ## Validate that current setup is working
 	@echo "🔍 Validating current setup..."
-	@. $(VENV)/bin/activate && python -c "import src.web.app; print('✅ Backend imports work')"
+	@. $(VENV)/bin/activate && PYTHONPATH=. python -c "import backend.app.main; print('✅ Backend imports work')"
 	@echo "✅ Virtual environment is functional"

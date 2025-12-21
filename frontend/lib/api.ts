@@ -502,6 +502,194 @@ export function resolveEventExportUrl(eventId: string | number): string {
   return resolveApiUrl(`/api/v1/exports/events/${encodeEventIdentifier(eventId)}`);
 }
 
+// Admin API functions
+
+export interface NewsSource {
+  source_id: string;
+  display_name: string;
+  feed_url: string;
+  spectrum: string | null;
+  enabled: boolean;
+  is_main_source: boolean;
+}
+
+export interface SourcesListResponse {
+  sources: NewsSource[];
+  total: number;
+}
+
+export interface SourceUpdateRequest {
+  enabled?: boolean;
+  is_main_source?: boolean;
+}
+
+/**
+ * List all configured news sources with their settings.
+ */
+export async function listSources(): Promise<SourcesListResponse> {
+  const response = await fetch(buildUrl('/admin/sources'), {
+    method: 'GET',
+    headers: { 'Accept': 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new ApiClientError('Failed to list sources', response.status);
+  }
+
+  return response.json();
+}
+
+/**
+ * Update source settings (enabled, is_main_source).
+ */
+export async function updateSource(
+  sourceId: string,
+  update: SourceUpdateRequest
+): Promise<NewsSource> {
+  const response = await fetch(buildUrl(`/admin/sources/${encodeURIComponent(sourceId)}`), {
+    method: 'PATCH',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(update),
+  });
+
+  if (!response.ok) {
+    throw new ApiClientError('Failed to update source', response.status);
+  }
+
+  return response.json();
+}
+
+/**
+ * Initialize sources from registered feed readers.
+ */
+export async function initializeSources(): Promise<{ message: string; stats: { created: number; existing: number; total: number } }> {
+  const response = await fetch(buildUrl('/admin/sources/initialize'), {
+    method: 'POST',
+    headers: { 'Accept': 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new ApiClientError('Failed to initialize sources', response.status);
+  }
+
+  return response.json();
+}
+
+// LLM Config API functions
+
+export interface LlmConfig {
+  id: number;
+  key: string;
+  value: string;
+  config_type: string;
+  description: string | null;
+  updated_at: string;
+}
+
+export interface LlmConfigListResponse {
+  configs: LlmConfig[];
+  total: number;
+}
+
+export interface LlmConfigUpdateRequest {
+  value: string;
+  description?: string;
+}
+
+/**
+ * List all LLM configuration entries.
+ */
+export async function listLlmConfigs(configType?: string): Promise<LlmConfigListResponse> {
+  const url = configType
+    ? buildUrl(`/admin/llm-config?config_type=${encodeURIComponent(configType)}`)
+    : buildUrl('/admin/llm-config');
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { 'Accept': 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new ApiClientError('Failed to list LLM configs', response.status);
+  }
+
+  return response.json();
+}
+
+/**
+ * Get a specific LLM config entry by key.
+ */
+export async function getLlmConfig(key: string): Promise<LlmConfig> {
+  const response = await fetch(buildUrl(`/admin/llm-config/${encodeURIComponent(key)}`), {
+    method: 'GET',
+    headers: { 'Accept': 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new ApiClientError('Failed to get LLM config', response.status);
+  }
+
+  return response.json();
+}
+
+/**
+ * Update an LLM config entry.
+ */
+export async function updateLlmConfig(
+  key: string,
+  update: LlmConfigUpdateRequest
+): Promise<LlmConfig> {
+  const response = await fetch(buildUrl(`/admin/llm-config/${encodeURIComponent(key)}`), {
+    method: 'PATCH',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(update),
+  });
+
+  if (!response.ok) {
+    throw new ApiClientError('Failed to update LLM config', response.status);
+  }
+
+  return response.json();
+}
+
+/**
+ * Seed default LLM configuration values.
+ */
+export async function seedLlmConfig(overwrite: boolean = false): Promise<{ message: string; stats: { created: number; updated: number; skipped: number } }> {
+  const response = await fetch(buildUrl(`/admin/llm-config/seed?overwrite=${overwrite}`), {
+    method: 'POST',
+    headers: { 'Accept': 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new ApiClientError('Failed to seed LLM config', response.status);
+  }
+
+  return response.json();
+}
+
+/**
+ * Invalidate the LLM config cache.
+ */
+export async function invalidateLlmConfigCache(): Promise<{ message: string }> {
+  const response = await fetch(buildUrl('/admin/llm-config/invalidate-cache'), {
+    method: 'POST',
+    headers: { 'Accept': 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new ApiClientError('Failed to invalidate cache', response.status);
+  }
+
+  return response.json();
+}
+
 export type {
   AggregationResponse,
   Cluster,

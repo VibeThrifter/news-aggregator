@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Set
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import desc, select
@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.session import get_async_session
 from backend.app.core.logging import get_logger
-from backend.app.db.models import Article, Event, EventArticle, LLMInsight
+from backend.app.db.models import Article, Event, EventArticle, LLMInsight, NewsSource
 from backend.app.models import (
     EventArticleResponse,
     EventDetail,
@@ -25,6 +25,13 @@ from backend.app.models import (
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["events"])
+
+
+async def _get_main_source_names(session: AsyncSession) -> Set[str]:
+    """Get the display names of main sources for filtering events."""
+    stmt = select(NewsSource.display_name).where(NewsSource.is_main_source.is_(True))
+    result = await session.execute(stmt)
+    return {row[0] for row in result.fetchall()}
 
 
 def _build_source_breakdown(
@@ -69,7 +76,11 @@ async def _get_latest_insight(
 async def list_events(
     session: AsyncSession = Depends(get_async_session),
 ) -> dict:
-    """List all events sorted by newest article."""
+    """List all events sorted by newest article.
+
+    Only shows events that have at least one article from a "main" source.
+    If no main sources are configured, shows all events.
+    """
     stmt = (
         select(Event)
         .where(Event.archived_at.is_(None))
@@ -78,6 +89,9 @@ async def list_events(
 
     result = await session.execute(stmt)
     events = result.scalars().all()
+
+    # Get main source names for filtering
+    main_source_names = await _get_main_source_names(session)
 
     # Get articles for each event to build source breakdown
     event_items: List[EventListItem] = []
@@ -92,6 +106,14 @@ async def list_events(
         )
         article_result = await session.execute(article_stmt)
         articles = list(article_result.scalars().all())
+
+        # Filter: only show events that have at least one article from a main source
+        # If no main sources are configured, show all events
+        if main_source_names:
+            article_sources = {a.source_name for a in articles if a.source_name}
+            has_main_source = bool(article_sources & main_source_names)
+            if not has_main_source:
+                continue
 
         # Get latest insight for LLM provider
         insight = await _get_latest_insight(session, event.id)

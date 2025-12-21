@@ -17,6 +17,7 @@ from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
 from backend.app.db.models import Article, Event, EventArticle
 from backend.app.db.session import get_sessionmaker
+from backend.app.services.llm_config_service import get_llm_config_service
 
 LOG = get_logger(__name__).bind(component="PromptBuilder")
 SENTENCE_PATTERN = re.compile(r"(?<=[.!?])\s+")
@@ -31,9 +32,27 @@ def _load_template(filename: str = "pluriform_prompt.txt") -> str:
     return template_path.read_text(encoding="utf-8")
 
 
-PROMPT_TEMPLATE = _load_template("pluriform_prompt.txt")
-FACTUAL_TEMPLATE = _load_template("factual_prompt.txt")
-CRITICAL_TEMPLATE = _load_template("critical_prompt.txt")
+# File-based templates as fallbacks
+_FILE_PROMPT_TEMPLATE = _load_template("pluriform_prompt.txt")
+_FILE_FACTUAL_TEMPLATE = _load_template("factual_prompt.txt")
+_FILE_CRITICAL_TEMPLATE = _load_template("critical_prompt.txt")
+
+# Legacy aliases for backwards compatibility
+PROMPT_TEMPLATE = _FILE_PROMPT_TEMPLATE
+FACTUAL_TEMPLATE = _FILE_FACTUAL_TEMPLATE
+CRITICAL_TEMPLATE = _FILE_CRITICAL_TEMPLATE
+
+
+async def _get_prompt_from_db(key: str, fallback: str) -> str:
+    """Load prompt from database, falling back to file-based template."""
+    try:
+        config_service = get_llm_config_service()
+        db_value = await config_service.get_value(f"prompt_{key}")
+        if db_value and db_value.strip():
+            return db_value
+    except Exception as e:
+        LOG.warning("prompt_db_load_failed", key=key, error=str(e))
+    return fallback
 
 
 @dataclass(slots=True)
@@ -122,7 +141,9 @@ class PromptBuilder:
         context_block = self._format_event_context(event, selected, total=len(capsules))
         capsule_block = self._format_article_capsules(selected)
 
-        prompt = self.template
+        # Load template from database, fallback to file-based
+        template = await _get_prompt_from_db("pluriform", self.template)
+        prompt = template
         prompt = prompt.replace("{event_context}", context_block)
         prompt = prompt.replace("{article_capsules}", capsule_block)
 
@@ -370,7 +391,9 @@ class PromptBuilder:
         context_block = self._format_event_context(event, selected, total=len(capsules))
         capsule_block = self._format_article_capsules(selected)
 
-        prompt = FACTUAL_TEMPLATE
+        # Load template from database, fallback to file-based
+        template = await _get_prompt_from_db("factual", _FILE_FACTUAL_TEMPLATE)
+        prompt = template
         prompt = prompt.replace("{event_context}", context_block)
         prompt = prompt.replace("{article_capsules}", capsule_block)
 
@@ -419,7 +442,9 @@ class PromptBuilder:
         context_block = self._format_event_context(event, selected, total=len(capsules))
         capsule_block = self._format_article_capsules(selected)
 
-        prompt = CRITICAL_TEMPLATE
+        # Load template from database, fallback to file-based
+        template = await _get_prompt_from_db("critical", _FILE_CRITICAL_TEMPLATE)
+        prompt = template
         prompt = prompt.replace("{event_context}", context_block)
         prompt = prompt.replace("{factual_summary}", factual_summary)
         prompt = prompt.replace("{article_capsules}", capsule_block)

@@ -41,11 +41,19 @@ from backend.app.ingestion import (
     naive_extract_text,
     parse_article_html,
 )
-from backend.app.repositories import ArticleRepository
+from backend.app.repositories import ArticleRepository, NewsSourceRepository
 from backend.app.services.event_service import EventService
 from backend.app.services.enrich_service import ArticleEnrichmentService
 
 logger = structlog.get_logger()
+
+
+async def _get_enabled_source_ids(session_factory) -> set[str]:
+    """Get the set of enabled source IDs from the database."""
+    async with session_factory() as session:
+        repo = NewsSourceRepository(session)
+        sources = await repo.get_enabled()
+        return {s.source_id for s in sources}
 
 
 class IngestService:
@@ -165,6 +173,7 @@ class IngestService:
         Poll all registered feed readers and collect feed items.
 
         This is the main orchestration method called by the scheduler.
+        Only polls sources that are enabled in the database.
 
         Args:
             correlation_id: Optional correlation ID for request tracing
@@ -174,11 +183,43 @@ class IngestService:
 
         """
         logger_ctx = logger.bind(correlation_id=correlation_id) if correlation_id else logger
-        logger_ctx.info("Starting RSS feed polling", reader_count=len(self.readers))
+
+        # Get enabled source IDs from database
+        try:
+            enabled_ids = await _get_enabled_source_ids(self.session_factory)
+        except Exception as e:
+            # If database check fails, fall back to polling all sources
+            logger_ctx.warning(
+                "Failed to get enabled sources, polling all",
+                error=str(e),
+            )
+            enabled_ids = set(self.readers.keys())
+
+        # Filter readers to only enabled ones (if any are configured)
+        # If no sources are configured in DB yet, poll all readers
+        if enabled_ids:
+            active_readers = {
+                rid: reader for rid, reader in self.readers.items()
+                if rid in enabled_ids
+            }
+        else:
+            # No sources configured yet, use all readers
+            active_readers = self.readers
+
+        skipped_readers = set(self.readers.keys()) - set(active_readers.keys())
+
+        logger_ctx.info(
+            "Starting RSS feed polling",
+            total_readers=len(self.readers),
+            enabled_readers=len(active_readers),
+            skipped_readers=len(skipped_readers),
+        )
 
         results: Dict[str, Any] = {
             "success": True,
             "total_readers": len(self.readers),
+            "enabled_readers": len(active_readers),
+            "skipped_readers": list(skipped_readers),
             "successful_readers": 0,
             "failed_readers": 0,
             "total_items": 0,
@@ -187,9 +228,9 @@ class IngestService:
             "ingestion_stats": {},
         }
 
-        # Poll all readers concurrently
+        # Poll only active (enabled) readers concurrently
         tasks = []
-        for reader_id, reader in self.readers.items():
+        for reader_id, reader in active_readers.items():
             task = asyncio.create_task(
                 self._poll_reader_and_ingest(reader, correlation_id),
                 name=f"poll_ingest_{reader_id}",

@@ -30,9 +30,17 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                   Pluriform overzicht van Nederlandse nieuwsevents
                 </h1>
               </Link>
-              <div className="hidden rounded-lg border border-slate-600 bg-slate-700/50 px-3 py-2 text-right text-xs text-slate-300 sm:block">
-                <p className="font-medium text-slate-100">MVP Status</p>
-                <p>Frontend shell actief</p>
+              <div className="flex items-center gap-3">
+                <Link
+                  href="/admin"
+                  className="rounded-lg border border-slate-600 bg-slate-700/50 px-3 py-2 text-xs text-slate-300 transition-colors hover:bg-slate-600/50"
+                >
+                  Admin
+                </Link>
+                <div className="hidden rounded-lg border border-slate-600 bg-slate-700/50 px-3 py-2 text-right text-xs text-slate-300 sm:block">
+                  <p className="font-medium text-slate-100">MVP Status</p>
+                  <p>Frontend shell actief</p>
+                </div>
               </div>
             </div>
           </header>
