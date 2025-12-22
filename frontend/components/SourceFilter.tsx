@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import Image from "next/image";
 import { ChevronDown, ChevronUp, Check } from "lucide-react";
 import { getSourceFaviconUrl } from "@/lib/format";
@@ -14,6 +14,55 @@ interface SourceFilterProps {
   sources: SourceInfo[];
   selectedSources: Set<string>;
   onSelectionChange: (sources: Set<string>) => void;
+}
+
+// Social media / commentary accounts (shown in separate section, unchecked by default)
+export const SOCIAL_MEDIA_SOURCES = new Set([
+  "Een Blik op de NOS",
+]);
+
+function SourceCheckbox({
+  source,
+  isSelected,
+  onToggle,
+}: {
+  source: SourceInfo;
+  isSelected: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors ${
+        isSelected
+          ? "bg-brand-500/20 text-slate-100"
+          : "text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+      }`}
+    >
+      <span
+        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+          isSelected
+            ? "border-brand-500 bg-brand-500"
+            : "border-slate-500 bg-slate-700"
+        }`}
+      >
+        {isSelected && <Check size={12} className="text-white" />}
+      </span>
+      <Image
+        src={getSourceFaviconUrl(source.name)}
+        alt=""
+        width={16}
+        height={16}
+        className="shrink-0 rounded-sm"
+        unoptimized
+      />
+      <span className="flex-1 truncate">{source.name}</span>
+      <span className="shrink-0 text-xs text-slate-500">
+        {source.articleCount}
+      </span>
+    </button>
+  );
 }
 
 export function SourceFilter({ sources, selectedSources, onSelectionChange }: SourceFilterProps) {
@@ -33,6 +82,23 @@ export function SourceFilter({ sources, selectedSources, onSelectionChange }: So
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isExpanded]);
+
+  // Split sources into news sources and social media accounts
+  const { newsSources, socialSources } = useMemo(() => {
+    const news: SourceInfo[] = [];
+    const social: SourceInfo[] = [];
+    for (const source of sources) {
+      if (SOCIAL_MEDIA_SOURCES.has(source.name)) {
+        social.push(source);
+      } else {
+        news.push(source);
+      }
+    }
+    // Sort each group by article count (descending)
+    news.sort((a, b) => b.articleCount - a.articleCount);
+    social.sort((a, b) => b.articleCount - a.articleCount);
+    return { newsSources: news, socialSources: social };
+  }, [sources]);
 
   const allSelected = sources.length > 0 && sources.every((s) => selectedSources.has(s.name));
   const noneSelected = sources.length > 0 && sources.every((s) => !selectedSources.has(s.name));
@@ -58,9 +124,6 @@ export function SourceFilter({ sources, selectedSources, onSelectionChange }: So
   if (sources.length === 0) {
     return null;
   }
-
-  // Sort sources by article count (descending)
-  const sortedSources = [...sources].sort((a, b) => b.articleCount - a.articleCount);
 
   return (
     <div ref={containerRef} className="relative">
@@ -99,45 +162,41 @@ export function SourceFilter({ sources, selectedSources, onSelectionChange }: So
             </button>
           </div>
 
-          {/* Source checkboxes */}
-          <div className="max-h-[300px] space-y-1 overflow-y-auto">
-            {sortedSources.map((source) => {
-              const isSelected = selectedSources.has(source.name);
-              return (
-                <button
-                  key={source.name}
-                  type="button"
-                  onClick={() => handleToggleSource(source.name)}
-                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors ${
-                    isSelected
-                      ? "bg-brand-500/20 text-slate-100"
-                      : "text-slate-400 hover:bg-slate-700 hover:text-slate-200"
-                  }`}
-                >
-                  <span
-                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                      isSelected
-                        ? "border-brand-500 bg-brand-500"
-                        : "border-slate-500 bg-slate-700"
-                    }`}
-                  >
-                    {isSelected && <Check size={12} className="text-white" />}
-                  </span>
-                  <Image
-                    src={getSourceFaviconUrl(source.name)}
-                    alt=""
-                    width={16}
-                    height={16}
-                    className="shrink-0 rounded-sm"
-                    unoptimized
+          <div className="max-h-[300px] overflow-y-auto">
+            {/* News sources section */}
+            {newsSources.length > 0 && (
+              <div className="space-y-1">
+                {newsSources.map((source) => (
+                  <SourceCheckbox
+                    key={source.name}
+                    source={source}
+                    isSelected={selectedSources.has(source.name)}
+                    onToggle={() => handleToggleSource(source.name)}
                   />
-                  <span className="flex-1 truncate">{source.name}</span>
-                  <span className="shrink-0 text-xs text-slate-500">
-                    {source.articleCount}
+                ))}
+              </div>
+            )}
+
+            {/* Social media / commentary section */}
+            {socialSources.length > 0 && (
+              <>
+                <div className="my-2 border-t border-slate-700 pt-2">
+                  <span className="px-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    X / Commentaar
                   </span>
-                </button>
-              );
-            })}
+                </div>
+                <div className="space-y-1">
+                  {socialSources.map((source) => (
+                    <SourceCheckbox
+                      key={source.name}
+                      source={source}
+                      isSelected={selectedSources.has(source.name)}
+                      onToggle={() => handleToggleSource(source.name)}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

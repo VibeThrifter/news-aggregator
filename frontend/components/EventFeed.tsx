@@ -12,7 +12,7 @@ import DateRangeFilter from "./DateRangeFilter";
 import EventCard from "./EventCard";
 import MinSourcesFilter from "./MinSourcesFilter";
 import SearchBar from "./SearchBar";
-import { SourceFilter, SourceInfo } from "./SourceFilter";
+import { SOCIAL_MEDIA_SOURCES, SourceFilter, SourceInfo } from "./SourceFilter";
 import StatusBanner from "./StatusBanner";
 
 // Default to last 7 days
@@ -255,7 +255,7 @@ export default function EventFeed() {
     swrKey,
     () => listEvents(filters),
     {
-      revalidateOnFocus: false,
+      revalidateOnFocus: true, // Refresh when returning from admin page
     },
   );
 
@@ -276,10 +276,10 @@ export default function EventFeed() {
     }));
   }, [data?.data]);
 
-  // Initialize selected sources when data loads (select all by default)
+  // Initialize selected sources when data loads (exclude commentary sources by default)
   const [hasInitializedSources, setHasInitializedSources] = useState(false);
   if (availableSources.length > 0 && selectedSources.size === 0 && !hasInitializedSources) {
-    setSelectedSources(new Set(availableSources.map((s) => s.name)));
+    setSelectedSources(new Set(availableSources.filter((s) => !SOCIAL_MEDIA_SOURCES.has(s.name)).map((s) => s.name)));
     setHasInitializedSources(true);
   }
 
