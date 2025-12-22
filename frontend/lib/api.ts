@@ -272,7 +272,35 @@ export async function listEvents(
     });
   }
 
-  const events: EventListItem[] = (data || []).map((event: any) => {
+  // Get main source display names for filtering
+  // Events should only be shown if they have at least one article from a main source
+  const { data: mainSources } = await supabase
+    .from('news_source')
+    .select('display_name')
+    .eq('is_main_source', true);
+
+  const mainSourceNames = new Set((mainSources || []).map((s: { display_name: string }) => s.display_name));
+
+  // Filter events to only those with at least one article from a main source
+  // If no main sources are configured, show all events
+  const filteredData = mainSourceNames.size > 0
+    ? (data || []).filter((event: any) => {
+        const articleSources = new Set(
+          (event.event_articles || [])
+            .map((ea: any) => ea.articles?.source_name)
+            .filter(Boolean)
+        );
+        // Check if any article source is a main source
+        for (const source of articleSources) {
+          if (mainSourceNames.has(source)) {
+            return true;
+          }
+        }
+        return false;
+      })
+    : (data || []);
+
+  const events: EventListItem[] = filteredData.map((event: any) => {
     // llm_insights is an array from Supabase join, get first element
     const insightSummary = event.llm_insights?.[0]?.summary;
     const { title: llmTitle, description: llmDescription } = extractTitleFromSummary(insightSummary);
@@ -508,7 +536,7 @@ export interface NewsSource {
   source_id: string;
   display_name: string;
   feed_url: string;
-  spectrum: string | null;
+  spectrum: string | number | null;
   enabled: boolean;
   is_main_source: boolean;
 }

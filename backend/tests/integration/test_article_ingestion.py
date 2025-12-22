@@ -112,7 +112,8 @@ async def test_duplicate_urls_are_skipped(monkeypatch, ingest_service, sample_fe
 
 
 @pytest.mark.asyncio
-async def test_fetch_failures_do_not_crash_pipeline(monkeypatch, ingest_service, sample_feed_item, session_factory):
+async def test_fetch_failure_with_rss_summary_fallback(monkeypatch, ingest_service, sample_feed_item, session_factory):
+    """Test that when article fetch fails but RSS summary is available, article is still ingested."""
     async def fake_fetch(url: str, **_: object) -> str:
         raise ArticleFetchError("network down")
 
@@ -121,8 +122,41 @@ async def test_fetch_failures_do_not_crash_pipeline(monkeypatch, ingest_service,
     profile = ingest_service.reader_profiles.get("nos_rss")
     stats = await ingest_service.process_feed_items(reader_id="nos_rss", items=[sample_feed_item], profile=profile)
 
+    # Fetch failed but RSS summary was used as fallback, so no fetch_failures counted
+    assert stats["fetch_failures"] == 0
+    assert stats["ingested"] == 1
+
+    async with session_factory() as session:
+        result = await session.execute(select(Article))
+        stored = result.scalar_one()
+        # Content should be the RSS summary since fetch failed
+        assert stored.title == sample_feed_item.title
+
+
+@pytest.mark.asyncio
+async def test_fetch_failure_without_summary_counts_as_failure(monkeypatch, ingest_service, session_factory):
+    """Test that when article fetch fails and no RSS summary is available, it's counted as a failure."""
+    # Create feed item without summary
+    item_no_summary = FeedItem(
+        guid="no-summary-guid",
+        url="https://example.com/artikel/no-summary",
+        title="Article Without Summary",
+        summary=None,  # No summary
+        published_at=datetime(2025, 9, 28, 13, 0, 0),
+        source_metadata={"name": "Testbron", "spectrum": 4},
+    )
+
+    async def fake_fetch(url: str, **_: object) -> str:
+        raise ArticleFetchError("network down")
+
+    monkeypatch.setattr("backend.app.services.ingest_service.fetch_article_html", fake_fetch)
+
+    profile = ingest_service.reader_profiles.get("nos_rss")
+    stats = await ingest_service.process_feed_items(reader_id="nos_rss", items=[item_no_summary], profile=profile)
+
+    # No summary to fallback to, so this should be counted as a fetch failure
     assert stats["fetch_failures"] == 1
-    assert stats["enriched"] == 0
+    assert stats["ingested"] == 0
 
     async with session_factory() as session:
         result = await session.execute(select(Article))

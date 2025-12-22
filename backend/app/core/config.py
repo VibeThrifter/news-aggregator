@@ -72,6 +72,36 @@ class Settings(BaseSettings):
         default="https://www.ninefornews.nl/feed/",
         description="RSS feed URL for NineForNews"
     )
+    rss_eenblikopdenos_url: str = Field(
+        default="https://xcancel.com/eenblikopdenos/rss",
+        description="RSS feed URL for @eenblikopdenos via xcancel.com (fallback, requires whitelisting)"
+    )
+
+    # Twitter API Configuration (for @eenblikopdenos)
+    twitter_api_key: str | None = Field(
+        default=None,
+        description="Twitter API Key (Consumer Key)"
+    )
+    twitter_api_secret: str | None = Field(
+        default=None,
+        description="Twitter API Secret (Consumer Secret)"
+    )
+    twitter_bearer_token: str | None = Field(
+        default=None,
+        description="Twitter API v2 Bearer Token for fetching tweets"
+    )
+    twitter_access_token: str | None = Field(
+        default=None,
+        description="Twitter Access Token (for user-level auth)"
+    )
+    twitter_access_secret: str | None = Field(
+        default=None,
+        description="Twitter Access Token Secret"
+    )
+    twitter_eenblikopdenos_user_id: str = Field(
+        default="1636133602575499266",
+        description="Twitter user ID for @eenblikopdenos account"
+    )
 
     # Scheduler Configuration
     scheduler_interval_minutes: int = Field(

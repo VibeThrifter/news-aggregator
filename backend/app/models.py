@@ -179,6 +179,7 @@ class EventArticleResponse(BaseModel):
     spectrum: Optional[str] = None
     published_at: Optional[datetime] = None
     summary: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 class EventListItem(BaseModel):

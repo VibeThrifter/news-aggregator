@@ -1,7 +1,7 @@
 """Admin endpoints for manual job triggers and system status."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
@@ -22,7 +22,7 @@ class SourceResponse(BaseModel):
     source_id: str
     display_name: str
     feed_url: str
-    spectrum: Optional[str]
+    spectrum: Union[str, int, float, None]
     enabled: bool
     is_main_source: bool
 

@@ -281,12 +281,121 @@ class EventService:
 
             now = datetime.now(timezone.utc)
             candidates = await self.vector_index.query_candidates(features.embedding)
-            existing_events = await repo.get_events_by_ids([candidate.event_id for candidate in candidates])
-            event_map = {event.id: event for event in existing_events}
 
-            # Load articles for each candidate event to check location/date overlap
+            # ENTITY-BASED CANDIDATE EXPANSION for @eenblikopdenos media commentary
+            # Add NOS events that share entities with the tweet (may not appear in embedding candidates)
             from backend.app.db.models import EventArticle
             from sqlalchemy import select as sa_select
+
+            if article.source_name == "Een Blik op de NOS" and article.entities:
+                # ENTITY CANDIDATE EXPANSION: Find NOS events sharing distinctive entities
+                # Distinctive entities are:
+                # - PERSON names (full names ≥10 chars)
+                # - WORK_OF_ART, FAC (facility), EVENT - inherently distinctive
+                # Note: spaCy labels can be inconsistent between articles, so we:
+                # 1. Collect tweet entities with distinctive labels
+                # 2. Also collect ALL tweet entity texts (for cross-matching with NOS PERSON entities)
+                MIN_PERSON_NAME_LENGTH = 10
+                DISTINCTIVE_LABELS = {"WORK_OF_ART", "FAC", "EVENT"}
+
+                # Get distinctive entities from tweet
+                article_distinctive = set()
+                article_all_texts = set()  # All entity texts for cross-matching
+                for ent in article.entities:
+                    text = ent.get("text", "")
+                    label = ent.get("label")
+                    if text and len(text) >= 4:  # Minimum length for any entity
+                        article_all_texts.add(text.lower())
+                        if (label == "PERSON" and len(text) >= MIN_PERSON_NAME_LENGTH) or label in DISTINCTIVE_LABELS:
+                            article_distinctive.add(text.lower())
+
+                if article_distinctive or article_all_texts:
+                    # Find NOS events WITH MATCHING ENTITIES
+                    # Query all NOS articles with their event IDs and entities
+                    nos_articles_stmt = (
+                        sa_select(EventArticle.event_id, Article.entities)
+                        .join(Article, Article.id == EventArticle.article_id)
+                        .where(Article.source_name == "NOS")
+                        .where(Article.entities.isnot(None))
+                    )
+                    nos_articles_result = await session.execute(nos_articles_stmt)
+
+                    # Find events where NOS articles share entities with the tweet
+                    candidate_event_ids = {c.event_id for c in candidates}
+                    matching_event_ids = set()
+
+                    for event_id, nos_entities in nos_articles_result.fetchall():
+                        if event_id in candidate_event_ids or event_id in matching_event_ids:
+                            continue
+
+                        # Extract distinctive entities from NOS article
+                        nos_distinctive = set()
+                        nos_all_texts = set()
+                        if nos_entities:
+                            for ent in nos_entities:
+                                text = ent.get("text", "")
+                                label = ent.get("label")
+                                if text and len(text) >= 4:
+                                    nos_all_texts.add(text.lower())
+                                    if (label == "PERSON" and len(text) >= MIN_PERSON_NAME_LENGTH) or label in DISTINCTIVE_LABELS:
+                                        nos_distinctive.add(text.lower())
+
+                        # Cross-match: entity is a match if it's distinctive in EITHER source
+                        # This handles spaCy labeling inconsistencies
+                        shared = set()
+                        # Tweet distinctive entities matching any NOS entity
+                        shared.update(article_distinctive.intersection(nos_all_texts))
+                        # NOS distinctive entities matching any tweet entity
+                        shared.update(nos_distinctive.intersection(article_all_texts))
+
+                        if shared:
+                            matching_event_ids.add(event_id)
+                            correlation_log.debug(
+                                "entity_match_found",
+                                event_id=event_id,
+                                shared_entities=list(shared)[:3],
+                            )
+
+                    # Add matching events as candidates
+                    # For @eenblikopdenos: include ARCHIVED events too (commentary on older news)
+                    # These will be unarchived if selected
+                    from backend.app.services.vector_index import VectorCandidate
+                    if matching_event_ids:
+                        # Include all matching events (including archived for media commentary)
+                        all_events_stmt = (
+                            sa_select(Event.id, Event.archived_at)
+                            .where(Event.id.in_(matching_event_ids))
+                        )
+                        all_events_result = await session.execute(all_events_stmt)
+                        all_matching = [(row[0], row[1] is not None) for row in all_events_result.fetchall()]
+
+                        archived_candidate_ids = set()
+                        for event_id, is_archived in all_matching[:10]:  # Limit to 10
+                            candidates.append(VectorCandidate(
+                                event_id=event_id,
+                                similarity=0.15,  # Low base, will be boosted by source affinity
+                                distance=0.85,
+                                last_updated_at=now,
+                            ))
+                            if is_archived:
+                                archived_candidate_ids.add(event_id)
+
+                        correlation_log.info(
+                            "entity_candidate_expansion",
+                            total_matches=len(matching_event_ids),
+                            added_candidates=len(all_matching[:10]),
+                            archived_candidates=len(archived_candidate_ids),
+                            article_distinctive=list(article_distinctive)[:5],
+                            matching_events=[m[0] for m in all_matching[:5]],
+                        )
+
+            # For @eenblikopdenos: include archived events (commentary on older news)
+            include_archived = article.source_name == "Een Blik op de NOS"
+            existing_events = await repo.get_events_by_ids(
+                [candidate.event_id for candidate in candidates],
+                include_archived=include_archived,
+            )
+            event_map = {event.id: event for event in existing_events}
 
             event_ids = [e.id for e in existing_events]
             if event_ids:
@@ -305,12 +414,27 @@ class EventService:
                 event_articles_map = {}
 
             # Collect all scored candidates
-            scored_candidates: List[tuple[Event, ScoreBreakdown, float]] = []
+            # Tuple: (event, breakdown, boosted_score, requires_llm, source_affinity_boost)
+            scored_candidates: List[tuple[Event, ScoreBreakdown, float, bool, float]] = []
 
             for candidate in candidates:
                 event = event_map.get(candidate.event_id)
                 if event is None:
                     continue
+
+                # For @eenblikopdenos: only consider events that have NOS articles
+                # (don't match to empty events or tweet-only events)
+                event_articles_list_early = event_articles_map.get(event.id, [])
+                if article.source_name == "Een Blik op de NOS":
+                    has_nos = any(ea.source_name == "NOS" for ea in event_articles_list_early)
+                    if not has_nos:
+                        correlation_log.debug(
+                            "eenblikopdenos_skip_non_nos_event",
+                            article_id=article.id,
+                            event_id=event.id,
+                            event_article_count=len(event_articles_list_early),
+                        )
+                        continue
 
                 # Track if types differ (will allow high-confidence cross-type matches for LLM)
                 has_type_mismatch = bool(
@@ -421,7 +545,72 @@ class EventService:
                 # Apply location/date boost if entities match
                 location_boost = 0.0
                 date_boost = 0.0
+                source_affinity_boost = 0.0
                 event_articles_list = event_articles_map.get(event.id, [])
+
+                # SOURCE AFFINITY: Boost @eenblikopdenos tweets to cluster with NOS events
+                # ONLY if they share PERSON entities (specific people = specific story match)
+                # Without entity match, tweets create separate events (general commentary)
+                if article.source_name == "Een Blik op de NOS":
+                    # Check if candidate event has NOS articles
+                    nos_articles = [ea for ea in event_articles_list if ea.source_name == "NOS"]
+                    if nos_articles:
+                        # ENTITY MATCHING: Cluster if tweet shares distinctive entities with NOS articles
+                        # Distinctive entities are:
+                        # - PERSON names (full names ≥10 chars)
+                        # - WORK_OF_ART, FAC (facility), EVENT - inherently distinctive
+                        # Cross-matching: entity matches if distinctive in EITHER source
+                        # This handles spaCy labeling inconsistencies
+                        MIN_PERSON_NAME_LENGTH = 10
+                        DISTINCTIVE_LABELS = {"WORK_OF_ART", "FAC", "EVENT"}
+
+                        article_distinctive = set()
+                        article_all_texts = set()
+                        if article.entities:
+                            for ent in article.entities:
+                                text = ent.get("text", "")
+                                label = ent.get("label")
+                                if text and len(text) >= 4:
+                                    article_all_texts.add(text.lower())
+                                    if (label == "PERSON" and len(text) >= MIN_PERSON_NAME_LENGTH) or label in DISTINCTIVE_LABELS:
+                                        article_distinctive.add(text.lower())
+
+                        # Get entities from NOS articles in this event
+                        nos_distinctive = set()
+                        nos_all_texts = set()
+                        for nos_art in nos_articles:
+                            if nos_art.entities:
+                                for ent in nos_art.entities:
+                                    text = ent.get("text", "")
+                                    label = ent.get("label")
+                                    if text and len(text) >= 4:
+                                        nos_all_texts.add(text.lower())
+                                        if (label == "PERSON" and len(text) >= MIN_PERSON_NAME_LENGTH) or label in DISTINCTIVE_LABELS:
+                                            nos_distinctive.add(text.lower())
+
+                        # Cross-match: entity is a match if distinctive in EITHER source
+                        shared_entities = set()
+                        shared_entities.update(article_distinctive.intersection(nos_all_texts))
+                        shared_entities.update(nos_distinctive.intersection(article_all_texts))
+                        if shared_entities:
+                            # Strong boost when PERSON entities match (same specific story)
+                            source_affinity_boost = 0.20 + min(0.30, len(shared_entities) * 0.10)
+                            correlation_log.debug(
+                                "source_affinity_entity_match",
+                                article_id=article.id,
+                                event_id=event.id,
+                                shared_entities=list(shared_entities)[:5],
+                                boost=source_affinity_boost,
+                            )
+                        else:
+                            # No distinctive entity match = no boost = won't cluster
+                            correlation_log.debug(
+                                "source_affinity_no_entity_match",
+                                article_id=article.id,
+                                event_id=event.id,
+                                tweet_distinctive=list(article_distinctive)[:5],
+                                nos_distinctive=list(nos_distinctive)[:5],
+                            )
 
                 if event_articles_list and (article.extracted_locations or article.extracted_dates):
                     # Check if any article in the event shares locations
@@ -442,15 +631,16 @@ class EventService:
                                 date_boost = 0.05
                                 break
 
-                boosted_score = breakdown.final + location_boost + date_boost
+                boosted_score = breakdown.final + location_boost + date_boost + source_affinity_boost
 
-                if location_boost > 0 or date_boost > 0:
+                if location_boost > 0 or date_boost > 0 or source_affinity_boost > 0:
                     correlation_log.debug(
-                        "entity_overlap_boost",
+                        "score_boost_applied",
                         event_id=event.id,
                         base_score=breakdown.final,
                         location_boost=location_boost,
                         date_boost=date_boost,
+                        source_affinity_boost=source_affinity_boost,
                         boosted_score=boosted_score,
                     )
 
@@ -462,8 +652,27 @@ class EventService:
                 # - If types match: accept if score meets threshold
                 # - If types differ: only accept if score > 0.70 (very high confidence)
                 #   This allows LLM to decide on cases like Trump National Guard (legal/crime/international mix)
+                # - EXCEPTION: source_affinity_boost bypasses type mismatch for media commentary sources
                 if has_type_mismatch:
-                    if boosted_score >= 0.70:
+                    # Source affinity boost bypasses type mismatch (eenblikopdenos meta-commentary)
+                    # Confirm affinity if:
+                    # 1. Entity match added extra boost (> 0.20 base), OR
+                    # 2. Embedding similarity is strong (> 0.45) indicating semantic relevance
+                    embedding_match = breakdown.embedding >= 0.45
+                    entity_match_confirmed = source_affinity_boost > 0.25 or (source_affinity_boost > 0 and embedding_match)
+                    affinity_threshold = 0.35 if entity_match_confirmed else self.settings.event_score_threshold
+                    if source_affinity_boost > 0 and boosted_score >= affinity_threshold:
+                        correlation_log.debug(
+                            "source_affinity_type_bypass",
+                            article_type=article.event_type,
+                            event_type=event.event_type,
+                            event_id=event.id,
+                            score=boosted_score,
+                            source_affinity_boost=source_affinity_boost,
+                            note="Media commentary bypasses type mismatch",
+                        )
+                        scored_candidates.append((event, breakdown, boosted_score, requires_llm_verification, source_affinity_boost))
+                    elif boosted_score >= 0.70:
                         correlation_log.debug(
                             "high_confidence_cross_type_match",
                             article_type=article.event_type,
@@ -472,7 +681,7 @@ class EventService:
                             score=boosted_score,
                             note="Allowing LLM to decide despite type mismatch",
                         )
-                        scored_candidates.append((event, breakdown, boosted_score, requires_llm_verification))
+                        scored_candidates.append((event, breakdown, boosted_score, requires_llm_verification, source_affinity_boost))
                     else:
                         correlation_log.debug(
                             "low_confidence_cross_type_skip",
@@ -483,7 +692,7 @@ class EventService:
                         )
                 else:
                     # Types match or one is None - use normal threshold
-                    scored_candidates.append((event, breakdown, boosted_score, requires_llm_verification))
+                    scored_candidates.append((event, breakdown, boosted_score, requires_llm_verification, source_affinity_boost))
 
             # Sort candidates by boosted score (highest first)
             scored_candidates.sort(key=lambda x: x[2], reverse=True)
@@ -494,14 +703,19 @@ class EventService:
             best_boosted_score: float = 0.0
 
             # Check if any candidate requires LLM verification due to low entity overlap
-            any_requires_llm = any(req for _, _, _, req in scored_candidates)
+            any_requires_llm = any(req for _, _, _, req, _ in scored_candidates)
 
             # Filter candidates by minimum LLM threshold
+            # EXCEPTION: Always include source_affinity candidates (media commentary) if they have
+            # confirmed entity matches, even if below threshold - they need LLM verification
             llm_candidates = [
                 (event, score)
-                for event, breakdown, score, _ in scored_candidates
-                if score >= self.settings.event_llm_min_score
+                for event, breakdown, score, _, affinity in scored_candidates
+                if score >= self.settings.event_llm_min_score or (affinity > 0.25)  # Entity-confirmed affinity
             ][:self.settings.event_llm_top_n]
+
+            # Track source affinity boost for the best candidate
+            best_source_affinity: float = 0.0
 
             # Use LLM for final decision if:
             # 1. LLM is enabled and we have candidates, OR
@@ -523,11 +737,12 @@ class EventService:
 
                 # Find the selected event in our candidates
                 if selected_event_id:
-                    for event, breakdown, boosted_score, _ in scored_candidates:
+                    for event, breakdown, boosted_score, _, affinity in scored_candidates:
                         if event.id == selected_event_id:
                             best_event = event
                             best_breakdown = breakdown
                             best_boosted_score = boosted_score
+                            best_source_affinity = affinity
                             correlation_log.info(
                                 "llm_selected_event",
                                 event_id=selected_event_id,
@@ -539,37 +754,69 @@ class EventService:
             # BUT: if entity overlap is very low and LLM said NEW_EVENT (or wasn't used),
             # don't automatically assign - this prevents false positives
             if best_event is None and scored_candidates:
-                top_event, top_breakdown, top_score, top_requires_llm = scored_candidates[0]
-
-                # If top candidate has very low entity overlap (<0.05), skip automatic assignment
-                # This protects against clustering unrelated articles from same source
-                if top_breakdown.entities < self.settings.event_min_entity_overlap:
+                # PRIORITY 1: Source affinity candidates with confirmed relevance (media commentary)
+                # Confirmed if: entity boost added (a > 0.25) OR embedding similarity strong (>= 0.45)
+                affinity_candidates = [
+                    (e, b, s, r, a) for e, b, s, r, a in scored_candidates
+                    if a > 0.25 or (a > 0 and b.embedding >= 0.45)  # Entity OR embedding confirmed
+                ]
+                if affinity_candidates:
+                    # Pick highest scoring affinity candidate
+                    affinity_candidates.sort(key=lambda x: x[2], reverse=True)
+                    best_event, best_breakdown, best_boosted_score, _, best_source_affinity = affinity_candidates[0]
                     correlation_log.info(
-                        "skipping_low_entity_overlap_candidate",
-                        event_id=top_event.id,
-                        score=top_score,
-                        entity_overlap=top_breakdown.entities,
-                        min_required=self.settings.event_min_entity_overlap,
-                    )
-                    # Don't assign - will create new event
-                elif top_requires_llm and self.settings.event_llm_enabled:
-                    # LLM was supposed to verify but said NEW_EVENT or failed
-                    correlation_log.debug(
-                        "llm_rejected_low_entity_candidate",
-                        event_id=top_event.id,
-                        score=top_score,
-                        entity_overlap=top_breakdown.entities,
-                    )
-                    # Don't assign - LLM decided it's a new event
-                else:
-                    best_event, best_breakdown, best_boosted_score = top_event, top_breakdown, top_score
-                    correlation_log.debug(
-                        "using_score_based_decision",
+                        "using_affinity_based_decision",
                         event_id=best_event.id,
                         score=best_boosted_score,
+                        source_affinity=best_source_affinity,
                     )
+                else:
+                    # For @eenblikopdenos tweets: if no entity-matched NOS events found,
+                    # don't fall back to regular clustering - create separate event instead
+                    # This prevents false positives where meta-commentary clusters with unrelated NOS content
+                    if article.source_name == "Een Blik op de NOS":
+                        correlation_log.info(
+                            "eenblikopdenos_no_entity_match",
+                            article_id=article.id,
+                            note="No entity-matched NOS events found, creating separate event",
+                        )
+                        # Don't assign - will create new event
+                    else:
+                        # PRIORITY 2: Regular score-based selection (for non-eenblikopdenos sources)
+                        top_event, top_breakdown, top_score, top_requires_llm, top_affinity = scored_candidates[0]
 
-            threshold = self.settings.event_score_threshold
+                        # If top candidate has very low entity overlap (<0.05), skip automatic assignment
+                        # This protects against clustering unrelated articles from same source
+                        if top_breakdown.entities < self.settings.event_min_entity_overlap:
+                            correlation_log.info(
+                                "skipping_low_entity_overlap_candidate",
+                                event_id=top_event.id,
+                                score=top_score,
+                                entity_overlap=top_breakdown.entities,
+                                min_required=self.settings.event_min_entity_overlap,
+                            )
+                            # Don't assign - will create new event
+                        elif top_requires_llm and self.settings.event_llm_enabled:
+                            # LLM was supposed to verify but said NEW_EVENT or failed
+                            correlation_log.debug(
+                                "llm_rejected_low_entity_candidate",
+                                event_id=top_event.id,
+                                score=top_score,
+                                entity_overlap=top_breakdown.entities,
+                            )
+                            # Don't assign - LLM decided it's a new event
+                        else:
+                            best_event, best_breakdown, best_boosted_score = top_event, top_breakdown, top_score
+                            best_source_affinity = top_affinity
+                            correlation_log.debug(
+                                "using_score_based_decision",
+                                event_id=best_event.id,
+                                score=best_boosted_score,
+                            )
+
+            # Use lower threshold for entity-matched source affinity candidates
+            entity_match_confirmed = best_source_affinity > 0.25
+            threshold = 0.35 if entity_match_confirmed else self.settings.event_score_threshold
             if best_event is not None and best_breakdown is not None and best_boosted_score >= threshold:
                 # Calculate location/date boost for the best event
                 location_boost_final = 0.0
@@ -648,6 +895,16 @@ class EventService:
         timestamp: datetime,
         correlation_id: str | None,
     ) -> EventAssignmentResult:
+        # Unarchive event if it was archived (for @eenblikopdenos linking to older NOS events)
+        if event.archived_at is not None:
+            self.log.info(
+                "unarchiving_event_for_new_article",
+                event_id=event.id,
+                article_source=article.source_name,
+                was_archived_at=event.archived_at.isoformat(),
+            )
+            event.archived_at = None
+
         boosted_score = breakdown.final + location_boost + date_boost
         scoring_dict = breakdown.as_dict()
         scoring_dict["location_boost"] = location_boost

@@ -98,12 +98,14 @@ class TestNosRssReader:
         assert self.reader.id == "nos_rss"
         metadata = self.reader.source_metadata
         assert metadata["name"] == "NOS"
-        assert metadata["spectrum"] == "center"
+        assert metadata["spectrum"] == 4  # 0=far-left, 10=far-right
         assert metadata["country"] == "NL"
 
     @pytest.mark.asyncio
     async def test_fetch_success(self):
         """Test successful RSS feed fetching and parsing."""
+        from contextlib import asynccontextmanager
+
         # Load sample RSS content
         with open(NOS_SAMPLE_RSS, "r", encoding="utf-8") as f:
             sample_rss = f.read()
@@ -113,11 +115,15 @@ class TestNosRssReader:
         mock_response.content = sample_rss.encode("utf-8")
         mock_response.raise_for_status = MagicMock()
 
-        # Mock the session property to return a mock client
+        # Mock the HTTP client context manager
         mock_client = AsyncMock()
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch.object(type(self.reader), "session", new_callable=lambda: property(lambda self: mock_client)):
+        @asynccontextmanager
+        async def mock_http_client(*args, **kwargs):
+            yield mock_client
+
+        with patch('backend.app.feeds.nos.http_client', mock_http_client):
             items = await self.reader.fetch()
 
             # Verify HTTP call
@@ -139,6 +145,8 @@ class TestNosRssReader:
     @pytest.mark.asyncio
     async def test_fetch_http_error(self):
         """Test HTTP error handling with retry."""
+        from contextlib import asynccontextmanager
+
         mock_response = MagicMock()
         mock_response.status_code = 404
 
@@ -147,7 +155,11 @@ class TestNosRssReader:
             "Not Found", request=MagicMock(), response=mock_response
         ))
 
-        with patch.object(type(self.reader), "session", new_callable=lambda: property(lambda self: mock_client)):
+        @asynccontextmanager
+        async def mock_http_client(*args, **kwargs):
+            yield mock_client
+
+        with patch('backend.app.feeds.nos.http_client', mock_http_client):
             with pytest.raises(FeedReaderError, match="HTTP error fetching NOS RSS"):
                 await self.reader.fetch()
 
@@ -157,10 +169,16 @@ class TestNosRssReader:
     @pytest.mark.asyncio
     async def test_fetch_network_error(self):
         """Test network error handling."""
+        from contextlib import asynccontextmanager
+
         mock_client = AsyncMock()
         mock_client.get = AsyncMock(side_effect=httpx.RequestError("Connection failed"))
 
-        with patch.object(type(self.reader), "session", new_callable=lambda: property(lambda self: mock_client)):
+        @asynccontextmanager
+        async def mock_http_client(*args, **kwargs):
+            yield mock_client
+
+        with patch('backend.app.feeds.nos.http_client', mock_http_client):
             with pytest.raises(FeedReaderError, match="Network error fetching NOS RSS"):
                 await self.reader.fetch()
 
@@ -204,18 +222,14 @@ class TestNosRssReader:
         assert self.reader._clean_html("") == ""
 
     @pytest.mark.asyncio
-    async def test_session_lifecycle(self):
-        """Test that session property creates HTTP client lazily."""
-        # Session is created lazily
-        assert self.reader._session is None
+    async def test_context_manager(self):
+        """Test that http_client context manager works correctly."""
+        from backend.app.feeds.base import http_client
 
-        # Access session property
-        session = self.reader.session
-        assert session is not None
-        assert isinstance(session, httpx.AsyncClient)
-
-        # Same session returned on subsequent access
-        assert self.reader.session is session
+        # Verify the context manager creates and closes clients properly
+        async with http_client() as client:
+            assert client is not None
+            assert isinstance(client, httpx.AsyncClient)
 
 
 class TestNuRssReader:
@@ -230,12 +244,14 @@ class TestNuRssReader:
         assert self.reader.id == "nunl_rss"
         metadata = self.reader.source_metadata
         assert metadata["name"] == "NU.nl"
-        assert metadata["spectrum"] == "center-right"
+        assert metadata["spectrum"] == 6  # 0=far-left, 10=far-right
         assert metadata["country"] == "NL"
 
     @pytest.mark.asyncio
     async def test_fetch_success(self):
         """Test successful RSS feed fetching and parsing."""
+        from contextlib import asynccontextmanager
+
         # Load sample RSS content
         with open(NUNL_SAMPLE_RSS, "r", encoding="utf-8") as f:
             sample_rss = f.read()
@@ -248,7 +264,11 @@ class TestNuRssReader:
         mock_client = AsyncMock()
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch.object(type(self.reader), "session", new_callable=lambda: property(lambda self: mock_client)):
+        @asynccontextmanager
+        async def mock_http_client(*args, **kwargs):
+            yield mock_client
+
+        with patch('backend.app.feeds.nunl.http_client', mock_http_client):
             items = await self.reader.fetch()
 
             # Verify parsed items
@@ -279,11 +299,12 @@ class TestIngestService:
             mock_settings.return_value.rss_geenstijl_url = "https://mock-geenstijl.nl/atom"
             mock_settings.return_value.rss_ninefornews_url = "https://mock-ninefornews.nl/feed"
             mock_settings.return_value.rss_nieuwrechts_url = "https://mock-nieuwrechts.nl/rss"
+            mock_settings.return_value.rss_eenblikopdenos_url = "https://mock-xcancel.com/eenblikopdenos/rss"
             self.service = IngestService()
 
     def test_reader_registration(self):
         """Test that readers are properly registered."""
-        assert len(self.service.readers) == 12
+        assert len(self.service.readers) == 13
         assert "nos_rss" in self.service.readers
         assert "nunl_rss" in self.service.readers
         assert "ad_rss" in self.service.readers
@@ -296,11 +317,12 @@ class TestIngestService:
         assert "geenstijl_atom" in self.service.readers
         assert "ninefornews_rss" in self.service.readers
         assert "nieuwrechts_rss" in self.service.readers
+        assert "eenblikopdenos_rss" in self.service.readers
 
     def test_get_reader_info(self):
         """Test reader info retrieval."""
         info = self.service.get_reader_info()
-        assert info["total_count"] == 12
+        assert info["total_count"] == 13
         assert "nos_rss" in info["readers"]
         assert "nunl_rss" in info["readers"]
         assert "ad_rss" in info["readers"]
@@ -313,6 +335,7 @@ class TestIngestService:
         assert "geenstijl_atom" in info["readers"]
         assert "ninefornews_rss" in info["readers"]
         assert "nieuwrechts_rss" in info["readers"]
+        assert "eenblikopdenos_rss" in info["readers"]
 
         nos_info = info["readers"]["nos_rss"]
         assert nos_info["id"] == "nos_rss"
@@ -343,14 +366,17 @@ class TestIngestService:
 
         self.service.process_feed_items = AsyncMock(side_effect=mock_process)
 
-        results = await self.service.poll_feeds(correlation_id="test-123")
+        # Mock enabled sources to return all reader IDs
+        all_reader_ids = set(self.service.readers.keys())
+        with patch('backend.app.services.ingest_service._get_enabled_source_ids', AsyncMock(return_value=all_reader_ids)):
+            results = await self.service.poll_feeds(correlation_id="test-123")
 
         # Verify results
         assert results["success"] is True
-        assert results["total_readers"] == 12
-        assert results["successful_readers"] == 12
+        assert results["total_readers"] == 13
+        assert results["successful_readers"] == 13
         assert results["failed_readers"] == 0
-        assert results["total_items"] == 12  # 1 item per reader
+        assert results["total_items"] == 13  # 1 item per reader
         assert len(results["errors"]) == 0
 
     @pytest.mark.asyncio
@@ -381,13 +407,16 @@ class TestIngestService:
             reader.__aenter__ = AsyncMock(return_value=reader)
             reader.__aexit__ = AsyncMock(return_value=None)
 
-        results = await self.service.poll_feeds()
+        # Mock enabled sources to return all reader IDs
+        all_reader_ids = set(self.service.readers.keys())
+        with patch('backend.app.services.ingest_service._get_enabled_source_ids', AsyncMock(return_value=all_reader_ids)):
+            results = await self.service.poll_feeds()
 
         # Verify results
         assert results["success"] is False
-        assert results["successful_readers"] == 11  # 11 out of 12 succeed
+        assert results["successful_readers"] == 12  # 12 out of 13 succeed
         assert results["failed_readers"] == 1
-        assert results["total_items"] == 11
+        assert results["total_items"] == 12
         assert len(results["errors"]) == 1
         assert "Test error" in results["errors"][0]["error"]
 
@@ -422,8 +451,8 @@ class TestIngestService:
         results = await self.service.test_readers()
 
         # Verify all readers tested
-        assert len(results) == 12
-        for reader_id in ["nos_rss", "nunl_rss", "ad_rss", "rtl_rss", "telegraaf_rss", "volkskrant_rss", "parool_rss", "anderekrant_rss", "trouw_rss", "geenstijl_atom", "ninefornews_rss", "nieuwrechts_rss"]:
+        assert len(results) == 13
+        for reader_id in ["nos_rss", "nunl_rss", "ad_rss", "rtl_rss", "telegraaf_rss", "volkskrant_rss", "parool_rss", "anderekrant_rss", "trouw_rss", "geenstijl_atom", "ninefornews_rss", "nieuwrechts_rss", "eenblikopdenos_rss"]:
             assert reader_id in results
             assert results[reader_id]["status"] == "ok"
 
@@ -431,6 +460,8 @@ class TestIngestService:
 @pytest.mark.asyncio
 async def test_integration_feeds_with_fixtures():
     """Integration test using actual RSS fixtures."""
+    from contextlib import asynccontextmanager
+
     # Test NOS reader with fixture
     nos_reader = NosRssReader("https://mock-nos.nl/rss")
 
@@ -444,7 +475,11 @@ async def test_integration_feeds_with_fixtures():
     mock_client = AsyncMock()
     mock_client.get = AsyncMock(return_value=mock_response)
 
-    with patch.object(type(nos_reader), "session", new_callable=lambda: property(lambda self: mock_client)):
+    @asynccontextmanager
+    async def mock_http_client(*args, **kwargs):
+        yield mock_client
+
+    with patch('backend.app.feeds.nos.http_client', mock_http_client):
         items = await nos_reader.fetch()
 
     assert len(items) == 3
@@ -458,6 +493,6 @@ async def test_integration_feeds_with_fixtures():
     # Verify metadata
     for item in items:
         assert item.source_metadata["name"] == "NOS"
-        assert item.source_metadata["spectrum"] == "center"
+        assert item.source_metadata["spectrum"] == 4  # 0=far-left, 10=far-right
         assert item.guid.startswith("nos-")
         assert "nos.nl" in item.url

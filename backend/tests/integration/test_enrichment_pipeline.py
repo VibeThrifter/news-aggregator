@@ -69,6 +69,9 @@ class StubEntityExtractor:
     def extract_dates(self, text: str):
         return []
 
+    def extract_locations(self, text: str, title: str = ""):
+        return ["Den Haag"]
+
 
 @pytest.mark.asyncio
 async def test_enrichment_updates_article_fields(session_factory, tmp_path):

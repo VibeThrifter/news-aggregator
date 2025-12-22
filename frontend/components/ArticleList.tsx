@@ -38,7 +38,7 @@ function buildSpectrumClassName(spectrum?: string | number | null): string {
 function getSpectrumDisplayLabel(spectrum?: string | number | null): string | null {
   if (spectrum === null || spectrum === undefined) return null;
   if (typeof spectrum === "number") {
-    return `${getSpectrumLabel(spectrum)} (${spectrum})`;
+    return getSpectrumLabel(spectrum);
   }
   return SPECTRUM_LABELS[spectrum] ?? spectrum;
 }

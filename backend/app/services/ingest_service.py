@@ -31,6 +31,7 @@ from backend.app.feeds.trouw import TrouwRssReader
 from backend.app.feeds.geenstijl import GeenStijlAtomReader
 from backend.app.feeds.ninefornews import NineForNewsRssReader
 from backend.app.feeds.nieuwrechts import NieuwRechtsRssReader
+from backend.app.feeds.eenblikopdenos import EenBlikOpDeNosReader
 from backend.app.ingestion import (
     ArticleFetchError,
     ArticleParseError,
@@ -161,6 +162,13 @@ class IngestService:
             self.readers[nieuwrechts_reader.id] = nieuwrechts_reader
             self.reader_profiles[nieuwrechts_reader.id] = nieuwrechts_profile
             logger.info("Registered feed reader", reader_id=nieuwrechts_reader.id, url=self.settings.rss_nieuwrechts_url)
+
+            # Register Een Blik op de NOS RSS reader
+            eenblikopdenos_profile = self._resolve_profile("eenblikopdenos_rss", default_url=self.settings.rss_eenblikopdenos_url)
+            eenblikopdenos_reader = EenBlikOpDeNosReader(str(eenblikopdenos_profile.feed_url or self.settings.rss_eenblikopdenos_url))
+            self.readers[eenblikopdenos_reader.id] = eenblikopdenos_reader
+            self.reader_profiles[eenblikopdenos_reader.id] = eenblikopdenos_profile
+            logger.info("Registered feed reader", reader_id=eenblikopdenos_reader.id, url=self.settings.rss_eenblikopdenos_url)
 
             logger.info("Feed reader registration complete", total_readers=len(self.readers))
 

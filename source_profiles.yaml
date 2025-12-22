@@ -83,3 +83,16 @@ sources:
     requires_js: true
     cookie_ttl_minutes: 0
     # Note: NieuwRechts is an Angular SPA - requires Playwright for full article content
+  eenblikopdenos_rss:
+    feed_url: https://xcancel.com/eenblikopdenos/rss
+    fetch_strategy: simple  # No JS rendering needed for RSS
+    user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+    parser: rss_only  # Tweet content is in RSS, no article fetch needed
+    requires_js: false
+    cookie_ttl_minutes: 0
+    # Note: Uses xcancel.com as primary (requires whitelisting), with Nitter fallbacks
+    # Tweet content is extracted directly from RSS feed - no need for separate page fetch
+    fallback_instances:
+      - nitter.privacydev.net
+      - nitter.poast.org
+      - nitter.1d4.us

@@ -51,7 +51,7 @@ def _build_source_breakdown(
         EventSourceBreakdownEntry(
             source=source,
             article_count=count,
-            spectrum=spectrum,
+            spectrum=str(spectrum) if spectrum is not None else None,
         )
         for (source, spectrum), count in sorted(source_counts.items())
     ]
@@ -195,22 +195,26 @@ async def get_event_detail(
     insight = await _get_latest_insight(session, event_id)
 
     # Build article responses
-    article_responses = [
-        EventArticleResponse(
-            id=article.id,
-            title=article.title,
-            url=article.url,
-            source=article.source_name or "Unknown",
-            spectrum=(
-                article.source_metadata.get("spectrum")
-                if article.source_metadata and isinstance(article.source_metadata, dict)
-                else None
-            ),
-            published_at=article.published_at,
-            summary=article.summary,
+    article_responses = []
+    for article in articles:
+        spectrum_value = None
+        if article.source_metadata and isinstance(article.source_metadata, dict):
+            raw_spectrum = article.source_metadata.get("spectrum")
+            if raw_spectrum is not None:
+                spectrum_value = str(raw_spectrum)
+
+        article_responses.append(
+            EventArticleResponse(
+                id=article.id,
+                title=article.title,
+                url=article.url,
+                source=article.source_name or "Unknown",
+                spectrum=spectrum_value,
+                published_at=article.published_at,
+                summary=article.summary,
+                image_url=article.image_url,
+            )
         )
-        for article in articles
-    ]
 
     # Build source breakdown
     source_breakdown = _build_source_breakdown(articles) if articles else None

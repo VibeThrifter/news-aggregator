@@ -175,12 +175,20 @@ class EventRepository:
         event.last_updated_at = timestamp
         await self.session.flush()
 
-    async def get_events_by_ids(self, event_ids: Sequence[int]) -> List[Event]:
-        """Fetch non-archived events for the given identifiers."""
+    async def get_events_by_ids(
+        self, event_ids: Sequence[int], *, include_archived: bool = False
+    ) -> List[Event]:
+        """Fetch events for the given identifiers.
 
+        Args:
+            event_ids: List of event IDs to fetch
+            include_archived: If True, include archived events (for source affinity matching)
+        """
         if not event_ids:
             return []
-        stmt = select(Event).where(Event.id.in_(event_ids)).where(Event.archived_at.is_(None))
+        stmt = select(Event).where(Event.id.in_(event_ids))
+        if not include_archived:
+            stmt = stmt.where(Event.archived_at.is_(None))
         result = await self.session.execute(stmt)
         events = result.scalars().all()
         return list(events)
