@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Dict, List
 import asyncio
 
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -16,6 +16,9 @@ from backend.app.core.logging import get_logger
 from backend.app.db.models import Article
 from backend.app.feeds.base import FeedItem
 from backend.app.ingestion.parser import ArticleParseResult
+
+# Sources that use source_article_id for deduplication (e.g., AD with LIVE articles)
+SOURCES_WITH_ARTICLE_ID = {"AD"}
 
 logger = get_logger(__name__)
 
@@ -51,6 +54,27 @@ class ArticleRepository:
         self.session = session
         self.log = logger.bind(component="ArticleRepository")
 
+    async def _find_by_source_article_id(
+        self, source_name: str, source_article_id: str
+    ) -> Article | None:
+        """Find an existing article by its source-specific article ID.
+
+        This is used for sources like AD that update LIVE articles with new URLs
+        but keep the same underlying article ID in the URL (e.g., ~a5f2f6c34).
+
+        We search in source_metadata->>'source_article_id' for matching articles
+        from the same source.
+        """
+        # PostgreSQL JSONB query for source_article_id in source_metadata
+        stmt = select(Article).where(
+            and_(
+                Article.source_name == source_name,
+                Article.source_metadata["source_article_id"].astext == source_article_id,
+            )
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=0.5, min=0.5, max=2),
@@ -62,8 +86,30 @@ class ArticleRepository:
         feed_item: FeedItem,
         parsed: ArticleParseResult,
     ) -> ArticlePersistenceResult:
-        """Persist article content, deduplicating on URL."""
+        """Persist article content, deduplicating on URL or source_article_id.
 
+        For sources like AD that update LIVE articles (changing the URL slug but
+        keeping the same article ID), we deduplicate on source_article_id to avoid
+        storing multiple versions of the same article.
+        """
+        source_name = feed_item.source_metadata.get("name")
+        source_article_id = feed_item.source_metadata.get("source_article_id")
+
+        # Check for existing article by source_article_id (for sources that support it)
+        if source_name in SOURCES_WITH_ARTICLE_ID and source_article_id:
+            existing = await self._find_by_source_article_id(source_name, source_article_id)
+            if existing:
+                self.log.info(
+                    "article_duplicate_detected_by_source_id",
+                    source_article_id=source_article_id,
+                    source=source_name,
+                    existing_url=existing.url,
+                    new_url=feed_item.url,
+                    guid=feed_item.guid,
+                )
+                return ArticlePersistenceResult(article=existing, created=False)
+
+        # Fall back to URL-based deduplication
         stmt = select(Article).where(Article.url == feed_item.url)
         result = await self.session.execute(stmt)
         existing = result.scalar_one_or_none()

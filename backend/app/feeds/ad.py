@@ -14,6 +14,9 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 from .base import FeedReader, FeedItem, FeedReaderError, http_client
 
+# Regex to extract AD article ID from URL (e.g., ~a5f2f6c34 from the end of URL)
+AD_ARTICLE_ID_PATTERN = re.compile(r"~([a-f0-9]+)/?$")
+
 
 class AdRssReader(FeedReader):
     """RSS reader for AD.nl news feeds."""
@@ -147,6 +150,9 @@ class AdRssReader(FeedReader):
         # Parse publication date
         published_at = self._parse_date(entry)
 
+        # Extract canonical article ID for deduplication
+        article_id = self._extract_article_id(url)
+
         # Build source metadata
         source_metadata = {
             **self.source_metadata,
@@ -154,6 +160,7 @@ class AdRssReader(FeedReader):
             "feed_link": getattr(feed.feed, "link", ""),
             "categories": [tag.term for tag in getattr(entry, "tags", [])],
             "author": getattr(entry, "author", ""),
+            "source_article_id": article_id,  # Used for cross-poll deduplication
         }
 
         # Extract image URL from media:content or enclosure
@@ -232,3 +239,62 @@ class AdRssReader(FeedReader):
                 return enc_url
 
         return None
+
+    def _extract_article_id(self, url: str) -> str | None:
+        """Extract the canonical article ID from an AD URL.
+
+        AD URLs have the pattern: https://www.ad.nl/section/slug~ARTICLE_ID/
+        The article ID (e.g., 'a5f2f6c34') stays constant even when the slug changes
+        for LIVE articles that get updated.
+        """
+        match = AD_ARTICLE_ID_PATTERN.search(url)
+        return match.group(1) if match else None
+
+    def _filter_duplicates(self, items: List[FeedItem]) -> List[FeedItem]:
+        """Remove duplicate items based on canonical article ID.
+
+        AD.nl LIVE articles change their URL slug when updated, but keep the same
+        article ID (e.g., ~a5f2f6c34). We deduplicate on this ID to avoid storing
+        multiple versions of the same article.
+        """
+        seen_article_ids = set()
+        seen_guids = set()
+        filtered_items = []
+
+        for item in items:
+            # Try to extract canonical article ID from URL
+            article_id = self._extract_article_id(item.url)
+
+            if article_id:
+                # Deduplicate by article ID (handles LIVE article updates)
+                if article_id in seen_article_ids:
+                    self.logger.debug(
+                        "Filtering duplicate item by article ID",
+                        article_id=article_id,
+                        url=item.url,
+                        title=item.title,
+                    )
+                    continue
+                seen_article_ids.add(article_id)
+            else:
+                # Fallback to GUID deduplication for URLs without article ID
+                if item.guid in seen_guids:
+                    self.logger.debug(
+                        "Filtering duplicate item by GUID",
+                        guid=item.guid,
+                        url=item.url,
+                        title=item.title,
+                    )
+                    continue
+                seen_guids.add(item.guid)
+
+            filtered_items.append(item)
+
+        self.logger.info(
+            "Filtered feed items",
+            total_items=len(items),
+            unique_items=len(filtered_items),
+            duplicates_removed=len(items) - len(filtered_items),
+        )
+
+        return filtered_items
