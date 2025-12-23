@@ -15,11 +15,13 @@ from backend.app.db.models import Event, LLMInsight
 from backend.app.db.session import get_sessionmaker
 from backend.app.llm.client import (
     BaseLLMClient,
+    DeepSeekClient,
     LLMClientError,
     LLMGenericResult,
     LLMResult,
     MistralClient,
 )
+from backend.app.services.llm_config_service import get_llm_config_service
 from backend.app.llm.prompt_builder import PromptBuilder, PromptGenerationResult
 from backend.app.llm.schemas import CriticalPayload, FactualPayload, InsightsPayload
 from backend.app.repositories import InsightRepository, InsightPersistenceResult
@@ -53,11 +55,20 @@ class InsightService:
         self.prompt_builder = prompt_builder or PromptBuilder(settings=self.settings)
         self.client = client or self._build_client()
 
-    def _build_client(self) -> BaseLLMClient:
-        provider = (self.settings.llm_provider or "mistral").lower()
+    def _build_client(self, provider: str | None = None) -> BaseLLMClient:
+        """Build an LLM client for the specified provider."""
+        provider = (provider or self.settings.llm_provider or "mistral").lower()
         if provider == "mistral":
             return MistralClient(settings=self.settings)
+        if provider == "deepseek":
+            return DeepSeekClient(settings=self.settings)
         raise ValueError(f"LLM provider '{provider}' wordt nog niet ondersteund")
+
+    async def _get_client_for_phase(self, phase: str) -> BaseLLMClient:
+        """Get the configured LLM client for a specific phase (factual/critical)."""
+        config_service = get_llm_config_service()
+        provider = await config_service.get_value(f"provider_{phase}", default="mistral")
+        return self._build_client(provider)
 
     async def generate_for_event(
         self,
@@ -67,6 +78,10 @@ class InsightService:
     ) -> InsightGenerationOutcome:
         """Generate and persist insights for a specific event using 2-phase LLM calls."""
 
+        # Get clients for each phase (may be different providers)
+        factual_client = await self._get_client_for_phase("factual")
+        critical_client = await self._get_client_for_phase("critical")
+
         # Phase 1: Factual analysis
         factual_package = await self.prompt_builder.build_factual_prompt_package(event_id, max_articles=None)
         prompt_metadata = self._build_prompt_metadata(factual_package)
@@ -75,9 +90,10 @@ class InsightService:
         logger.info(
             "insight_generation_phase1_start",
             event_id=event_id,
+            provider=factual_client.provider,
             correlation_id=correlation_id,
         )
-        factual_result = await self.client.generate_json(
+        factual_result = await factual_client.generate_json(
             factual_package.prompt,
             FactualPayload,
             correlation_id=correlation_id,
@@ -87,6 +103,7 @@ class InsightService:
         logger.info(
             "insight_generation_phase1_complete",
             event_id=event_id,
+            provider=factual_client.provider,
             summary_length=len(factual_payload.summary),
             correlation_id=correlation_id,
         )
@@ -101,9 +118,10 @@ class InsightService:
         logger.info(
             "insight_generation_phase2_start",
             event_id=event_id,
+            provider=critical_client.provider,
             correlation_id=correlation_id,
         )
-        critical_result = await self.client.generate_json(
+        critical_result = await critical_client.generate_json(
             critical_package.prompt,
             CriticalPayload,
             correlation_id=correlation_id,
@@ -113,6 +131,7 @@ class InsightService:
         logger.info(
             "insight_generation_phase2_complete",
             event_id=event_id,
+            provider=critical_client.provider,
             authority_count=len(critical_payload.authority_analysis),
             correlation_id=correlation_id,
         )
@@ -121,8 +140,12 @@ class InsightService:
         merged_payload = InsightsPayload.from_phases(factual_payload, critical_payload)
         payload_dict = merged_payload.model_dump(mode="json")
 
-        # Update metadata with both phases
-        prompt_metadata["model"] = critical_result.model
+        # Update metadata with both phases (include provider info)
+        prompt_metadata["factual_provider"] = factual_client.provider
+        prompt_metadata["factual_model"] = factual_result.model
+        prompt_metadata["critical_provider"] = critical_client.provider
+        prompt_metadata["critical_model"] = critical_result.model
+        prompt_metadata["model"] = critical_result.model  # backwards compat
         prompt_metadata["factual_prompt_length"] = factual_package.prompt_length
         prompt_metadata["critical_prompt_length"] = critical_package.prompt_length
         total_usage: Dict[str, Any] = {}

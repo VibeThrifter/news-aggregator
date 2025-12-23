@@ -14,6 +14,7 @@ const configTypeLabels: Record<string, string> = {
   prompt: "Prompts",
   parameter: "Parameters",
   scoring: "Scoring",
+  provider: "Providers",
 };
 
 // Config type colors
@@ -21,7 +22,11 @@ const configTypeColors: Record<string, string> = {
   prompt: "bg-purple-600",
   parameter: "bg-blue-500",
   scoring: "bg-green-500",
+  provider: "bg-orange-500",
 };
+
+// Available LLM providers
+const LLM_PROVIDERS = ["mistral", "deepseek"];
 
 function TypeBadge({ type }: { type: string }) {
   const colorClass = configTypeColors[type] || "bg-slate-500";
@@ -46,6 +51,7 @@ function ConfigEditor({
 }) {
   const [value, setValue] = useState(config.value);
   const isPrompt = config.config_type === "prompt";
+  const isProvider = config.config_type === "provider";
 
   return (
     <div className="space-y-4">
@@ -68,6 +74,19 @@ function ConfigEditor({
           className="w-full rounded-lg border border-slate-600 bg-slate-800 p-4 font-mono text-sm text-slate-100 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50"
           placeholder="Prompt tekst..."
         />
+      ) : isProvider ? (
+        <select
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          disabled={saving}
+          className="w-full rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-slate-100 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50"
+        >
+          {LLM_PROVIDERS.map((provider) => (
+            <option key={provider} value={provider}>
+              {provider === "mistral" ? "Mistral (gratis tier)" : "DeepSeek (betere redenering)"}
+            </option>
+          ))}
+        </select>
       ) : (
         <input
           type="text"
@@ -212,6 +231,7 @@ export default function LlmConfigPage() {
   const promptCount = configs.filter((c) => c.config_type === "prompt").length;
   const paramCount = configs.filter((c) => c.config_type === "parameter").length;
   const scoringCount = configs.filter((c) => c.config_type === "scoring").length;
+  const providerCount = configs.filter((c) => c.config_type === "provider").length;
 
   return (
     <div className="space-y-6">
@@ -241,7 +261,7 @@ export default function LlmConfigPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-5">
         <button
           onClick={() => setFilterType(null)}
           className={`rounded-lg border p-4 text-left transition-colors ${
@@ -252,6 +272,17 @@ export default function LlmConfigPage() {
         >
           <p className="text-sm text-slate-400">Totaal</p>
           <p className="text-2xl font-bold text-slate-100">{configs.length}</p>
+        </button>
+        <button
+          onClick={() => setFilterType("provider")}
+          className={`rounded-lg border p-4 text-left transition-colors ${
+            filterType === "provider"
+              ? "border-orange-500 bg-orange-900/20"
+              : "border-slate-700 bg-slate-800 hover:border-slate-600"
+          }`}
+        >
+          <p className="text-sm text-slate-400">Providers</p>
+          <p className="text-2xl font-bold text-orange-400">{providerCount}</p>
         </button>
         <button
           onClick={() => setFilterType("prompt")}
@@ -355,6 +386,10 @@ export default function LlmConfigPage() {
       <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
         <h2 className="mb-2 font-semibold text-slate-100">Uitleg</h2>
         <div className="space-y-2 text-sm text-slate-300">
+          <p>
+            <strong className="text-orange-400">Providers:</strong> Kies per prompt type welke LLM provider
+            wordt gebruikt (Mistral of DeepSeek). DeepSeek is beter voor complexe redenering.
+          </p>
           <p>
             <strong className="text-purple-400">Prompts:</strong> LLM instructies voor analyse.
             Gebruik {"{event_context}"} en {"{article_capsules}"} als placeholders.

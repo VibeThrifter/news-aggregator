@@ -162,6 +162,25 @@ Respond with ONLY the category name in lowercase, nothing else.""",
         "config_type": "scoring",
         "description": "Minimum score voor LLM kandidaat overweging",
     },
+    # Provider Selection (per prompt type)
+    {
+        "key": "provider_classification",
+        "value": "mistral",
+        "config_type": "provider",
+        "description": "LLM provider voor event type classificatie (mistral|deepseek)",
+    },
+    {
+        "key": "provider_factual",
+        "value": "mistral",
+        "config_type": "provider",
+        "description": "LLM provider voor fase 1: feitelijke analyse (mistral|deepseek)",
+    },
+    {
+        "key": "provider_critical",
+        "value": "deepseek",
+        "config_type": "provider",
+        "description": "LLM provider voor fase 2: kritische analyse (mistral|deepseek)",
+    },
 ]
 
 

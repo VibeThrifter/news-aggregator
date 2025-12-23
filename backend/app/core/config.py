@@ -214,6 +214,10 @@ class Settings(BaseSettings):
         default=None,
         description="Mistral API key for LLM services"
     )
+    deepseek_api_key: Optional[str] = Field(
+        default=None,
+        description="DeepSeek API key for critical analysis (higher quality reasoning)"
+    )
     openai_api_key: Optional[str] = Field(
         default=None,
         description="OpenAI API key for LLM services"
@@ -221,6 +225,30 @@ class Settings(BaseSettings):
     tavily_api_key: Optional[str] = Field(
         default=None,
         description="Tavily API key for web search"
+    )
+
+    # DeepSeek Configuration
+    deepseek_model_name: str = Field(
+        default="deepseek-chat",
+        description="DeepSeek model name"
+    )
+    deepseek_api_base_url: str = Field(
+        default="https://api.deepseek.com/v1",
+        description="Base URL for DeepSeek API"
+    )
+
+    # Per-prompt LLM provider selection (toggle between mistral/deepseek)
+    llm_provider_classification: str = Field(
+        default="mistral",
+        description="LLM provider for event type classification (mistral|deepseek)"
+    )
+    llm_provider_factual: str = Field(
+        default="mistral",
+        description="LLM provider for factual analysis phase (mistral|deepseek)"
+    )
+    llm_provider_critical: str = Field(
+        default="deepseek",
+        description="LLM provider for critical analysis phase (mistral|deepseek)"
     )
 
     # Logging Configuration
@@ -377,6 +405,11 @@ class Settings(BaseSettings):
     def has_mistral_key(self) -> bool:
         """Check if Mistral API key is available."""
         return bool(self.mistral_api_key)
+
+    @property
+    def has_deepseek_key(self) -> bool:
+        """Check if DeepSeek API key is available."""
+        return bool(self.deepseek_api_key)
 
     @property
     def has_openai_key(self) -> bool:
