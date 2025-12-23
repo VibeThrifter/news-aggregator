@@ -181,6 +181,12 @@ Respond with ONLY the category name in lowercase, nothing else.""",
         "config_type": "provider",
         "description": "LLM provider voor fase 2: kritische analyse (mistral|deepseek)",
     },
+    {
+        "key": "deepseek_use_reasoner",
+        "value": "false",
+        "config_type": "provider",
+        "description": "Gebruik DeepSeek Reasoner model (R1) voor diepere analyse (langzamer maar beter)",
+    },
 ]
 
 

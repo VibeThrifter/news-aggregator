@@ -294,6 +294,25 @@ export default function LlmConfigPage() {
     }
   };
 
+  const handleReasonerToggle = async () => {
+    if (!reasonerConfig) return;
+    const newValue = reasonerConfig.value.toLowerCase() === "true" ? "false" : "true";
+    try {
+      setSaving(true);
+      setError(null);
+      const updated = await updateLlmConfig("deepseek_use_reasoner", { value: newValue });
+      setConfigs((prev) =>
+        prev.map((c) => (c.key === "deepseek_use_reasoner" ? updated : c))
+      );
+      setMessage(`DeepSeek Reasoner ${newValue === "true" ? "ingeschakeld" : "uitgeschakeld"}`);
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to toggle reasoner");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSeed = async () => {
     try {
       setSaving(true);
@@ -317,8 +336,12 @@ export default function LlmConfigPage() {
   const providerConfigs = configs.filter((c) => c.config_type === "provider");
   const providerCount = providerConfigs.length;
 
+  // Separate deepseek_use_reasoner from regular provider configs
+  const reasonerConfig = providerConfigs.find((c) => c.key === "deepseek_use_reasoner");
+  const phaseProviderConfigs = providerConfigs.filter((c) => c.key !== "deepseek_use_reasoner");
+
   // Sort provider configs in logical order
-  const sortedProviderConfigs = [...providerConfigs].sort((a, b) => {
+  const sortedProviderConfigs = [...phaseProviderConfigs].sort((a, b) => {
     const order = ["provider_classification", "provider_factual", "provider_critical"];
     return order.indexOf(a.key) - order.indexOf(b.key);
   });
@@ -443,6 +466,38 @@ export default function LlmConfigPage() {
               />
             ))}
           </div>
+
+          {/* DeepSeek Reasoner Toggle */}
+          {reasonerConfig && (
+            <div className="rounded-lg border border-slate-700 bg-slate-800 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-medium text-slate-100">DeepSeek Reasoner (R1)</h3>
+                  <p className="text-xs text-slate-400">
+                    Gebruik het reasoning model voor diepere analyse. Langzamer maar grondiger redenering.
+                  </p>
+                </div>
+                <button
+                  onClick={handleReasonerToggle}
+                  disabled={saving}
+                  className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 ${
+                    reasonerConfig.value.toLowerCase() === "true" ? "bg-emerald-600" : "bg-slate-600"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
+                      reasonerConfig.value.toLowerCase() === "true" ? "translate-x-7" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+              {reasonerConfig.value.toLowerCase() === "true" && (
+                <div className="mt-3 rounded bg-emerald-900/30 px-3 py-2 text-xs text-emerald-300">
+                  ✓ Actief: DeepSeek gebruikt nu <code className="font-mono">deepseek-reasoner</code> i.p.v. <code className="font-mono">deepseek-chat</code>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

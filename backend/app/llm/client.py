@@ -174,9 +174,18 @@ class DeepSeekClient(BaseLLMClient):
         *,
         settings: Settings | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        use_reasoner: bool = False,
     ) -> None:
         self.settings = settings or get_settings()
         self.transport = transport
+        self.use_reasoner = use_reasoner
+
+    @property
+    def model_name(self) -> str:
+        """Get the model name based on reasoner setting."""
+        if self.use_reasoner:
+            return self.settings.deepseek_reasoner_model_name
+        return self.settings.deepseek_model_name
 
     async def generate(self, prompt: str, *, correlation_id: str | None = None) -> LLMResult:
         api_key = self.settings.deepseek_api_key
@@ -193,7 +202,7 @@ class DeepSeekClient(BaseLLMClient):
             "Content-Type": "application/json",
         }
         payload: Dict[str, Any] = {
-            "model": self.settings.deepseek_model_name,
+            "model": self.model_name,
             "temperature": self.settings.llm_temperature,
             "response_format": {"type": "json_object"},
             "messages": [
@@ -254,7 +263,7 @@ class DeepSeekClient(BaseLLMClient):
                     raise LLMResponseError(f"JSON-respons kon niet worden gevalideerd: {str(exc)[:200]}", retryable=False) from exc
 
                 usage = data.get("usage") if isinstance(data, dict) else None
-                model_name = data.get("model", self.settings.deepseek_model_name)
+                model_name = data.get("model", self.model_name)
 
                 logger.info(
                     "llm_call_succeeded",
@@ -326,7 +335,7 @@ class DeepSeekClient(BaseLLMClient):
             "Content-Type": "application/json",
         }
         payload: Dict[str, Any] = {
-            "model": self.settings.deepseek_model_name,
+            "model": self.model_name,
             "temperature": temperature if temperature is not None else self.settings.llm_temperature,
             "messages": [
                 {"role": "user", "content": prompt},
@@ -371,7 +380,7 @@ class DeepSeekClient(BaseLLMClient):
                     raise LLMResponseError("Onvolledige respons van DeepSeek", retryable=False) from exc
 
                 usage = data.get("usage") if isinstance(data, dict) else None
-                model_name = data.get("model", self.settings.deepseek_model_name)
+                model_name = data.get("model", self.model_name)
 
                 logger.info(
                     "llm_text_call_succeeded",
@@ -441,7 +450,7 @@ class DeepSeekClient(BaseLLMClient):
             "Content-Type": "application/json",
         }
         payload: Dict[str, Any] = {
-            "model": self.settings.deepseek_model_name,
+            "model": self.model_name,
             "temperature": self.settings.llm_temperature,
             "response_format": {"type": "json_object"},
             "messages": [
@@ -503,7 +512,7 @@ class DeepSeekClient(BaseLLMClient):
                     raise LLMResponseError(f"JSON-respons kon niet worden gevalideerd: {str(exc)[:200]}", retryable=False) from exc
 
                 usage = data.get("usage") if isinstance(data, dict) else None
-                model_name = data.get("model", self.settings.deepseek_model_name)
+                model_name = data.get("model", self.model_name)
 
                 logger.info(
                     "llm_json_call_succeeded",

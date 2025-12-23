@@ -232,6 +232,10 @@ class Settings(BaseSettings):
         default="deepseek-chat",
         description="DeepSeek model name"
     )
+    deepseek_reasoner_model_name: str = Field(
+        default="deepseek-reasoner",
+        description="DeepSeek Reasoner model (R1) for deeper analysis"
+    )
     deepseek_api_base_url: str = Field(
         default="https://api.deepseek.com/v1",
         description="Base URL for DeepSeek API"
