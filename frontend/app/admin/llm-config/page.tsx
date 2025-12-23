@@ -28,6 +28,27 @@ const configTypeColors: Record<string, string> = {
 // Available LLM providers
 const LLM_PROVIDERS = ["mistral", "deepseek"];
 
+// Provider display info
+const PROVIDER_INFO: Record<string, { label: string; description: string; color: string }> = {
+  mistral: {
+    label: "Mistral",
+    description: "Gratis tier, snel",
+    color: "bg-blue-600",
+  },
+  deepseek: {
+    label: "DeepSeek",
+    description: "Betere redenering",
+    color: "bg-emerald-600",
+  },
+};
+
+// Phase display names
+const PHASE_LABELS: Record<string, string> = {
+  provider_classification: "Classificatie",
+  provider_factual: "Fase 1: Feitelijk",
+  provider_critical: "Fase 2: Kritisch",
+};
+
 function TypeBadge({ type }: { type: string }) {
   const colorClass = configTypeColors[type] || "bg-slate-500";
   const label = configTypeLabels[type] || type;
@@ -35,6 +56,49 @@ function TypeBadge({ type }: { type: string }) {
     <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium text-white ${colorClass}`}>
       {label}
     </span>
+  );
+}
+
+function ProviderToggle({
+  config,
+  onToggle,
+  disabled,
+}: {
+  config: LlmConfig;
+  onToggle: (newProvider: string) => void;
+  disabled: boolean;
+}) {
+  const currentProvider = config.value;
+  const phaseLabel = PHASE_LABELS[config.key] || config.key;
+
+  return (
+    <div className="rounded-lg border border-slate-700 bg-slate-800 p-4">
+      <div className="mb-3">
+        <h3 className="font-medium text-slate-100">{phaseLabel}</h3>
+        <p className="text-xs text-slate-400">{config.description}</p>
+      </div>
+      <div className="flex gap-2">
+        {LLM_PROVIDERS.map((provider) => {
+          const info = PROVIDER_INFO[provider];
+          const isActive = currentProvider === provider;
+          return (
+            <button
+              key={provider}
+              onClick={() => !isActive && onToggle(provider)}
+              disabled={disabled || isActive}
+              className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+                isActive
+                  ? `${info.color} text-white ring-2 ring-offset-2 ring-offset-slate-800 ring-white/30`
+                  : "bg-slate-700 text-slate-300 hover:bg-slate-600 disabled:opacity-50"
+              }`}
+            >
+              <div>{info.label}</div>
+              <div className="text-xs opacity-75">{info.description}</div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -211,6 +275,25 @@ export default function LlmConfigPage() {
     }
   };
 
+  const handleProviderToggle = async (configKey: string, newProvider: string) => {
+    try {
+      setSaving(true);
+      setError(null);
+      const updated = await updateLlmConfig(configKey, { value: newProvider });
+      setConfigs((prev) =>
+        prev.map((c) => (c.key === configKey ? updated : c))
+      );
+      const phaseLabel = PHASE_LABELS[configKey] || configKey;
+      const providerLabel = PROVIDER_INFO[newProvider]?.label || newProvider;
+      setMessage(`${phaseLabel} → ${providerLabel}`);
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update provider");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSeed = async () => {
     try {
       setSaving(true);
@@ -231,7 +314,19 @@ export default function LlmConfigPage() {
   const promptCount = configs.filter((c) => c.config_type === "prompt").length;
   const paramCount = configs.filter((c) => c.config_type === "parameter").length;
   const scoringCount = configs.filter((c) => c.config_type === "scoring").length;
-  const providerCount = configs.filter((c) => c.config_type === "provider").length;
+  const providerConfigs = configs.filter((c) => c.config_type === "provider");
+  const providerCount = providerConfigs.length;
+
+  // Sort provider configs in logical order
+  const sortedProviderConfigs = [...providerConfigs].sort((a, b) => {
+    const order = ["provider_classification", "provider_factual", "provider_critical"];
+    return order.indexOf(a.key) - order.indexOf(b.key);
+  });
+
+  // Filter out providers from table when showing all
+  const tableConfigs = filterType === null
+    ? configs.filter((c) => c.config_type !== "provider")
+    : configs;
 
   return (
     <div className="space-y-6">
@@ -331,6 +426,26 @@ export default function LlmConfigPage() {
         </div>
       )}
 
+      {/* Provider Toggles - Always visible */}
+      {sortedProviderConfigs.length > 0 && !selectedConfig && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-100">LLM Provider per Fase</h2>
+            <span className="text-xs text-slate-400">Wijzigingen direct actief (geen restart nodig)</span>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            {sortedProviderConfigs.map((config) => (
+              <ProviderToggle
+                key={config.key}
+                config={config}
+                onToggle={(newProvider) => handleProviderToggle(config.key, newProvider)}
+                disabled={saving}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Editor modal */}
       {selectedConfig && (
         <div className="rounded-lg border border-slate-700 bg-slate-800 p-6">
@@ -362,14 +477,16 @@ export default function LlmConfigPage() {
                     Laden...
                   </td>
                 </tr>
-              ) : configs.length === 0 ? (
+              ) : tableConfigs.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-4 py-8 text-center text-slate-400">
-                    Geen configuratie gevonden. Klik op &quot;Seed defaults&quot; om te beginnen.
+                    {configs.length === 0
+                      ? "Geen configuratie gevonden. Klik op \"Seed defaults\" om te beginnen."
+                      : "Geen items in deze categorie."}
                   </td>
                 </tr>
               ) : (
-                configs.map((config) => (
+                tableConfigs.map((config) => (
                   <ConfigRow
                     key={config.key}
                     config={config}
@@ -387,8 +504,9 @@ export default function LlmConfigPage() {
         <h2 className="mb-2 font-semibold text-slate-100">Uitleg</h2>
         <div className="space-y-2 text-sm text-slate-300">
           <p>
-            <strong className="text-orange-400">Providers:</strong> Kies per prompt type welke LLM provider
-            wordt gebruikt (Mistral of DeepSeek). DeepSeek is beter voor complexe redenering.
+            <strong className="text-orange-400">LLM Providers:</strong> Wissel direct tussen Mistral
+            (gratis, snel) en DeepSeek (betere redenering) per analysefase. Wijzigingen zijn
+            <em className="text-emerald-400"> direct actief</em> - geen backend restart nodig.
           </p>
           <p>
             <strong className="text-purple-400">Prompts:</strong> LLM instructies voor analyse.
@@ -403,8 +521,8 @@ export default function LlmConfigPage() {
             voor event clustering algoritme.
           </p>
           <p className="text-slate-400">
-            Tip: Wijzigingen worden direct toegepast. De cache wordt automatisch
-            gewist bij updates.
+            Tip: De cache wordt automatisch gewist bij updates. Volgende LLM calls
+            gebruiken direct de nieuwe instellingen.
           </p>
         </div>
       </div>
