@@ -27,11 +27,28 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["events"])
 
 
-async def _get_main_source_names(session: AsyncSession) -> Set[str]:
-    """Get the display names of main sources for filtering events."""
-    stmt = select(NewsSource.display_name).where(NewsSource.is_main_source.is_(True))
-    result = await session.execute(stmt)
-    return {row[0] for row in result.fetchall()}
+async def _get_main_source_info(session: AsyncSession) -> tuple[bool, Set[str]]:
+    """Get main source configuration for filtering events.
+
+    Returns:
+        Tuple of (has_any_main_sources, enabled_main_source_names)
+        - has_any_main_sources: True if any source is marked as main (regardless of enabled)
+        - enabled_main_source_names: Names of sources that are BOTH main AND enabled
+    """
+    # Check if ANY sources are marked as main (to determine if filtering should apply)
+    any_main_stmt = select(NewsSource.id).where(NewsSource.is_main_source.is_(True)).limit(1)
+    any_main_result = await session.execute(any_main_stmt)
+    has_any_main = any_main_result.scalar_one_or_none() is not None
+
+    # Get enabled main sources for actual filtering
+    enabled_main_stmt = select(NewsSource.display_name).where(
+        NewsSource.is_main_source.is_(True),
+        NewsSource.enabled.is_(True),
+    )
+    enabled_main_result = await session.execute(enabled_main_stmt)
+    enabled_main_names = {row[0] for row in enabled_main_result.fetchall()}
+
+    return has_any_main, enabled_main_names
 
 
 def _build_source_breakdown(
@@ -90,8 +107,8 @@ async def list_events(
     result = await session.execute(stmt)
     events = result.scalars().all()
 
-    # Get main source names for filtering
-    main_source_names = await _get_main_source_names(session)
+    # Get main source configuration for filtering
+    has_main_sources, main_source_names = await _get_main_source_info(session)
 
     # Get articles for each event to build source breakdown
     event_items: List[EventListItem] = []
@@ -107,9 +124,14 @@ async def list_events(
         article_result = await session.execute(article_stmt)
         articles = list(article_result.scalars().all())
 
-        # Filter: only show events that have at least one article from a main source
-        # If no main sources are configured, show all events
-        if main_source_names:
+        # Filter: only show events that have at least one article from an enabled main source
+        # - If no sources are marked as main at all: show all events (unconfigured system)
+        # - If main sources exist but all are disabled: show NO events
+        # - If main sources exist and some are enabled: show events with those sources
+        if has_main_sources:
+            if not main_source_names:
+                # Main sources are configured but ALL are disabled - show nothing
+                continue
             article_sources = {a.source_name for a in articles if a.source_name}
             has_main_source = bool(article_sources & main_source_names)
             if not has_main_source:

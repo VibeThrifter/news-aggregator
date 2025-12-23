@@ -309,44 +309,38 @@ class EventService:
                         if (label == "PERSON" and len(text) >= MIN_PERSON_NAME_LENGTH) or label in DISTINCTIVE_LABELS:
                             article_distinctive.add(text.lower())
 
-                if article_distinctive or article_all_texts:
-                    # Find NOS events WITH MATCHING ENTITIES
-                    # Query all NOS articles with their event IDs and entities
+                if article_distinctive:
+                    # Find NOS events WITH MATCHING TITLE ENTITIES
+                    # Query all NOS articles with their event IDs, titles, and entities
                     nos_articles_stmt = (
-                        sa_select(EventArticle.event_id, Article.entities)
+                        sa_select(EventArticle.event_id, Article.title, Article.entities)
                         .join(Article, Article.id == EventArticle.article_id)
                         .where(Article.source_name == "NOS")
                         .where(Article.entities.isnot(None))
                     )
                     nos_articles_result = await session.execute(nos_articles_stmt)
 
-                    # Find events where NOS articles share entities with the tweet
+                    # Find events where NOS article TITLES share entities with the tweet
                     candidate_event_ids = {c.event_id for c in candidates}
                     matching_event_ids = set()
 
-                    for event_id, nos_entities in nos_articles_result.fetchall():
+                    for event_id, nos_title, nos_entities in nos_articles_result.fetchall():
                         if event_id in candidate_event_ids or event_id in matching_event_ids:
                             continue
 
-                        # Extract distinctive entities from NOS article
-                        nos_distinctive = set()
-                        nos_all_texts = set()
-                        if nos_entities:
+                        # Extract entities that appear in NOS article TITLE only
+                        # This prevents matching on entities mentioned in passing in body
+                        nos_title_entities = set()
+                        title_lower = (nos_title or "").lower()
+                        if nos_entities and title_lower:
                             for ent in nos_entities:
                                 text = ent.get("text", "")
-                                label = ent.get("label")
-                                if text and len(text) >= 4:
-                                    nos_all_texts.add(text.lower())
-                                    if (label == "PERSON" and len(text) >= MIN_PERSON_NAME_LENGTH) or label in DISTINCTIVE_LABELS:
-                                        nos_distinctive.add(text.lower())
+                                # Only include entities that appear in the TITLE
+                                if text and len(text) >= 4 and text.lower() in title_lower:
+                                    nos_title_entities.add(text.lower())
 
-                        # Cross-match: entity is a match if it's distinctive in EITHER source
-                        # This handles spaCy labeling inconsistencies
-                        shared = set()
-                        # Tweet distinctive entities matching any NOS entity
-                        shared.update(article_distinctive.intersection(nos_all_texts))
-                        # NOS distinctive entities matching any tweet entity
-                        shared.update(nos_distinctive.intersection(article_all_texts))
+                        # Match: tweet distinctive entity must appear in NOS TITLE
+                        shared = article_distinctive.intersection(nos_title_entities)
 
                         if shared:
                             matching_event_ids.add(event_id)
@@ -575,23 +569,24 @@ class EventService:
                                     if (label == "PERSON" and len(text) >= MIN_PERSON_NAME_LENGTH) or label in DISTINCTIVE_LABELS:
                                         article_distinctive.add(text.lower())
 
-                        # Get entities from NOS articles in this event
-                        nos_distinctive = set()
-                        nos_all_texts = set()
+                        # Get entities from NOS article TITLES only (not body)
+                        # This prevents matching on entities mentioned in passing
+                        # e.g., "Pim Fortuyn" mentioned as example in Lale Gül article
+                        nos_title_entities = set()
                         for nos_art in nos_articles:
-                            if nos_art.entities:
+                            title_lower = (nos_art.title or "").lower()
+                            if nos_art.entities and title_lower:
                                 for ent in nos_art.entities:
                                     text = ent.get("text", "")
                                     label = ent.get("label")
-                                    if text and len(text) >= 4:
-                                        nos_all_texts.add(text.lower())
-                                        if (label == "PERSON" and len(text) >= MIN_PERSON_NAME_LENGTH) or label in DISTINCTIVE_LABELS:
-                                            nos_distinctive.add(text.lower())
+                                    # Only include entities that appear in the TITLE
+                                    if text and len(text) >= 4 and text.lower() in title_lower:
+                                        nos_title_entities.add(text.lower())
 
-                        # Cross-match: entity is a match if distinctive in EITHER source
-                        shared_entities = set()
-                        shared_entities.update(article_distinctive.intersection(nos_all_texts))
-                        shared_entities.update(nos_distinctive.intersection(article_all_texts))
+                        # Match: tweet distinctive entity must appear in NOS TITLE
+                        # This ensures we only cluster when the tweet's main subject
+                        # matches what the NOS article is actually about
+                        shared_entities = article_distinctive.intersection(nos_title_entities)
                         if shared_entities:
                             # Strong boost when PERSON entities match (same specific story)
                             source_affinity_boost = 0.20 + min(0.30, len(shared_entities) * 0.10)
@@ -603,13 +598,13 @@ class EventService:
                                 boost=source_affinity_boost,
                             )
                         else:
-                            # No distinctive entity match = no boost = won't cluster
+                            # No title entity match = no boost = won't cluster
                             correlation_log.debug(
-                                "source_affinity_no_entity_match",
+                                "source_affinity_no_title_match",
                                 article_id=article.id,
                                 event_id=event.id,
                                 tweet_distinctive=list(article_distinctive)[:5],
-                                nos_distinctive=list(nos_distinctive)[:5],
+                                nos_title_entities=list(nos_title_entities)[:5],
                             )
 
                 if event_articles_list and (article.extracted_locations or article.extracted_dates):
@@ -717,6 +712,10 @@ class EventService:
             # Track source affinity boost for the best candidate
             best_source_affinity: float = 0.0
 
+            # Track if LLM was called and decided NEW_EVENT
+            # This prevents score-based fallback from overriding LLM decision
+            llm_decided_new_event: bool = False
+
             # Use LLM for final decision if:
             # 1. LLM is enabled and we have candidates, OR
             # 2. Any candidate has low entity overlap (requires verification to avoid false positives)
@@ -749,11 +748,18 @@ class EventService:
                                 score=boosted_score,
                             )
                             break
+                else:
+                    # LLM was called and decided NEW_EVENT - respect this decision
+                    llm_decided_new_event = True
+                    correlation_log.info(
+                        "llm_decided_new_event",
+                        article_id=article.id,
+                        candidates_count=len(llm_candidates),
+                    )
 
             # Fallback to highest scoring candidate if LLM didn't select or is disabled
-            # BUT: if entity overlap is very low and LLM said NEW_EVENT (or wasn't used),
-            # don't automatically assign - this prevents false positives
-            if best_event is None and scored_candidates:
+            # BUT: if LLM decided NEW_EVENT, respect that decision - don't fall back
+            if best_event is None and scored_candidates and not llm_decided_new_event:
                 # PRIORITY 1: Source affinity candidates with confirmed relevance (media commentary)
                 # Confirmed if: entity boost added (a > 0.25) OR embedding similarity strong (>= 0.45)
                 affinity_candidates = [
@@ -1072,7 +1078,39 @@ class EventService:
             event_desc += f"  Last updated: {event.last_updated_at.strftime('%Y-%m-%d') if event.last_updated_at else 'unknown'}\n"
             candidates_text.append(event_desc)
 
-        prompt = f"""You cluster Dutch news articles into events. Decide: does this article belong to an existing event, or is it NEW_EVENT?
+        # Use specialized prompt for @eenblikopdenos tweets (media commentary)
+        if article.source_name == "Een Blik op de NOS":
+            prompt = f"""Je beoordeelt of een @eenblikopdenos tweet hoort bij een NOS nieuwsbericht.
+
+@EENBLIKOPDENOS TWEET:
+{article_text}
+
+KANDIDAAT NOS ARTIKELEN:
+{chr(10).join(candidates_text)}
+
+BESLISREGELS:
+
+CLUSTER (kies EVENT_X) ALLEEN als:
+• De tweet SPECIFIEK commentaar geeft op het NOS artikel
+• De tweet het NOS artikel bekritiseert, aanvult of becommentarieert
+• De HOOFDPERSOON of het HOOFDONDERWERP van de tweet overeenkomt met het NOS artikel
+
+NIEUW EVENT (NEW_EVENT) als:
+• De tweet over een ANDER onderwerp gaat dan het NOS artikel
+• De tweet alleen toevallig dezelfde persoon noemt in een andere context
+• De tweet algemene mediakritiek is zonder specifieke link naar dit NOS artikel
+• De hoofdpersoon in de tweet (bijv. "Pim van Galen") verschilt van de hoofdpersoon in het NOS artikel (bijv. "Lale Gül")
+
+VOORBEELD:
+• Tweet over "NOS berichtgeving over Wilders" + NOS artikel "Wilders hervat campagne" → EVENT_X (zelfde onderwerp)
+• Tweet over "Pim van Galen gedrag" + NOS artikel "Lale Gül beveiliging" → NEW_EVENT (andere hoofdpersoon!)
+• Tweet met algemene NOS kritiek + willekeurig NOS artikel → NEW_EVENT (geen specifieke link)
+
+Antwoord met ALLEEN: "EVENT_1" of "EVENT_2" of "EVENT_3" of "NEW_EVENT"
+
+Antwoord:"""
+        else:
+            prompt = f"""You cluster Dutch news articles into events. Decide: does this article belong to an existing event, or is it NEW_EVENT?
 
 NEW ARTICLE:
 Type: {article.event_type or 'unknown'}
