@@ -273,32 +273,47 @@ export async function listEvents(
   }
 
   // Get main source display names for filtering
-  // Events should only be shown if they have at least one article from a main source
-  const { data: mainSources } = await supabase
-    .from('news_source')
+  // Events should only be shown if they have at least one article from an ENABLED main source
+  // First check if the system has any sources configured at all (unconfigured = show all)
+  const { data: allSources } = await supabase
+    .from('news_sources')
+    .select('id')
+    .limit(1);
+
+  const hasAnySourcesConfigured = (allSources || []).length > 0;
+
+  // Get enabled main sources for filtering
+  const { data: enabledMainSources } = await supabase
+    .from('news_sources')
     .select('display_name')
-    .eq('is_main_source', true);
+    .eq('is_main_source', true)
+    .eq('enabled', true);
 
-  const mainSourceNames = new Set((mainSources || []).map((s: { display_name: string }) => s.display_name));
+  const mainSourceNames = new Set((enabledMainSources || []).map((s: { display_name: string }) => s.display_name));
 
-  // Filter events to only those with at least one article from a main source
-  // If no main sources are configured, show all events
-  const filteredData = mainSourceNames.size > 0
-    ? (data || []).filter((event: any) => {
-        const articleSources = new Set(
-          (event.event_articles || [])
-            .map((ea: any) => ea.articles?.source_name)
-            .filter(Boolean)
-        );
-        // Check if any article source is a main source
-        for (const source of articleSources) {
-          if (mainSourceNames.has(source)) {
-            return true;
-          }
-        }
-        return false;
-      })
-    : (data || []);
+  // Filter events based on main source configuration:
+  // - If NO sources are configured at all: show all events (fresh/unconfigured system)
+  // - If sources are configured but no main sources are enabled: show NO events
+  // - If sources are configured and some main sources are enabled: filter to those sources
+  let filteredData: any[];
+  if (!hasAnySourcesConfigured) {
+    // No sources configured at all - show all events (unconfigured system)
+    filteredData = data || [];
+  } else if (mainSourceNames.size === 0) {
+    // Sources are configured but no main sources are enabled - show no events
+    filteredData = [];
+  } else {
+    // Filter to events with at least one enabled main source
+    filteredData = (data || []).filter((event: any) => {
+      const articleSources = new Set<string>(
+        (event.event_articles || [])
+          .map((ea: any) => ea.articles?.source_name)
+          .filter((s: unknown): s is string => typeof s === "string")
+      );
+      // Check if any article source is a main source
+      return Array.from(articleSources).some(source => mainSourceNames.has(source));
+    });
+  }
 
   const events: EventListItem[] = filteredData.map((event: any) => {
     // llm_insights is an array from Supabase join, get first element
