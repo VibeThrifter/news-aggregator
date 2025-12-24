@@ -35,6 +35,7 @@ import { FallacyList } from "@/components/FallacyList";
 import { FrameList } from "@/components/FrameList";
 import { InsightsFallback } from "@/components/InsightsFallback";
 import { Timeline } from "@/components/Timeline";
+import ReactMarkdown from "react-markdown";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("nl-NL", {
   dateStyle: "medium",
@@ -107,17 +108,17 @@ function hasInsightsContent(insights: AggregationResponse | null): boolean {
 
 function LoadingHero() {
   return (
-    <header className="space-y-6 rounded-3xl border border-white/10 bg-white/[0.04] p-8 shadow-glow backdrop-blur">
+    <header className="space-y-6 rounded-sm border border-paper-300 bg-paper-50 p-8 shadow-card-light">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-3">
-          <span className="inline-flex h-4 w-32 animate-pulse rounded-full bg-white/20" />
-          <span className="block h-8 w-72 animate-pulse rounded-full bg-white/30" />
-          <span className="block h-16 w-full max-w-3xl animate-pulse rounded-2xl bg-white/10" />
+          <span className="inline-flex h-4 w-32 animate-pulse rounded-sm bg-paper-200" />
+          <span className="block h-8 w-72 animate-pulse rounded-sm bg-paper-200" />
+          <span className="block h-16 w-full max-w-3xl animate-pulse rounded-sm bg-paper-100" />
         </div>
         <div className="flex flex-col gap-3">
-          <span className="block h-4 w-48 animate-pulse rounded-full bg-white/20" />
-          <span className="block h-4 w-40 animate-pulse rounded-full bg-white/20" />
-          <span className="block h-9 w-36 animate-pulse rounded-full bg-white/20" />
+          <span className="block h-4 w-48 animate-pulse rounded-sm bg-paper-200" />
+          <span className="block h-4 w-40 animate-pulse rounded-sm bg-paper-200" />
+          <span className="block h-9 w-36 animate-pulse rounded-sm bg-paper-200" />
         </div>
       </div>
     </header>
@@ -126,7 +127,7 @@ function LoadingHero() {
 
 function ErrorState({ message }: { message: string }) {
   return (
-    <div className="rounded-3xl border border-rose-300/60 bg-rose-500/15 p-8 text-rose-100">
+    <div className="rounded-sm border border-red-200 bg-red-50 p-8 text-red-700">
       <h2 className="text-lg font-semibold">Kon event niet laden</h2>
       <p className="mt-2 text-sm">{message}</p>
     </div>
@@ -192,50 +193,55 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
   return (
     <ArticleLookupProvider articles={articles}>
       <div className="space-y-12 pb-16">
-        <header className="space-y-6 rounded-3xl border border-white/10 bg-white/[0.04] p-8 shadow-glow backdrop-blur">
+        <header className="space-y-6 rounded-sm border border-paper-300 bg-paper-50 p-8 shadow-card-light">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-aurora-400">Event detail</p>
-            <h1 className="text-3xl font-semibold text-white lg:text-4xl">{event.title}</h1>
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-accent-blue">Event detail</p>
+            <h1 className="font-serif text-3xl font-bold text-ink-900 lg:text-4xl">{event.title}</h1>
             {insights?.summary ? (
-              <div className="max-w-3xl rounded-2xl border border-white/5 bg-white/[0.03] p-4">
-                <p className="text-sm leading-relaxed text-slate-200 whitespace-pre-wrap">{insights.summary}</p>
+              <div className="max-w-3xl rounded-sm border border-paper-200 bg-paper-100 p-4">
+                <div className="prose prose-sm prose-ink max-w-none text-ink-700
+                  prose-p:leading-relaxed prose-p:my-2
+                  prose-strong:text-ink-900 prose-strong:font-semibold
+                  prose-headings:text-ink-900 prose-headings:font-serif prose-headings:mt-4 prose-headings:mb-2">
+                  <ReactMarkdown>{insights.summary}</ReactMarkdown>
+                </div>
               </div>
             ) : null}
             {eventMeta ? (
-              <dl className="grid gap-3 text-xs uppercase tracking-[0.25em] text-slate-300 sm:grid-cols-2">
+              <dl className="grid gap-3 text-xs uppercase tracking-[0.25em] text-ink-500 sm:grid-cols-2">
                 <div className="space-y-1">
                   <dt>Tijdframe</dt>
-                  <dd className="text-sm normal-case tracking-normal text-slate-100">{eventMeta.timeframeLabel}</dd>
+                  <dd className="text-sm normal-case tracking-normal text-ink-900">{eventMeta.timeframeLabel}</dd>
                 </div>
                 <div className="space-y-1">
                   <dt>Artikelen</dt>
-                  <dd className="text-sm normal-case tracking-normal text-slate-100">
+                  <dd className="text-sm normal-case tracking-normal text-ink-900">
                     {numberFormatter.format(eventMeta.articleCount)} artikelen
                   </dd>
                 </div>
                 <div className="space-y-1">
                   <dt>Eerste artikel</dt>
-                  <dd className="text-sm normal-case tracking-normal text-slate-100">{eventMeta.firstSeenLabel}</dd>
+                  <dd className="text-sm normal-case tracking-normal text-ink-900">{eventMeta.firstSeenLabel}</dd>
                 </div>
                 <div className="space-y-1">
                   <dt>Laatste update</dt>
-                  <dd className="text-sm normal-case tracking-normal text-slate-100">{eventMeta.lastUpdatedLabel}</dd>
+                  <dd className="text-sm normal-case tracking-normal text-ink-900">{eventMeta.lastUpdatedLabel}</dd>
                 </div>
               </dl>
             ) : null}
           </div>
         </div>
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400 mb-3">Bronverdeling</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-ink-500 mb-3">Bronverdeling</p>
           <SpectrumBar sourceBreakdown={event.source_breakdown} />
         </div>
       </header>
 
       <section className="space-y-4">
         <div>
-          <h2 className="text-2xl font-semibold text-white">Artikelen</h2>
-          <p className="mt-1 text-sm text-slate-300">
+          <h2 className="font-serif text-2xl font-bold text-ink-900">Artikelen</h2>
+          <p className="mt-1 text-sm text-ink-600">
             Lijst van artikelen die aan dit event gekoppeld zijn met spectrumlabels en publicatietijd.
           </p>
         </div>
@@ -249,8 +255,8 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
           {/* === SECTIE 1: OVERZICHT === */}
           {insights.timeline.length ? (
             <div>
-              <h2 className="text-2xl font-semibold text-white">Chronologie</h2>
-              <p className="mt-1 text-sm text-slate-300">
+              <h2 className="font-serif text-2xl font-bold text-ink-900">Chronologie</h2>
+              <p className="mt-1 text-sm text-ink-600">
                 Neutrale tijdlijn samengesteld uit gekoppelde artikelen en ingest-buckets.
               </p>
               <div className="mt-4">
@@ -262,8 +268,8 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
           {insights.clusters.length ? (
             <div className="space-y-4">
               <div>
-                <h2 className="text-2xl font-semibold text-white">Standpunten</h2>
-                <p className="mt-1 text-sm text-slate-300">
+                <h2 className="font-serif text-2xl font-bold text-ink-900">Standpunten</h2>
+                <p className="mt-1 text-sm text-ink-600">
                   Groepering van artikelen op basis van ingenomen standpunt of perspectief.
                 </p>
               </div>
@@ -281,9 +287,9 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
             insights.fallacies.length ||
             insights.frames?.length) ? (
             <div className="space-y-8">
-              <div className="border-t border-white/10 pt-8">
-                <h2 className="text-2xl font-semibold text-aurora-300">Kritische Analyse</h2>
-                <p className="mt-1 text-sm text-slate-300">
+              <div className="border-t border-paper-300 pt-8">
+                <h2 className="font-serif text-2xl font-bold text-accent-blue">Kritische Analyse</h2>
+                <p className="mt-1 text-sm text-ink-600">
                   Diepgaande analyse van claims, bronnen, framing en berichtgeving.
                 </p>
               </div>
@@ -291,8 +297,8 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
               {insights.unsubstantiated_claims?.length ? (
                 <div className="space-y-4">
                   <div>
-                    <h3 className="text-xl font-semibold text-white">Ononderbouwde claims</h3>
-                    <p className="mt-1 text-sm text-slate-300">
+                    <h3 className="font-serif text-xl font-bold text-ink-900">Ononderbouwde claims</h3>
+                    <p className="mt-1 text-sm text-ink-600">
                       Claims die als feit worden gepresenteerd zonder adequate onderbouwing.
                     </p>
                   </div>
@@ -303,8 +309,8 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
               {insights.authority_analysis?.length ? (
                 <div className="space-y-4">
                   <div>
-                    <h3 className="text-xl font-semibold text-white">Bronkritiek</h3>
-                    <p className="mt-1 text-sm text-slate-300">
+                    <h3 className="font-serif text-xl font-bold text-ink-900">Bronkritiek</h3>
+                    <p className="mt-1 text-sm text-ink-600">
                       Kritische analyse van geciteerde autoriteiten en hun mandaat.
                     </p>
                   </div>
@@ -315,8 +321,8 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
               {insights.fallacies.length ? (
                 <div className="space-y-4">
                   <div>
-                    <h3 className="text-xl font-semibold text-white">Drogredeneringen</h3>
-                    <p className="mt-1 text-sm text-slate-300">
+                    <h3 className="font-serif text-xl font-bold text-ink-900">Drogredeneringen</h3>
+                    <p className="mt-1 text-sm text-ink-600">
                       Logische drogredenen in de argumentatie.
                     </p>
                   </div>
@@ -327,8 +333,8 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
               {insights.frames?.length ? (
                 <div className="space-y-4">
                   <div>
-                    <h3 className="text-xl font-semibold text-white">Framingtechnieken</h3>
-                    <p className="mt-1 text-sm text-slate-300">
+                    <h3 className="font-serif text-xl font-bold text-ink-900">Framingtechnieken</h3>
+                    <p className="mt-1 text-sm text-ink-600">
                       Hoe het verhaal wordt gepresenteerd en welke aspecten worden benadrukt of weggelaten.
                     </p>
                   </div>
@@ -339,8 +345,8 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
               {insights.statistical_issues?.length ? (
                 <div className="space-y-4">
                   <div>
-                    <h3 className="text-xl font-semibold text-white">Misleidende statistieken</h3>
-                    <p className="mt-1 text-sm text-slate-300">
+                    <h3 className="font-serif text-xl font-bold text-ink-900">Misleidende statistieken</h3>
+                    <p className="mt-1 text-sm text-ink-600">
                       Statistieken die mogelijk misleidend of onvolledig worden gepresenteerd.
                     </p>
                   </div>
@@ -351,8 +357,8 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
               {insights.timing_analysis ? (
                 <div className="space-y-4">
                   <div>
-                    <h3 className="text-xl font-semibold text-white">Timing analyse</h3>
-                    <p className="mt-1 text-sm text-slate-300">
+                    <h3 className="font-serif text-xl font-bold text-ink-900">Timing analyse</h3>
+                    <p className="mt-1 text-sm text-ink-600">
                       Waarom is dit nu nieuws? Wie profiteert van deze timing?
                     </p>
                   </div>
@@ -363,8 +369,8 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
               {insights.scientific_plurality ? (
                 <div className="space-y-4">
                   <div>
-                    <h3 className="text-xl font-semibold text-white">Wetenschappelijke pluraliteit</h3>
-                    <p className="mt-1 text-sm text-slate-300">
+                    <h3 className="font-serif text-xl font-bold text-ink-900">Wetenschappelijke pluraliteit</h3>
+                    <p className="mt-1 text-sm text-ink-600">
                       Wordt dit onderwerp gepresenteerd als consensus terwijl er wetenschappelijk debat is?
                     </p>
                   </div>
@@ -377,9 +383,9 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
           {/* === SECTIE 3: MEDIA-ANALYSE === */}
           {insights.media_analysis?.length ? (
             <div className="space-y-4">
-              <div className="border-t border-white/10 pt-8">
-                <h2 className="text-2xl font-semibold text-rose-300">Media-analyse</h2>
-                <p className="mt-1 text-sm text-slate-300">
+              <div className="border-t border-paper-300 pt-8">
+                <h2 className="font-serif text-2xl font-bold text-accent-red">Media-analyse</h2>
+                <p className="mt-1 text-sm text-ink-600">
                   Kritische analyse van de berichtgeving: bronnenpatronen, niet-gestelde vragen, en narratief-uitlijning.
                 </p>
               </div>
@@ -390,9 +396,9 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
           {/* === SECTIE 4: VERGELIJKING === */}
           {(insights.contradictions.length || insights.coverage_gaps?.length) ? (
             <div className="space-y-8">
-              <div className="border-t border-white/10 pt-8">
-                <h2 className="text-2xl font-semibold text-white">Bronvergelijking</h2>
-                <p className="mt-1 text-sm text-slate-300">
+              <div className="border-t border-paper-300 pt-8">
+                <h2 className="font-serif text-2xl font-bold text-ink-900">Bronvergelijking</h2>
+                <p className="mt-1 text-sm text-ink-600">
                   Vergelijking tussen bronnen: tegenstrijdigheden en onderbelichte perspectieven.
                 </p>
               </div>
@@ -400,8 +406,8 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
               {insights.contradictions.length ? (
                 <div className="space-y-4">
                   <div>
-                    <h3 className="text-xl font-semibold text-white">Tegenstrijdige claims</h3>
-                    <p className="mt-1 text-sm text-slate-300">
+                    <h3 className="font-serif text-xl font-bold text-ink-900">Tegenstrijdige claims</h3>
+                    <p className="mt-1 text-sm text-ink-600">
                       Conflicterende uitspraken tussen verschillende bronnen.
                     </p>
                   </div>
@@ -412,8 +418,8 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
               {insights.coverage_gaps?.length ? (
                 <div className="space-y-4">
                   <div>
-                    <h3 className="text-xl font-semibold text-white">Onderbelichte perspectieven</h3>
-                    <p className="mt-1 text-sm text-slate-300">
+                    <h3 className="font-serif text-xl font-bold text-ink-900">Onderbelichte perspectieven</h3>
+                    <p className="mt-1 text-sm text-ink-600">
                       Invalshoeken en contexten die ontbreken in de huidige berichtgeving.
                     </p>
                   </div>
