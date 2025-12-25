@@ -4,6 +4,7 @@ This document provides Claude Code with essential context and guidelines for wor
 
 ## Rules
 - Never commit without asking
+- Frontend build warnings about `<img>` vs `<Image>` are expected and NOT errors - the build succeeds despite these warnings
 
 ## 📋 Project Overview
 
@@ -132,7 +133,7 @@ make clean             # Clean up generated files
 
 ### Current Status
 - **Backend**: Fully functional with Python 3.11 + venv, runs locally with Supabase PostgreSQL
-- **Frontend**: Next.js 14 deployed on Vercel with dark mode UI
+- **Frontend**: Next.js 14 deployed on Vercel with light theme UI (Pluriformiteit)
 - **Database**: Supabase PostgreSQL (cloud), direct queries from frontend via Supabase JS client
 - **ML Features**: Fully operational - PyTorch embeddings, vector search (hnswlib), spaCy NER
 - **LLM Classification**: Mistral-based semantic event type classification (replaced keyword matching)
