@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import Image from "next/image";
-import { ChevronDown, ChevronUp, Check } from "lucide-react";
+import { ChevronDown, Check } from "lucide-react";
 import { getSourceFaviconUrl } from "@/lib/format";
 
 export interface SourceInfo {
@@ -34,17 +34,17 @@ function SourceCheckbox({
     <button
       type="button"
       onClick={onToggle}
-      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors ${
+      className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors ${
         isSelected
-          ? "bg-brand-500/20 text-slate-100"
-          : "text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+          ? "bg-paper-100 text-ink-900"
+          : "text-ink-600 hover:bg-paper-50 hover:text-ink-900"
       }`}
     >
       <span
-        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-colors ${
           isSelected
-            ? "border-brand-500 bg-brand-500"
-            : "border-slate-500 bg-slate-700"
+            ? "border-accent-orange bg-accent-orange"
+            : "border-ink-300"
         }`}
       >
         {isSelected && <Check size={12} className="text-white" />}
@@ -58,7 +58,7 @@ function SourceCheckbox({
         unoptimized
       />
       <span className="flex-1 truncate">{source.name}</span>
-      <span className="shrink-0 text-xs text-slate-500">
+      <span className="shrink-0 text-xs text-ink-400">
         {source.articleCount}
       </span>
     </button>
@@ -130,33 +130,36 @@ export function SourceFilter({ sources, selectedSources, onSelectionChange }: So
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-700/50 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:bg-slate-700 hover:text-slate-200"
+        className="inline-flex items-center gap-2 text-sm text-ink-400 transition-colors hover:text-ink-700"
       >
-        <span>Bronnen</span>
-        <span className="rounded-full bg-slate-600 px-1.5 py-0.5 text-[10px] font-semibold">
+        <span>bronnen</span>
+        <span className="font-medium text-ink-700">
           {selectedSources.size}/{sources.length}
         </span>
-        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        <ChevronDown
+          size={14}
+          className={`transition-transform ${isExpanded ? "rotate-180" : ""}`}
+        />
       </button>
 
       {isExpanded && (
-        <div className="absolute right-0 top-full z-50 mt-2 min-w-[240px] rounded-lg border border-slate-600 bg-slate-800 p-2 shadow-xl">
+        <div className="absolute right-0 top-full z-50 mt-2 min-w-[260px] overflow-hidden rounded-sm border border-paper-200 bg-white shadow-lg">
           {/* Select All / None buttons */}
-          <div className="mb-2 flex items-center gap-2 border-b border-slate-700 pb-2">
+          <div className="flex items-center gap-3 border-b border-paper-200 px-3 py-2">
             <button
               type="button"
               onClick={handleSelectAll}
               disabled={allSelected}
-              className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
+              className="text-xs text-ink-500 transition-colors hover:text-accent-orange disabled:opacity-40"
             >
               Alles
             </button>
-            <span className="text-slate-600">|</span>
+            <span className="text-paper-300">·</span>
             <button
               type="button"
               onClick={handleSelectNone}
               disabled={noneSelected}
-              className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
+              className="text-xs text-ink-500 transition-colors hover:text-accent-orange disabled:opacity-40"
             >
               Geen
             </button>
@@ -165,7 +168,7 @@ export function SourceFilter({ sources, selectedSources, onSelectionChange }: So
           <div className="max-h-[300px] overflow-y-auto">
             {/* News sources section */}
             {newsSources.length > 0 && (
-              <div className="space-y-1">
+              <div>
                 {newsSources.map((source) => (
                   <SourceCheckbox
                     key={source.name}
@@ -180,12 +183,12 @@ export function SourceFilter({ sources, selectedSources, onSelectionChange }: So
             {/* Social media / commentary section */}
             {socialSources.length > 0 && (
               <>
-                <div className="my-2 border-t border-slate-700 pt-2">
-                  <span className="px-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                <div className="border-t border-paper-200 px-3 py-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">
                     X / Commentaar
                   </span>
                 </div>
-                <div className="space-y-1">
+                <div>
                   {socialSources.map((source) => (
                     <SourceCheckbox
                       key={source.name}

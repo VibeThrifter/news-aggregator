@@ -16,33 +16,37 @@ export function ContradictionCard({ data, index }: ContradictionCardProps) {
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.07 }}
-      className="rounded-3xl border border-red-400/30 bg-red-500/10 p-5 backdrop-blur"
+      className="rounded-lg border-l-4 border-l-red-500 border border-paper-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow"
     >
-      <div className="flex items-center gap-3 text-red-200">
-        <AlertTriangle size={20} />
-        <h3 className="text-sm uppercase tracking-[0.3em]">Tegenstrijdige claim</h3>
+      <div className="flex items-center gap-2 text-red-600">
+        <AlertTriangle size={18} />
+        <h3 className="text-xs font-semibold uppercase tracking-wider">Tegenstrijdige claim</h3>
       </div>
-      <p className="mt-2 text-base font-semibold text-slate-50">{data.topic}</p>
-      <div className="mt-3 grid gap-3 text-sm text-slate-200">
-        <div className="space-y-1">
-          <p className="font-semibold text-red-100">Claim A</p>
-          <p>{data.claim_a.summary}</p>
+      <p className="mt-2 text-base font-semibold text-ink-900">{data.topic}</p>
+      <div className="mt-4 grid gap-4 text-sm">
+        <div className="space-y-2 rounded-lg bg-red-50 p-3 border border-red-100">
+          <p className="font-semibold text-red-700">Claim A</p>
+          <p className="text-ink-700">{data.claim_a.summary}</p>
           <div className="flex flex-wrap gap-2 pt-1">
             {data.claim_a.sources.map((url) => (
               <SourceIconLink key={url} url={url} />
             ))}
           </div>
         </div>
-        <div className="space-y-1">
-          <p className="font-semibold text-red-100">Claim B</p>
-          <p>{data.claim_b.summary}</p>
+        <div className="space-y-2 rounded-lg bg-red-50 p-3 border border-red-100">
+          <p className="font-semibold text-red-700">Claim B</p>
+          <p className="text-ink-700">{data.claim_b.summary}</p>
           <div className="flex flex-wrap gap-2 pt-1">
             {data.claim_b.sources.map((url) => (
               <SourceIconLink key={url} url={url} />
             ))}
           </div>
         </div>
-        <p className="text-xs uppercase tracking-widest text-red-300">Status: {data.verification}</p>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-medium text-red-700 border border-red-200">
+            Status: {data.verification}
+          </span>
+        </div>
       </div>
     </motion.div>
   );

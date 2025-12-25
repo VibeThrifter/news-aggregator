@@ -15,34 +15,33 @@ export function CoverageGapCard({ item, index }: CoverageGapCardProps) {
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.07 }}
-      className="relative overflow-hidden rounded-3xl border border-indigo-400/40 bg-indigo-500/10 p-6 backdrop-blur"
+      className="rounded-lg border-l-4 border-l-indigo-500 border border-paper-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow"
     >
-      <div className="absolute inset-0 bg-gradient-to-br from-indigo-400/20 to-transparent opacity-40 pointer-events-none" />
-      <div className="relative space-y-3 text-slate-50">
-        <div className="flex items-center gap-2 text-indigo-200">
-          <Info size={20} />
-          <span className="text-xs uppercase tracking-[0.3em]">Onderbelicht perspectief</span>
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 text-indigo-600">
+          <Info size={18} />
+          <span className="text-xs font-semibold uppercase tracking-wider">Onderbelicht perspectief</span>
         </div>
-        <h3 className="text-lg font-semibold text-slate-50">{item.perspective}</h3>
-        <p className="text-sm leading-relaxed text-slate-200 whitespace-pre-line">
+        <h3 className="text-base font-semibold text-ink-900">{item.perspective}</h3>
+        <p className="text-sm leading-relaxed text-ink-700 whitespace-pre-line">
           {item.description}
         </p>
-        <div className="space-y-2 pt-2">
-          <div className="text-xs font-semibold uppercase tracking-[0.25em] text-indigo-300">
+        <div className="space-y-2 pt-2 border-t border-paper-200">
+          <div className="text-xs font-semibold uppercase tracking-wider text-indigo-600">
             Relevantie
           </div>
-          <p className="text-sm text-slate-200">{item.relevance}</p>
+          <p className="text-sm text-ink-600">{item.relevance}</p>
         </div>
         {item.potential_sources?.length > 0 && (
           <div className="space-y-2 pt-2">
-            <div className="text-xs font-semibold uppercase tracking-[0.25em] text-indigo-300">
+            <div className="text-xs font-semibold uppercase tracking-wider text-indigo-600">
               Mogelijke bronnen
             </div>
             <div className="flex flex-wrap gap-2">
               {item.potential_sources.map((source, idx) => (
                 <span
                   key={idx}
-                  className="rounded-full border border-indigo-300/40 bg-indigo-400/10 px-3 py-1 text-xs text-indigo-100"
+                  className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700"
                 >
                   {source}
                 </span>

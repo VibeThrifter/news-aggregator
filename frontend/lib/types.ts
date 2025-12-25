@@ -161,6 +161,7 @@ export interface EventListItem {
   source_breakdown?: EventSourceBreakdownEntry[] | null;
   llm_provider?: string | null;
   event_type?: string | null;
+  featured_image_url?: string | null;
 }
 
 export interface EventFeedMeta extends Record<string, unknown> {

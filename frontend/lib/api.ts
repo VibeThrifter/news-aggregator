@@ -193,17 +193,34 @@ export const ApiClient = {
   },
 };
 
+const MAX_TITLE_LENGTH = 60;
+
 function extractTitleFromSummary(summary: string | null | undefined): { title: string | null; description: string | null } {
   if (!summary) {
     return { title: null, description: null };
   }
   // Split on first sentence ending (. ! ?)
   const match = summary.match(/^(.+?[.!?])\s*(.*)$/s);
+  let title: string;
+  let rest: string | null;
+
   if (match) {
-    return { title: match[1].trim(), description: match[2].trim() || null };
+    title = match[1].trim();
+    rest = match[2].trim() || null;
+  } else {
+    title = summary;
+    rest = null;
   }
-  // No sentence ending found, use whole text as title
-  return { title: summary, description: null };
+
+  // Truncate long titles
+  if (title.length > MAX_TITLE_LENGTH) {
+    // Try to break at a word boundary
+    const truncated = title.slice(0, MAX_TITLE_LENGTH);
+    const lastSpace = truncated.lastIndexOf(' ');
+    title = lastSpace > 40 ? truncated.slice(0, lastSpace) + '…' : truncated + '…';
+  }
+
+  return { title, description: rest };
 }
 
 export async function listEvents(
@@ -223,7 +240,9 @@ export async function listEvents(
       event_articles (
         articles (
           source_name,
-          source_metadata
+          source_metadata,
+          image_url,
+          published_at
         )
       )
     `)
@@ -320,8 +339,10 @@ export async function listEvents(
     const insightSummary = event.llm_insights?.[0]?.summary;
     const { title: llmTitle, description: llmDescription } = extractTitleFromSummary(insightSummary);
 
-    // Build source_breakdown from event_articles
+    // Build source_breakdown from event_articles and find first image + latest article date
     const sourceBreakdownMap = new Map<string, { source: string; article_count: number; spectrum: string | number | null }>();
+    let featured_image_url: string | null = null;
+    let latestArticleDate: Date | null = null;
     for (const ea of event.event_articles || []) {
       const article = ea.articles;
       if (!article) continue;
@@ -334,14 +355,27 @@ export async function listEvents(
       } else {
         sourceBreakdownMap.set(key, { source, article_count: 1, spectrum });
       }
+      // Get first available image URL
+      if (!featured_image_url && article.image_url) {
+        featured_image_url = article.image_url;
+      }
+      // Track latest article publication date
+      if (article.published_at) {
+        const pubDate = new Date(article.published_at);
+        if (!latestArticleDate || pubDate > latestArticleDate) {
+          latestArticleDate = pubDate;
+        }
+      }
     }
     const source_breakdown: EventSourceBreakdownEntry[] = Array.from(sourceBreakdownMap.values());
+    // Use latest article date as last_updated_at, fallback to event's timestamp
+    const computedLastUpdated = latestArticleDate?.toISOString() || event.last_updated_at;
 
     return {
       id: event.id,
       slug: event.slug,
-      // Use LLM-generated title if available, otherwise fall back to event title
-      title: llmTitle || event.title || `Event ${event.id}`,
+      // ONLY use LLM-generated title - NEVER fall back to event.title (which is article title = copyright)
+      title: llmTitle || `Event #${event.id}`,
       // Use LLM description (rest of summary), or null if no LLM insights
       description: llmDescription,
       summary: insightSummary,
@@ -349,10 +383,11 @@ export async function listEvents(
       has_llm_insights: !!insightSummary,
       article_count: event.article_count || 0,
       first_seen_at: event.first_seen_at,
-      last_updated_at: event.last_updated_at,
+      last_updated_at: computedLastUpdated,
       spectrum_distribution: event.spectrum_distribution,
       source_breakdown,
       event_type: event.event_type || null,
+      featured_image_url,
     };
   });
 
@@ -411,8 +446,9 @@ export async function getEventDetail(eventId: string | number, options?: ApiFetc
     image_url: ea.articles.image_url,
   }));
 
-  // Build source_breakdown from articles
+  // Build source_breakdown from articles and find latest article date
   const sourceBreakdownMap = new Map<string, { source: string; article_count: number; spectrum: string | number | null }>();
+  let latestArticleDate: Date | null = null;
   for (const article of articles) {
     const key = `${article.source}|${article.spectrum || ''}`;
     const existing = sourceBreakdownMap.get(key);
@@ -425,17 +461,36 @@ export async function getEventDetail(eventId: string | number, options?: ApiFetc
         spectrum: article.spectrum || null,
       });
     }
+    // Track latest article publication date
+    if (article.published_at) {
+      const pubDate = new Date(article.published_at);
+      if (!latestArticleDate || pubDate > latestArticleDate) {
+        latestArticleDate = pubDate;
+      }
+    }
   }
   const source_breakdown: EventSourceBreakdownEntry[] = Array.from(sourceBreakdownMap.values());
+  // Use latest article date as last_updated_at, fallback to event's timestamp
+  const computedLastUpdated = latestArticleDate?.toISOString() || event.last_updated_at;
+
+  // Fetch LLM insights to get the generated title (NOT the article title)
+  const { data: llmInsights } = await supabase
+    .from('llm_insights')
+    .select('summary')
+    .eq('event_id', event.id)
+    .single();
+
+  const { title: llmTitle } = extractTitleFromSummary(llmInsights?.summary);
 
   const eventDetail: EventDetail = {
     id: event.id,
     slug: event.slug,
-    title: event.title || `Event ${event.id}`,
-    description: event.description,
+    // ONLY use LLM-generated title - NEVER fall back to event.title (which is article title = copyright)
+    title: llmTitle || `Event #${event.id}`,
+    description: null, // Never use event.description (could be article content)
     article_count: event.article_count || 0,
     first_seen_at: event.first_seen_at,
-    last_updated_at: event.last_updated_at,
+    last_updated_at: computedLastUpdated,
     spectrum_distribution: event.spectrum_distribution,
     source_breakdown,
     articles,

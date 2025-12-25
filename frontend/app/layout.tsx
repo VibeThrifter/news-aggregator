@@ -1,12 +1,26 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { Inter, Merriweather } from "next/font/google";
 import "@/styles/globals.css";
 
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+const merriweather = Merriweather({
+  weight: ["400", "700", "900"],
+  subsets: ["latin"],
+  variable: "--font-serif",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "360° Nieuwsaggregator",
-  description: "Moderne Nederlandse nieuwsaggregator met eventdetectie en pluriforme analyses.",
-  applicationName: "360° Nieuwsaggregator",
+  title: "Pluriformiteit",
+  description: "Pluriform overzicht van Nederlandse nieuwsevents met eventdetectie en bias-analyse.",
+  applicationName: "Pluriformiteit",
 };
 
 export const viewport: Viewport = {
@@ -16,41 +30,47 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  const today = new Date().toLocaleDateString("nl-NL", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
   return (
-    <html lang="nl">
-      <body className="bg-slate-900 text-slate-100 antialiased">
+    <html lang="nl" className={`${inter.variable} ${merriweather.variable}`}>
+      <body className="bg-paper-50 text-ink-900 antialiased font-sans">
         <div className="flex min-h-screen flex-col">
-          <header className="border-b border-slate-700 bg-slate-800">
-            <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-              <Link href="/" className="cursor-pointer transition-opacity hover:opacity-80">
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-brand-400">
-                  360° Nieuwsaggregator
-                </p>
-                <h1 className="text-lg font-semibold text-slate-100 sm:text-xl">
-                  Pluriform overzicht van Nederlandse nieuwsevents
-                </h1>
-              </Link>
-              <div className="flex items-center gap-3">
+          {/* Masthead */}
+          <header className="border-b border-paper-300 bg-paper-50">
+            <div className="mx-auto w-full max-w-7xl px-4 py-3 sm:px-6">
+              <div className="flex items-center justify-between">
+                <time className="text-xs text-ink-400 capitalize hidden sm:block">{today}</time>
+                <Link href="/" className="transition-opacity hover:opacity-80">
+                  <h1 className="font-serif text-3xl sm:text-4xl font-bold text-ink-900 tracking-tight italic">
+                    Pluriformiteit
+                  </h1>
+                </Link>
                 <Link
                   href="/admin"
-                  className="rounded-lg border border-slate-600 bg-slate-700/50 px-3 py-2 text-xs text-slate-300 transition-colors hover:bg-slate-600/50"
+                  className="text-xs text-ink-400 hover:text-ink-900 transition-colors"
                 >
                   Admin
                 </Link>
-                <div className="hidden rounded-lg border border-slate-600 bg-slate-700/50 px-3 py-2 text-right text-xs text-slate-300 sm:block">
-                  <p className="font-medium text-slate-100">MVP Status</p>
-                  <p>Frontend shell actief</p>
-                </div>
               </div>
             </div>
           </header>
-          <main className="flex-1">
-            <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6 lg:px-8">{children}</div>
+
+          {/* Main content */}
+          <main className="flex-1 bg-paper-100">
+            <div className="mx-auto w-full max-w-7xl px-4 py-4 sm:px-6">{children}</div>
           </main>
-          <footer className="border-t border-slate-700 bg-slate-800">
-            <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-4 text-xs text-slate-400 sm:px-6">
-              <span>&copy; {new Date().getFullYear()} 360° Nieuwsaggregator</span>
-              <span>Eventdetectie · LLM-inzichten · CSV-exports</span>
+
+          {/* Footer */}
+          <footer className="border-t border-paper-300 bg-paper-50">
+            <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-4 text-xs text-ink-500 sm:px-6">
+              <span>&copy; {new Date().getFullYear()} Pluriformiteit</span>
+              <span className="hidden sm:inline">Eventdetectie · Bias-analyse · LLM-inzichten</span>
             </div>
           </footer>
         </div>

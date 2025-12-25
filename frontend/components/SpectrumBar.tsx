@@ -65,10 +65,10 @@ export function SpectrumBar({ sourceBreakdown, compact = false }: SpectrumBarPro
       {/* Mainstream row - spectrum positioning on 0-10 scale */}
       {mainstream.length > 0 && (
         <div className="flex items-center gap-2 text-[10px]">
-          <span className="text-blue-400">Links</span>
+          <span className="text-blue-600 font-medium">Links</span>
           <div className="relative w-[280px] h-10">
             {/* Background gradient bar */}
-            <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-1.5 rounded-full bg-gradient-to-r from-blue-500/40 via-slate-500/40 to-red-500/40" />
+            <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-1.5 rounded-full bg-gradient-to-r from-blue-400/60 via-paper-300 to-red-400/60" />
             {/* Position each source icon based on their 0-10 score */}
             {mainstream.map((item) => (
               <div
@@ -80,14 +80,14 @@ export function SpectrumBar({ sourceBreakdown, compact = false }: SpectrumBarPro
               </div>
             ))}
           </div>
-          <span className="text-red-400">Rechts</span>
+          <span className="text-red-600 font-medium">Rechts</span>
         </div>
       )}
 
       {/* Alternative row - compact inline design */}
       {alternative.length > 0 && (
         <div className="flex items-center gap-3">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-purple-400">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-purple-600">
             Alternatief
           </span>
           <div className="flex flex-wrap gap-1">
@@ -109,7 +109,7 @@ interface SourceIconProps {
 function SourceIcon({ item, size }: SourceIconProps) {
   return (
     <div
-      className="group relative flex items-center justify-center rounded-md border border-slate-600 bg-slate-700 p-1 transition-colors hover:border-slate-500 hover:bg-slate-600"
+      className="group relative flex items-center justify-center rounded-sm border border-paper-300 bg-paper-50 p-1 transition-colors hover:border-paper-300 hover:bg-paper-100 shadow-sm"
       title={item.source}
     >
       <Image
@@ -121,12 +121,12 @@ function SourceIcon({ item, size }: SourceIconProps) {
         unoptimized
       />
       {item.articleCount > 1 && (
-        <span className="absolute -bottom-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-brand-600 px-1 text-[10px] font-bold text-white">
+        <span className="absolute -bottom-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-accent-blue px-1 text-[10px] font-bold text-white">
           {item.articleCount}
         </span>
       )}
       {/* Tooltip */}
-      <div className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+      <div className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-sm bg-ink-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
         {item.source}
       </div>
     </div>

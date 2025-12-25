@@ -94,23 +94,22 @@ export function CategoryNav({ activeCategory, onCategoryChange }: CategoryNavPro
   return (
     <nav
       aria-label="Categoriefilter"
-      className="sticky top-0 z-10 -mx-4 bg-slate-900/95 backdrop-blur-sm sm:-mx-6 lg:-mx-8"
+      className="sticky top-0 z-40 border-b border-paper-300 bg-paper-50"
     >
       {/* Fade edges for scroll indication on mobile */}
-      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-gradient-to-r from-slate-900 to-transparent sm:hidden" />
-      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-slate-900 to-transparent sm:hidden" />
+      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-paper-50 to-transparent sm:hidden" />
+      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-paper-50 to-transparent sm:hidden" />
 
       <div
         ref={scrollContainerRef}
-        className="scrollbar-hide flex items-center gap-1 overflow-x-auto px-4 py-3 sm:justify-center sm:gap-2 sm:px-6 lg:px-8"
+        className="scrollbar-hide mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-4 sm:justify-center sm:gap-6 sm:px-6"
         style={{ WebkitOverflowScrolling: "touch" }}
         role="tablist"
         aria-label="Categoriefilter"
         onKeyDown={handleKeyDown}
       >
-        {CATEGORIES.map((category, index) => {
+        {CATEGORIES.map((category) => {
           const isActive = currentCategory === category.slug;
-          const categoryConfig = getCategoryBySlug(category.slug);
 
           return (
             <button
@@ -123,21 +122,21 @@ export function CategoryNav({ activeCategory, onCategoryChange }: CategoryNavPro
               tabIndex={isActive ? 0 : -1}
               onClick={() => handleCategoryClick(category.slug)}
               className={`
-                relative flex-shrink-0 whitespace-nowrap rounded-full px-4 py-2
-                text-sm font-medium transition-all duration-200
-                focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900
+                relative flex-shrink-0 whitespace-nowrap py-2.5 px-2
+                text-sm transition-colors duration-200
+                focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2
                 ${
                   isActive
-                    ? "bg-brand-600 text-white shadow-md"
-                    : "text-slate-300 hover:bg-slate-800 hover:text-slate-100"
+                    ? "text-ink-900 font-semibold"
+                    : "text-ink-500 hover:text-ink-900 font-medium"
                 }
               `}
             >
               {category.label}
-              {/* Active indicator underline */}
+              {/* Active indicator underline - Volkskrant-style orange */}
               {isActive && (
                 <span
-                  className="absolute bottom-0 left-1/2 h-0.5 w-8 -translate-x-1/2 rounded-full bg-white/60"
+                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent-orange"
                   aria-hidden="true"
                 />
               )}

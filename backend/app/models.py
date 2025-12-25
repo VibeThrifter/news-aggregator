@@ -194,6 +194,7 @@ class EventListItem(BaseModel):
     spectrum_distribution: Optional[dict] = None
     source_breakdown: Optional[List[EventSourceBreakdownEntry]] = None
     llm_provider: Optional[str] = None
+    featured_image_url: Optional[str] = None
 
 
 class EventDetail(EventListItem):

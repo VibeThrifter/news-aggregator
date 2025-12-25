@@ -16,12 +16,12 @@ export const SPECTRUM_LABELS: Record<string, string> = {
 };
 
 export const SPECTRUM_STYLES: Record<string, string> = {
-  mainstream: "border-sky-500/60 bg-sky-500/10 text-sky-200",
-  links: "border-rose-500/60 bg-rose-500/10 text-rose-200",
-  rechts: "border-amber-500/60 bg-amber-500/10 text-amber-200",
-  alternatief: "border-purple-500/60 bg-purple-500/10 text-purple-200",
-  overheid: "border-emerald-500/60 bg-emerald-500/10 text-emerald-200",
-  sociale_media: "border-slate-600 bg-slate-700 text-slate-200",
+  mainstream: "border-sky-300 bg-sky-50 text-sky-700",
+  links: "border-blue-300 bg-blue-50 text-blue-700",
+  rechts: "border-red-300 bg-red-50 text-red-700",
+  alternatief: "border-purple-300 bg-purple-50 text-purple-700",
+  overheid: "border-emerald-300 bg-emerald-50 text-emerald-700",
+  sociale_media: "border-gray-300 bg-gray-50 text-gray-600",
 };
 
 const dateRangeFormatter = new Intl.DateTimeFormat("nl-NL", { dateStyle: "medium" });

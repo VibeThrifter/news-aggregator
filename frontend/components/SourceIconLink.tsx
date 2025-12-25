@@ -9,13 +9,49 @@ import { useArticleTitle } from "@/components/ArticleLookupContext";
 interface SourceIconLinkProps {
   url: string;
   className?: string;
+  /** Compact mode: only show favicon with domain tooltip */
+  compact?: boolean;
 }
 
-export function SourceIconLink({ url, className = "" }: SourceIconLinkProps) {
+export function SourceIconLink({ url, className = "", compact = false }: SourceIconLinkProps) {
   const [showTooltip, setShowTooltip] = useState(false);
   const domain = getDomainFromUrl(url);
   const favicon = getFaviconUrl(url);
   const articleTitle = useArticleTitle(url);
+
+  if (compact) {
+    return (
+      <div className="relative inline-block">
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onMouseEnter={() => setShowTooltip(true)}
+          onMouseLeave={() => setShowTooltip(false)}
+          onFocus={() => setShowTooltip(true)}
+          onBlur={() => setShowTooltip(false)}
+          className={`inline-flex items-center justify-center rounded-full border border-paper-200 bg-white p-1.5 shadow-sm transition hover:border-paper-300 hover:shadow ${className}`}
+          title={domain}
+        >
+          <Image
+            src={favicon}
+            alt={domain}
+            width={16}
+            height={16}
+            className="rounded-sm"
+            unoptimized
+          />
+        </a>
+        {showTooltip && (
+          <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1 -translate-x-1/2">
+            <div className="whitespace-nowrap rounded bg-slate-800 px-2 py-1 text-xs text-white shadow-lg">
+              {domain}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="relative inline-block">

@@ -19,28 +19,28 @@ export default function DateRangeFilter({
   const today = new Date().toISOString().split("T")[0];
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      <label className="whitespace-nowrap text-sm text-slate-400">
-        Van:
-      </label>
-      <input
-        type="date"
-        value={startDate ?? ""}
-        max={endDate ?? today}
-        onChange={(e) => onStartDateChange(e.target.value || null)}
-        className="h-9 rounded-full border border-slate-600 bg-slate-800/50 px-3 text-sm text-slate-100 transition-colors hover:bg-slate-700 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
-      />
-      <label className="whitespace-nowrap text-sm text-slate-400">
-        Tot:
-      </label>
-      <input
-        type="date"
-        value={endDate ?? ""}
-        min={startDate ?? undefined}
-        max={today}
-        onChange={(e) => onEndDateChange(e.target.value || null)}
-        className="h-9 rounded-full border border-slate-600 bg-slate-800/50 px-3 text-sm text-slate-100 transition-colors hover:bg-slate-700 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
-      />
+    <div className={`flex items-center gap-3 text-sm ${className}`}>
+      <div className="flex items-center gap-1.5">
+        <span className="text-ink-400">van</span>
+        <input
+          type="date"
+          value={startDate ?? ""}
+          max={endDate ?? today}
+          onChange={(e) => onStartDateChange(e.target.value || null)}
+          className="border-0 border-b border-paper-300 bg-transparent px-1 py-1 text-sm text-ink-700 transition-colors hover:border-ink-400 focus:border-accent-orange focus:outline-none"
+        />
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="text-ink-400">tot</span>
+        <input
+          type="date"
+          value={endDate ?? ""}
+          min={startDate ?? undefined}
+          max={today}
+          onChange={(e) => onEndDateChange(e.target.value || null)}
+          className="border-0 border-b border-paper-300 bg-transparent px-1 py-1 text-sm text-ink-700 transition-colors hover:border-ink-400 focus:border-accent-orange focus:outline-none"
+        />
+      </div>
     </div>
   );
 }

@@ -15,24 +15,24 @@ interface ArticleListProps {
 }
 
 function buildSpectrumClassName(spectrum?: string | number | null): string {
+  const base = "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium";
+
   if (spectrum === null || spectrum === undefined) {
-    return "inline-flex items-center gap-1 rounded-full border border-slate-600 bg-slate-700 px-3 py-1 text-xs font-medium text-slate-200";
+    return `${base} border-gray-300 bg-gray-100 text-gray-600`;
   }
 
-  // For numeric scores, use gradient based on position
+  // For numeric scores, use gradient based on position (0-10 scale)
   if (typeof spectrum === "number") {
     if (spectrum <= 3) {
-      return "inline-flex items-center gap-1 rounded-full border border-blue-500/60 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-200";
+      return `${base} border-blue-300 bg-blue-50 text-blue-700`;
     } else if (spectrum <= 6) {
-      return "inline-flex items-center gap-1 rounded-full border border-slate-500/60 bg-slate-500/10 px-3 py-1 text-xs font-medium text-slate-200";
+      return `${base} border-gray-300 bg-gray-100 text-gray-700`;
     } else {
-      return "inline-flex items-center gap-1 rounded-full border border-red-500/60 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-200";
+      return `${base} border-red-300 bg-red-50 text-red-700`;
     }
   }
 
-  return `inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium ${
-    SPECTRUM_STYLES[spectrum] ?? "border-slate-600 bg-slate-700 text-slate-200"
-  }`;
+  return `${base} ${SPECTRUM_STYLES[spectrum] ?? "border-gray-300 bg-gray-100 text-gray-600"}`;
 }
 
 function getSpectrumDisplayLabel(spectrum?: string | number | null): string | null {
@@ -55,7 +55,7 @@ function getSourceFavicon(url: string): string {
 export function ArticleList({ articles }: ArticleListProps) {
   if (!articles.length) {
     return (
-      <div className="rounded-3xl border border-slate-700 bg-slate-800/70 p-6 text-sm text-slate-300">
+      <div className="rounded-lg border border-paper-200 bg-paper-50 p-6 text-sm text-ink-500">
         Nog geen artikelen gekoppeld aan dit event.
       </div>
     );
@@ -74,11 +74,11 @@ export function ArticleList({ articles }: ArticleListProps) {
             href={article.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="group flex flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-800/80 shadow-sm transition-all hover:border-slate-600 hover:shadow-md"
+            className="group flex flex-col overflow-hidden rounded-lg border border-paper-200 bg-white shadow-sm transition-all hover:border-paper-300 hover:shadow-md"
           >
             {/* Article image */}
             {article.image_url && (
-              <div className="relative aspect-video w-full overflow-hidden bg-slate-900">
+              <div className="relative aspect-video w-full overflow-hidden bg-paper-100">
                 <img
                   src={article.image_url}
                   alt=""
@@ -99,7 +99,7 @@ export function ArticleList({ articles }: ArticleListProps) {
                     loading="lazy"
                   />
                 )}
-                <span className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                <span className="text-xs font-medium uppercase tracking-wider text-ink-500">
                   {article.source}
                 </span>
                 <span className={buildSpectrumClassName(article.spectrum)}>
@@ -108,12 +108,12 @@ export function ArticleList({ articles }: ArticleListProps) {
               </div>
 
               {/* Title */}
-              <h3 className="flex-1 text-sm font-semibold leading-snug text-slate-100 group-hover:text-brand-300 transition-colors">
+              <h3 className="flex-1 text-sm font-semibold leading-snug text-ink-900 group-hover:text-accent-red transition-colors">
                 {article.title}
               </h3>
 
               {/* Footer with date and external link icon */}
-              <div className="flex items-center justify-between text-xs text-slate-400">
+              <div className="flex items-center justify-between text-xs text-ink-500">
                 <span>
                   {published ? dateTimeFormatter.format(published) : "Datum onbekend"}
                 </span>

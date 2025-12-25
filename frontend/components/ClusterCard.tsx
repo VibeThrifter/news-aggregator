@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { Users } from "lucide-react";
 import type { Cluster } from "@/lib/types";
 import { SourceTag } from "@/components/SourceTag";
 
@@ -15,17 +16,19 @@ export function ClusterCard({ cluster, index }: ClusterCardProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.08 }}
-      className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-glow backdrop-blur"
+      className="rounded-lg border-l-4 border-l-teal-500 border border-paper-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow"
     >
-      <div className="absolute inset-0 opacity-20 bg-gradient-to-br from-aurora-500/20 to-transparent pointer-events-none" />
-      <div className="relative space-y-4">
-        <p className="text-sm uppercase tracking-[0.3em] text-aurora-500">{cluster.label}</p>
-        <p className="text-sm leading-relaxed text-slate-200 whitespace-pre-line">
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Users size={16} className="text-teal-600" />
+          <span className="text-xs font-semibold uppercase tracking-wider text-teal-600">{cluster.label}</span>
+        </div>
+        <p className="text-sm leading-relaxed text-ink-700 whitespace-pre-line">
           {cluster.summary}
         </p>
-        <div className="flex flex-wrap gap-2 pt-2">
+        <div className="flex flex-wrap gap-1.5 pt-2 border-t border-paper-200">
           {cluster.sources.map((source) => (
-            <SourceTag key={source.url} {...source} />
+            <SourceTag key={source.url} {...source} compact />
           ))}
         </div>
       </div>

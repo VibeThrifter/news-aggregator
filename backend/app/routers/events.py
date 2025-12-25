@@ -142,6 +142,13 @@ async def list_events(
 
         source_breakdown = _build_source_breakdown(articles) if articles else None
 
+        # Get first available image URL from articles
+        featured_image_url = None
+        for article in articles:
+            if article.image_url:
+                featured_image_url = article.image_url
+                break
+
         event_items.append(
             EventListItem(
                 id=event.id,
@@ -155,6 +162,7 @@ async def list_events(
                 spectrum_distribution=event.spectrum_distribution,
                 source_breakdown=source_breakdown,
                 llm_provider=insight.provider if insight else None,
+                featured_image_url=featured_image_url,
             )
         )
 

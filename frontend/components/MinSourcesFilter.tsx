@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Minus, Plus } from "lucide-react";
 
 interface MinSourcesFilterProps {
   value: number;
@@ -82,35 +83,17 @@ export default function MinSourcesFilter({
   }, []);
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      <label
-        htmlFor="min-sources"
-        className="whitespace-nowrap text-sm text-slate-400"
-      >
-        Min. bronnen:
-      </label>
+    <div className={`flex items-center gap-2 text-sm ${className}`}>
+      <span className="text-ink-400">min. bronnen</span>
       <div className="flex items-center">
         <button
           type="button"
           onClick={handleDecrement}
           disabled={(parseInt(localValue, 10) || 1) <= 1}
-          className="flex h-9 w-9 items-center justify-center rounded-l-full border border-r-0 border-slate-600 bg-slate-800/50 text-slate-300 transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-7 w-7 items-center justify-center text-ink-400 transition-colors hover:text-ink-700 disabled:opacity-30"
           aria-label="Verlaag minimum aantal bronnen"
         >
-          <svg
-            className="h-4 w-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M20 12H4"
-            />
-          </svg>
+          <Minus size={14} />
         </button>
         <input
           ref={inputRef}
@@ -121,29 +104,16 @@ export default function MinSourcesFilter({
           value={localValue}
           onChange={handleChange}
           onBlur={handleBlur}
-          className="h-9 w-12 border-y border-slate-600 bg-slate-800/50 text-center text-sm text-slate-100 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+          className="w-8 border-0 border-b border-paper-300 bg-transparent py-1 text-center text-sm text-ink-700 transition-colors focus:border-accent-orange focus:outline-none"
           aria-label="Minimum aantal bronnen"
         />
         <button
           type="button"
           onClick={handleIncrement}
-          className="flex h-9 w-9 items-center justify-center rounded-r-full border border-l-0 border-slate-600 bg-slate-800/50 text-slate-300 transition-colors hover:bg-slate-700"
+          className="flex h-7 w-7 items-center justify-center text-ink-400 transition-colors hover:text-ink-700"
           aria-label="Verhoog minimum aantal bronnen"
         >
-          <svg
-            className="h-4 w-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
+          <Plus size={14} />
         </button>
       </div>
     </div>

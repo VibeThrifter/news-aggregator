@@ -4,16 +4,19 @@ import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 
-import { ApiClientError, EventFeedMeta, EventListFilters, listEvents } from "@/lib/api";
+import { ApiClientError, EventListFilters, listEvents } from "@/lib/api";
 import { DEFAULT_CATEGORY, getCategoryLabel } from "@/lib/categories";
 
 import CategoryNav from "./CategoryNav";
 import DateRangeFilter from "./DateRangeFilter";
 import EventCard from "./EventCard";
+import HeroEventCard from "./HeroEventCard";
+import MediumEventCard from "./MediumEventCard";
+import NewsSidebar from "./NewsSidebar";
+import BestGelezen from "./BestGelezen";
 import MinSourcesFilter from "./MinSourcesFilter";
 import SearchBar from "./SearchBar";
 import { SOCIAL_MEDIA_SOURCES, SourceFilter, SourceInfo } from "./SourceFilter";
-import StatusBanner from "./StatusBanner";
 
 // Default to last 7 days
 function getDefaultDateRange(): { startDate: string; endDate: string } {
@@ -26,53 +29,6 @@ function getDefaultDateRange(): { startDate: string; endDate: string } {
   };
 }
 
-interface NormalisedMeta {
-  lastUpdated?: string | null;
-  llmProvider?: string | null;
-  totalEvents?: number | null;
-}
-
-function pickString(meta: EventFeedMeta, keys: string[]): string | null {
-  for (const key of keys) {
-    const value = meta[key];
-    if (typeof value === "string" && value.trim()) {
-      return value;
-    }
-  }
-  return null;
-}
-
-function pickNumber(meta: EventFeedMeta, keys: string[]): number | null {
-  for (const key of keys) {
-    const value = meta[key];
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-  }
-  return null;
-}
-
-function normaliseMeta(meta: EventFeedMeta | undefined): NormalisedMeta {
-  if (!meta) {
-    return {};
-  }
-
-  const lastUpdated = pickString(meta, [
-    "last_updated_at",
-    "last_updated",
-    "last_refresh_at",
-    "generated_at",
-  ]);
-
-  const llmProvider = pickString(meta, ["llm_provider", "active_provider", "provider"]);
-  const totalEvents = pickNumber(meta, ["total_events", "event_count", "total"]);
-
-  return {
-    lastUpdated,
-    llmProvider,
-    totalEvents,
-  };
-}
 
 function resolveErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
@@ -92,20 +48,20 @@ function LoadingSkeleton({ count = 3 }: { count?: number }) {
       {Array.from({ length: count }).map((_, index) => (
         <div
           key={index}
-          className="animate-pulse rounded-2xl border border-slate-700 bg-slate-800 p-6 shadow-sm"
+          className="animate-pulse rounded-sm border border-paper-300 bg-paper-50 p-6 shadow-card-light"
         >
           <div className="flex flex-col gap-4">
             <div className="space-y-3">
-              <span className="block h-4 w-24 rounded-full bg-slate-700" aria-hidden="true" />
-              <span className="block h-6 w-3/4 rounded-full bg-slate-700" aria-hidden="true" />
-              <span className="block h-4 w-1/2 rounded-full bg-slate-700" aria-hidden="true" />
+              <span className="block h-4 w-24 rounded-sm bg-paper-200" aria-hidden="true" />
+              <span className="block h-6 w-3/4 rounded-sm bg-paper-200" aria-hidden="true" />
+              <span className="block h-4 w-1/2 rounded-sm bg-paper-200" aria-hidden="true" />
             </div>
             <div className="flex flex-wrap gap-2">
-              <span className="inline-block h-6 w-24 rounded-full bg-slate-700" aria-hidden="true" />
-              <span className="inline-block h-6 w-20 rounded-full bg-slate-700" aria-hidden="true" />
-              <span className="inline-block h-6 w-28 rounded-full bg-slate-700" aria-hidden="true" />
+              <span className="inline-block h-6 w-24 rounded-sm bg-paper-200" aria-hidden="true" />
+              <span className="inline-block h-6 w-20 rounded-sm bg-paper-200" aria-hidden="true" />
+              <span className="inline-block h-6 w-28 rounded-sm bg-paper-200" aria-hidden="true" />
             </div>
-            <span className="block h-4 w-32 rounded-full bg-slate-700" aria-hidden="true" />
+            <span className="block h-4 w-32 rounded-sm bg-paper-200" aria-hidden="true" />
           </div>
         </div>
       ))}
@@ -121,18 +77,18 @@ interface ErrorStateProps {
 
 function ErrorState({ message, onRetry, isRetrying }: ErrorStateProps) {
   return (
-    <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-6 text-rose-200">
+    <div className="rounded-sm border border-red-200 bg-red-50 p-6 text-red-700">
       <p className="text-sm font-medium">{message}</p>
       <button
         type="button"
         onClick={onRetry}
         disabled={isRetrying}
-        className="mt-4 inline-flex items-center gap-2 rounded-full border border-rose-400/60 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-200 transition-colors hover:bg-rose-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+        className="mt-4 inline-flex items-center gap-2 rounded-sm border border-red-300 bg-red-100 px-4 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {isRetrying ? (
           <span
             aria-hidden="true"
-            className="h-4 w-4 animate-spin rounded-full border-2 border-rose-400 border-t-transparent"
+            className="h-4 w-4 animate-spin rounded-full border-2 border-red-400 border-t-transparent"
           />
         ) : null}
         Probeer opnieuw
@@ -178,15 +134,15 @@ function EmptyState({
   }
 
   return (
-    <div className="rounded-2xl border border-slate-700 bg-slate-800 p-6 text-center text-slate-300">
+    <div className="rounded-sm border border-paper-300 bg-paper-50 p-6 text-center text-ink-600">
       <p className="text-sm font-medium">{message}</p>
-      <p className="mt-1 text-sm">{hint}</p>
+      <p className="mt-1 text-sm text-ink-500">{hint}</p>
       <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
         {searchQuery && !isSearchingAllPeriods && onSearchAllPeriods && (
           <button
             type="button"
             onClick={onSearchAllPeriods}
-            className="inline-flex items-center justify-center rounded-full border border-brand-500/60 bg-brand-500/10 px-4 py-2 text-sm font-semibold text-brand-300 transition-colors hover:bg-brand-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
+            className="inline-flex items-center justify-center rounded-sm border border-accent-blue bg-blue-50 px-4 py-2 text-sm font-medium text-accent-blue transition-colors hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2"
           >
             Zoek in alle periodes
           </button>
@@ -195,7 +151,7 @@ function EmptyState({
           <button
             type="button"
             onClick={onClearSearch}
-            className="inline-flex items-center justify-center rounded-full border border-slate-600 bg-slate-700/50 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
+            className="inline-flex items-center justify-center rounded-sm border border-paper-300 bg-paper-100 px-4 py-2 text-sm font-medium text-ink-700 transition-colors hover:bg-paper-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2"
           >
             Wis zoekopdracht
           </button>
@@ -203,7 +159,7 @@ function EmptyState({
         <button
           type="button"
           onClick={onRetry}
-          className="inline-flex items-center justify-center rounded-full border border-slate-600 bg-slate-700/50 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
+          className="inline-flex items-center justify-center rounded-sm border border-paper-300 bg-paper-100 px-4 py-2 text-sm font-medium text-ink-700 transition-colors hover:bg-paper-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2"
         >
           Ververs feed
         </button>
@@ -259,8 +215,6 @@ export default function EventFeed() {
     },
   );
 
-  const normalisedMeta = normaliseMeta((data?.meta as EventFeedMeta | undefined) ?? undefined);
-
   // Extract all unique sources from all events for the filter
   const availableSources: SourceInfo[] = useMemo(() => {
     const sourceMap = new Map<string, number>();
@@ -297,7 +251,6 @@ export default function EventFeed() {
   }, [data?.data, selectedSources, availableSources.length]);
 
   const errorMessage = error ? resolveErrorMessage(error) : null;
-  const totalEvents = normalisedMeta.totalEvents ?? events.length;
 
   // Get label for empty state
   const activeCategoryLabel =
@@ -350,30 +303,38 @@ export default function EventFeed() {
     setSelectedSources(sources);
   }, []);
 
+  // Split events for different layout sections
+  const heroEvent = events[0];
+  const mediumEvents = events.slice(1, 7);  // 6 medium cards
+  const sidebarEvents = events.slice(7, 14); // 7 sidebar items
+  const remainingEvents = events.slice(14);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Category Navigation */}
       <CategoryNav activeCategory={activeCategory} />
 
       {/* Search Bar and Filters */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-paper-200 pb-4">
         <SearchBar
           value={searchQuery}
           onChange={handleSearchChange}
           placeholder="Zoek in events..."
-          className="flex-1"
+          className="sm:max-w-xs"
         />
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4 sm:gap-6">
           <DateRangeFilter
             startDate={dateRange.startDate}
             endDate={dateRange.endDate}
             onStartDateChange={handleStartDateChange}
             onEndDateChange={handleEndDateChange}
           />
+          <span className="hidden sm:block text-paper-300">|</span>
           <MinSourcesFilter
             value={minSources}
             onChange={handleMinSourcesChange}
           />
+          <span className="hidden sm:block text-paper-300">|</span>
           <SourceFilter
             sources={availableSources}
             selectedSources={selectedSources}
@@ -382,28 +343,17 @@ export default function EventFeed() {
           <button
             type="button"
             onClick={handleAdminModeToggle}
-            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+            className={`text-sm transition-colors ${
               adminMode
-                ? "border-amber-500/60 bg-amber-500/20 text-amber-300"
-                : "border-slate-600 bg-slate-700/50 text-slate-400 hover:text-slate-300"
+                ? "text-accent-orange font-medium"
+                : "text-ink-400 hover:text-ink-700"
             }`}
             title="Toon ook events zonder LLM analyse"
           >
-            Admin
+            {adminMode ? "● admin" : "admin"}
           </button>
         </div>
       </div>
-
-      {/* Status Banner */}
-      <StatusBanner
-        lastUpdated={normalisedMeta.lastUpdated ?? null}
-        llmProvider={normalisedMeta.llmProvider ?? null}
-        totalEvents={totalEvents}
-        isLoading={isLoading && !data}
-        isRefreshing={isValidating && Boolean(data)}
-        onRefresh={handleRefresh}
-        error={errorMessage}
-      />
 
       {/* Event Feed */}
       <div id="event-feed" role="tabpanel" aria-label="Event feed">
@@ -421,10 +371,49 @@ export default function EventFeed() {
             isSearchingAllPeriods={searchAllPeriods}
           />
         ) : (
-          <div className="grid gap-6">
-            {events.map((event) => (
-              <EventCard key={event.id} event={event} />
-            ))}
+          <div className="space-y-10">
+            {/* Topverhalen Section - Volkskrant-style 3-column layout */}
+            <section>
+              <h2 className="font-serif text-2xl font-bold text-ink-900 border-b-2 border-ink-900 pb-2 mb-6">
+                Topverhalen
+              </h2>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Left: Hero Event + Best Gelezen below */}
+                <div className="lg:col-span-5">
+                  {heroEvent && (
+                    <HeroEventCard event={heroEvent} imageUrl={heroEvent.featured_image_url} />
+                  )}
+                  <BestGelezen events={events} />
+                </div>
+
+                {/* Middle: Medium Cards */}
+                <div className="lg:col-span-4">
+                  {mediumEvents.map((event) => (
+                    <MediumEventCard key={event.id} event={event} imageUrl={event.featured_image_url} />
+                  ))}
+                </div>
+
+                {/* Right: Sidebar */}
+                <aside className="lg:col-span-3">
+                  <NewsSidebar events={sidebarEvents} />
+                </aside>
+              </div>
+            </section>
+
+            {/* Meer nieuws Section */}
+            {remainingEvents.length > 0 && (
+              <section>
+                <h2 className="font-serif text-2xl font-bold text-ink-900 border-b-2 border-ink-900 pb-2 mb-6">
+                  Meer nieuws
+                </h2>
+                <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                  {remainingEvents.map((event) => (
+                    <EventCard key={event.id} event={event} />
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
         )}
       </div>

@@ -25,11 +25,11 @@ interface StatusMetricProps {
 function StatusMetric({ label, value, isLoading }: StatusMetricProps) {
   return (
     <div className="space-y-1">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</p>
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-500">{label}</p>
       {isLoading ? (
-        <span className="block h-4 w-28 animate-pulse rounded-full bg-slate-700" aria-hidden="true" />
+        <span className="block h-4 w-28 animate-pulse rounded-sm bg-paper-200" aria-hidden="true" />
       ) : (
-        <p aria-live="polite" className="text-sm font-medium text-slate-200">
+        <p aria-live="polite" className="text-sm font-medium text-ink-900">
           {value}
         </p>
       )}
@@ -66,11 +66,11 @@ export default function StatusBanner({
     : "Eventfeed wordt automatisch ververst zodra nieuwe data beschikbaar is.";
 
   return (
-    <section className="rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-4 shadow-sm">
+    <section className="rounded-sm border border-paper-300 bg-paper-50 px-4 py-4 shadow-card-light">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-400">Status</p>
-          <p className={`text-sm ${error ? "text-rose-400" : "text-slate-300"}`}>{statusMessage}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent-blue">Status</p>
+          <p className={`text-sm ${error ? "text-red-600" : "text-ink-600"}`}>{statusMessage}</p>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
           <StatusMetric label="Laatste update" value={lastUpdatedLabel} isLoading={isLoading} />
@@ -84,18 +84,18 @@ export default function StatusBanner({
             type="button"
             onClick={onRefresh}
             disabled={isLoading || isRefreshing}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-700/50 px-3 py-1.5 text-sm font-medium text-slate-200 transition-colors hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-700/30 disabled:text-slate-500"
+            className="inline-flex items-center gap-2 rounded-sm border border-paper-300 bg-paper-100 px-3 py-1.5 text-sm font-medium text-ink-700 transition-colors hover:bg-paper-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-paper-100 disabled:text-ink-400"
           >
             {isRefreshing ? (
               <span
                 aria-hidden="true"
-                className="h-4 w-4 animate-spin rounded-full border-2 border-brand-500 border-t-transparent"
+                className="h-4 w-4 animate-spin rounded-full border-2 border-accent-blue border-t-transparent"
               />
             ) : null}
             Vernieuw feed
           </button>
           {isRefreshing ? (
-            <span className="text-xs text-slate-400">Bezig met verversen…</span>
+            <span className="text-xs text-ink-500">Bezig met verversen…</span>
           ) : null}
         </div>
       ) : null}

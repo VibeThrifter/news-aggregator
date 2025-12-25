@@ -10,8 +10,24 @@ Schrijf een VLOEIEND JOURNALISTIEK VERHAAL dat:
 - Parafraseert zonder auteursrechtschending
 - Analyseert waar bronnen van mening/framing verschillen
 
-1. **STERKE OPENING** - Begin met het kernverhaal en de spanning:
-   - GOED: "De Efteling krijgt forse kritiek na de inzet van kunstmatige intelligentie in Fata Morgana."
+**BELANGRIJK - EERSTE ZIN = KORTE TITEL (max 60 tekens)**:
+De EERSTE ZIN van je summary wordt als TITEL gebruikt op de website.
+- MAXIMAAL 60 tekens (korter is beter)
+- GEEN datums in de titel (geen "Op 23 december", "In 2024", etc.)
+- GEEN bronvermelding in de titel
+- Pakkend en informatief, zoals een krantenkop
+- Eindig met een punt
+
+Voorbeelden eerste zin (=titel):
+- GOED: "Efteling onder vuur om AI-stemmen." (34 tekens)
+- GOED: "VVD en PVV botsen over pensioenen." (35 tekens)
+- GOED: "Rusland beschuldigt VS van aanval." (35 tekens)
+- FOUT: "De Efteling krijgt forse kritiek na de inzet van kunstmatige intelligentie in de attractie Fata Morgana." (te lang, 103 tekens)
+- FOUT: "Volgens De Telegraaf heeft de Efteling..." (begint met bronvermelding)
+- FOUT: "Op 23 december krijgt Efteling kritiek." (bevat datum)
+
+1. **STERKE OPENING** - Begin met de korte titel, daarna het verhaal:
+   - GOED: "Efteling onder vuur om AI-stemmen. De attractie Fata Morgana..."
    - FOUT: "Op 23 december meldt De Telegraaf dat..."
 
 2. **GEAGGREGEERDE BRONVERMELDING** - Combineer individuele reacties tot stromingen:

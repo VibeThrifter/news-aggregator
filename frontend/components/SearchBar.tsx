@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Search, X } from "lucide-react";
 
 interface SearchBarProps {
   value: string;
@@ -16,6 +17,7 @@ export default function SearchBar({
   className = "",
 }: SearchBarProps) {
   const [localValue, setLocalValue] = useState(value);
+  const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -67,21 +69,11 @@ export default function SearchBar({
   return (
     <div className={`relative ${className}`}>
       {/* Search icon */}
-      <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-        <svg
-          className="h-5 w-5 text-slate-400"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-          />
-        </svg>
+      <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center">
+        <Search
+          size={18}
+          className={`transition-colors ${isFocused ? "text-accent-orange" : "text-ink-400"}`}
+        />
       </div>
 
       {/* Input field */}
@@ -91,8 +83,10 @@ export default function SearchBar({
         value={localValue}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
         placeholder={placeholder}
-        className="w-full rounded-full border border-slate-600 bg-slate-800/50 py-2.5 pl-10 pr-10 text-sm text-slate-100 placeholder-slate-400 transition-colors focus:border-brand-500 focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+        className="w-full border-0 border-b border-paper-300 bg-transparent py-2 pl-7 pr-8 text-sm text-ink-900 placeholder-ink-400 transition-colors focus:border-accent-orange focus:outline-none"
         aria-label="Zoek events"
       />
 
@@ -101,23 +95,10 @@ export default function SearchBar({
         <button
           type="button"
           onClick={handleClear}
-          className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 transition-colors hover:text-slate-200"
+          className="absolute inset-y-0 right-0 flex items-center text-ink-400 transition-colors hover:text-ink-700"
           aria-label="Wis zoekopdracht"
         >
-          <svg
-            className="h-5 w-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M6 18L18 6M6 6l12 12"
-            />
-          </svg>
+          <X size={16} />
         </button>
       )}
     </div>
