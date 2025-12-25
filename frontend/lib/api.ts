@@ -195,7 +195,10 @@ export const ApiClient = {
 
 const MAX_TITLE_LENGTH = 60;
 
-function extractTitleFromSummary(summary: string | null | undefined): { title: string | null; description: string | null } {
+function extractTitleFromSummary(
+  summary: string | null | undefined,
+  options?: { truncate?: boolean }
+): { title: string | null; description: string | null } {
   if (!summary) {
     return { title: null, description: null };
   }
@@ -212,8 +215,8 @@ function extractTitleFromSummary(summary: string | null | undefined): { title: s
     rest = null;
   }
 
-  // Truncate long titles
-  if (title.length > MAX_TITLE_LENGTH) {
+  // Truncate long titles (only for card views, not detail pages)
+  if (options?.truncate !== false && title.length > MAX_TITLE_LENGTH) {
     // Try to break at a word boundary
     const truncated = title.slice(0, MAX_TITLE_LENGTH);
     const lastSpace = truncated.lastIndexOf(' ');
@@ -480,7 +483,8 @@ export async function getEventDetail(eventId: string | number, options?: ApiFetc
     .eq('event_id', event.id)
     .single();
 
-  const { title: llmTitle } = extractTitleFromSummary(llmInsights?.summary);
+  // Don't truncate title on detail page - show full title
+  const { title: llmTitle } = extractTitleFromSummary(llmInsights?.summary, { truncate: false });
 
   const eventDetail: EventDetail = {
     id: event.id,
