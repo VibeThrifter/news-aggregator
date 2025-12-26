@@ -16,6 +16,7 @@ from backend.app.db.session import get_sessionmaker
 from backend.app.llm.client import (
     BaseLLMClient,
     DeepSeekClient,
+    GeminiClient,
     LLMClientError,
     LLMGenericResult,
     LLMResult,
@@ -55,23 +56,24 @@ class InsightService:
         self.prompt_builder = prompt_builder or PromptBuilder(settings=self.settings)
         self.client = client or self._build_client()
 
-    def _build_client(
-        self, provider: str | None = None, use_reasoner: bool = False
-    ) -> BaseLLMClient:
+    def _build_client(self, provider: str | None = None) -> BaseLLMClient:
         """Build an LLM client for the specified provider."""
         provider = (provider or self.settings.llm_provider or "mistral").lower()
         if provider == "mistral":
             return MistralClient(settings=self.settings)
         if provider == "deepseek":
-            return DeepSeekClient(settings=self.settings, use_reasoner=use_reasoner)
+            return DeepSeekClient(settings=self.settings, use_reasoner=False)
+        if provider == "deepseek-r1":
+            return DeepSeekClient(settings=self.settings, use_reasoner=True)
+        if provider == "gemini":
+            return GeminiClient(settings=self.settings)
         raise ValueError(f"LLM provider '{provider}' wordt nog niet ondersteund")
 
     async def _get_client_for_phase(self, phase: str) -> BaseLLMClient:
         """Get the configured LLM client for a specific phase (factual/critical)."""
         config_service = get_llm_config_service()
         provider = await config_service.get_value(f"provider_{phase}", default="mistral")
-        use_reasoner = await config_service.get_bool("deepseek_use_reasoner", default=False)
-        return self._build_client(provider, use_reasoner=use_reasoner)
+        return self._build_client(provider)
 
     async def generate_for_event(
         self,

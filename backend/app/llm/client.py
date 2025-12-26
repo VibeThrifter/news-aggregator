@@ -564,6 +564,337 @@ class DeepSeekClient(BaseLLMClient):
         raise LLMResponseError("Onbekende fout bij het aanroepen van DeepSeek", retryable=False)
 
 
+class GeminiClient(BaseLLMClient):
+    """Async client for the Google Gemini API (free tier: 1500 requests/day)."""
+
+    provider = "gemini"
+
+    def __init__(
+        self,
+        *,
+        settings: Settings | None = None,
+    ) -> None:
+        self.settings = settings or get_settings()
+        self._client = None
+
+    def _get_client(self):
+        """Lazy-load the Gemini client."""
+        if self._client is None:
+            import google.generativeai as genai
+            api_key = self.settings.gemini_api_key
+            if not api_key:
+                raise LLMAuthenticationError("Gemini API key ontbreekt; configureer GEMINI_API_KEY in .env")
+            genai.configure(api_key=api_key)
+            self._client = genai.GenerativeModel(self.settings.gemini_model_name)
+        return self._client
+
+    async def generate(self, prompt: str, *, correlation_id: str | None = None) -> LLMResult:
+        """Generate insights using Gemini."""
+        try:
+            client = self._get_client()
+        except LLMAuthenticationError:
+            raise
+
+        max_retries = self.settings.llm_api_max_retries
+        backoff = self.settings.llm_api_retry_backoff_seconds or 0.0
+
+        system_prompt = "Je bent een pluriformiteitsanalist die Nederlandstalige nieuwsgebeurtenissen objectief duidt. Antwoord altijd in valide JSON."
+        full_prompt = f"{system_prompt}\n\n{prompt}"
+
+        attempt = 0
+        last_exception: Optional[Exception] = None
+        while attempt <= max_retries:
+            attempt += 1
+            try:
+                # Run sync Gemini call in thread pool
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: client.generate_content(
+                        full_prompt,
+                        generation_config={
+                            "temperature": self.settings.llm_temperature,
+                            "response_mime_type": "application/json",
+                        },
+                    ),
+                )
+
+                if not response.text:
+                    raise LLMResponseError("Gemini gaf een lege respons", retryable=True)
+
+                json_content = _strip_markdown_fences(response.text)
+                json_content = _normalize_spectrum_values(json_content)
+
+                try:
+                    payload_model = InsightsPayload.model_validate_json(json_content)
+                except Exception as exc:
+                    logger.error(
+                        "json_validation_failed",
+                        json_content=json_content[:500],
+                        error=str(exc),
+                        correlation_id=correlation_id,
+                    )
+                    raise LLMResponseError(f"JSON-respons kon niet worden gevalideerd: {str(exc)[:200]}", retryable=False) from exc
+
+                # Extract usage if available
+                usage = None
+                if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                    usage = {
+                        "prompt_tokens": getattr(response.usage_metadata, 'prompt_token_count', 0),
+                        "completion_tokens": getattr(response.usage_metadata, 'candidates_token_count', 0),
+                        "total_tokens": getattr(response.usage_metadata, 'total_token_count', 0),
+                    }
+
+                logger.info(
+                    "llm_call_succeeded",
+                    provider=self.provider,
+                    model=self.settings.gemini_model_name,
+                    correlation_id=correlation_id,
+                    prompt_length=len(prompt),
+                    attempt=attempt,
+                )
+                return LLMResult(
+                    provider=self.provider,
+                    model=self.settings.gemini_model_name,
+                    payload=payload_model,
+                    raw_content=json_content,
+                    usage=usage,
+                )
+            except LLMAuthenticationError:
+                raise
+            except LLMResponseError as exc:
+                if not exc.retryable or attempt > max_retries:
+                    raise
+                last_exception = exc
+            except Exception as exc:
+                error_str = str(exc).lower()
+                if "quota" in error_str or "rate" in error_str or "429" in error_str:
+                    last_exception = LLMResponseError("Gemini rate limit bereikt", retryable=True)
+                elif "api key" in error_str or "invalid" in error_str:
+                    raise LLMAuthenticationError("Gemini API key ongeldig")
+                else:
+                    last_exception = LLMResponseError(str(exc), retryable=True)
+
+            if attempt > max_retries:
+                break
+            sleep_for = backoff * attempt if backoff else 0
+            if sleep_for:
+                await asyncio.sleep(sleep_for)
+            logger.warning(
+                "llm_call_retry",
+                provider=self.provider,
+                attempt=attempt,
+                correlation_id=correlation_id,
+                error=str(last_exception) if last_exception else "onbekend",
+            )
+
+        if last_exception:
+            raise last_exception
+        raise LLMResponseError("Onbekende fout bij het aanroepen van Gemini", retryable=False)
+
+    async def generate_text(
+        self,
+        prompt: str,
+        *,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        correlation_id: str | None = None
+    ) -> LLMResponse:
+        """Generate simple text response without structured validation."""
+        try:
+            client = self._get_client()
+        except LLMAuthenticationError:
+            raise
+
+        max_retries = self.settings.llm_api_max_retries
+        backoff = self.settings.llm_api_retry_backoff_seconds or 0.0
+
+        attempt = 0
+        last_exception: Optional[Exception] = None
+        while attempt <= max_retries:
+            attempt += 1
+            try:
+                loop = asyncio.get_event_loop()
+                gen_config = {
+                    "temperature": temperature if temperature is not None else self.settings.llm_temperature,
+                }
+                if max_tokens:
+                    gen_config["max_output_tokens"] = max_tokens
+
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: client.generate_content(prompt, generation_config=gen_config),
+                )
+
+                if not response.text:
+                    raise LLMResponseError("Gemini gaf een lege respons", retryable=True)
+
+                usage = None
+                if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                    usage = {
+                        "prompt_tokens": getattr(response.usage_metadata, 'prompt_token_count', 0),
+                        "completion_tokens": getattr(response.usage_metadata, 'candidates_token_count', 0),
+                        "total_tokens": getattr(response.usage_metadata, 'total_token_count', 0),
+                    }
+
+                logger.info(
+                    "llm_text_call_succeeded",
+                    provider=self.provider,
+                    model=self.settings.gemini_model_name,
+                    correlation_id=correlation_id,
+                    prompt_length=len(prompt),
+                    attempt=attempt,
+                )
+                return LLMResponse(
+                    provider=self.provider,
+                    model=self.settings.gemini_model_name,
+                    content=response.text,
+                    usage=usage,
+                )
+            except LLMAuthenticationError:
+                raise
+            except LLMResponseError as exc:
+                if not exc.retryable or attempt > max_retries:
+                    raise
+                last_exception = exc
+            except Exception as exc:
+                error_str = str(exc).lower()
+                if "quota" in error_str or "rate" in error_str or "429" in error_str:
+                    last_exception = LLMResponseError("Gemini rate limit bereikt", retryable=True)
+                elif "api key" in error_str or "invalid" in error_str:
+                    raise LLMAuthenticationError("Gemini API key ongeldig")
+                else:
+                    last_exception = LLMResponseError(str(exc), retryable=True)
+
+            if attempt > max_retries:
+                break
+            sleep_for = backoff * attempt if backoff else 0
+            if sleep_for:
+                await asyncio.sleep(sleep_for)
+            logger.warning(
+                "llm_text_call_retry",
+                provider=self.provider,
+                attempt=attempt,
+                correlation_id=correlation_id,
+                error=str(last_exception) if last_exception else "onbekend",
+            )
+
+        if last_exception:
+            raise last_exception
+        raise LLMResponseError("Onbekende fout bij het aanroepen van Gemini", retryable=False)
+
+    async def generate_json(
+        self,
+        prompt: str,
+        schema_class: Type[T],
+        *,
+        correlation_id: str | None = None
+    ) -> LLMGenericResult:
+        """Generate structured JSON response validated against a Pydantic schema."""
+        try:
+            client = self._get_client()
+        except LLMAuthenticationError:
+            raise
+
+        max_retries = self.settings.llm_api_max_retries
+        backoff = self.settings.llm_api_retry_backoff_seconds or 0.0
+
+        system_prompt = "Je bent een pluriformiteitsanalist die Nederlandstalige nieuwsgebeurtenissen objectief duidt. Antwoord altijd in valide JSON."
+        full_prompt = f"{system_prompt}\n\n{prompt}"
+
+        attempt = 0
+        last_exception: Optional[Exception] = None
+        while attempt <= max_retries:
+            attempt += 1
+            try:
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: client.generate_content(
+                        full_prompt,
+                        generation_config={
+                            "temperature": self.settings.llm_temperature,
+                            "response_mime_type": "application/json",
+                        },
+                    ),
+                )
+
+                if not response.text:
+                    raise LLMResponseError("Gemini gaf een lege respons", retryable=True)
+
+                json_content = _strip_markdown_fences(response.text)
+                json_content = _normalize_spectrum_values(json_content)
+
+                try:
+                    payload_model = schema_class.model_validate_json(json_content)
+                except Exception as exc:
+                    logger.error(
+                        "json_validation_failed",
+                        schema=schema_class.__name__,
+                        json_content=json_content[:500],
+                        error=str(exc),
+                        correlation_id=correlation_id,
+                    )
+                    raise LLMResponseError(f"JSON-respons kon niet worden gevalideerd: {str(exc)[:200]}", retryable=False) from exc
+
+                usage = None
+                if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                    usage = {
+                        "prompt_tokens": getattr(response.usage_metadata, 'prompt_token_count', 0),
+                        "completion_tokens": getattr(response.usage_metadata, 'candidates_token_count', 0),
+                        "total_tokens": getattr(response.usage_metadata, 'total_token_count', 0),
+                    }
+
+                logger.info(
+                    "llm_json_call_succeeded",
+                    provider=self.provider,
+                    model=self.settings.gemini_model_name,
+                    schema=schema_class.__name__,
+                    correlation_id=correlation_id,
+                    prompt_length=len(prompt),
+                    attempt=attempt,
+                )
+                return LLMGenericResult(
+                    provider=self.provider,
+                    model=self.settings.gemini_model_name,
+                    payload=payload_model,
+                    raw_content=json_content,
+                    usage=usage,
+                )
+            except LLMAuthenticationError:
+                raise
+            except LLMResponseError as exc:
+                if not exc.retryable or attempt > max_retries:
+                    raise
+                last_exception = exc
+            except Exception as exc:
+                error_str = str(exc).lower()
+                if "quota" in error_str or "rate" in error_str or "429" in error_str:
+                    last_exception = LLMResponseError("Gemini rate limit bereikt", retryable=True)
+                elif "api key" in error_str or "invalid" in error_str:
+                    raise LLMAuthenticationError("Gemini API key ongeldig")
+                else:
+                    last_exception = LLMResponseError(str(exc), retryable=True)
+
+            if attempt > max_retries:
+                break
+            sleep_for = backoff * attempt if backoff else 0
+            if sleep_for:
+                await asyncio.sleep(sleep_for)
+            logger.warning(
+                "llm_json_call_retry",
+                provider=self.provider,
+                schema=schema_class.__name__,
+                attempt=attempt,
+                correlation_id=correlation_id,
+                error=str(last_exception) if last_exception else "onbekend",
+            )
+
+        if last_exception:
+            raise last_exception
+        raise LLMResponseError("Onbekende fout bij het aanroepen van Gemini", retryable=False)
+
+
 class MistralClient(BaseLLMClient):
     """Async client for the Mistral chat completion API."""
 
@@ -959,6 +1290,7 @@ class MistralClient(BaseLLMClient):
 __all__ = [
     "BaseLLMClient",
     "DeepSeekClient",
+    "GeminiClient",
     "LLMAuthenticationError",
     "LLMClientError",
     "LLMGenericResult",

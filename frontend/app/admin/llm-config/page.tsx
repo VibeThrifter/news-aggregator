@@ -26,19 +26,29 @@ const configTypeColors: Record<string, string> = {
 };
 
 // Available LLM providers
-const LLM_PROVIDERS = ["mistral", "deepseek"];
+const LLM_PROVIDERS = ["mistral", "gemini", "deepseek", "deepseek-r1"];
 
 // Provider display info
 const PROVIDER_INFO: Record<string, { label: string; description: string; color: string }> = {
   mistral: {
     label: "Mistral",
-    description: "Gratis tier, snel",
+    description: "Gratis, snel",
     color: "bg-blue-600",
   },
   deepseek: {
     label: "DeepSeek",
-    description: "Betere redenering",
+    description: "Goedkoop, goed",
     color: "bg-emerald-600",
+  },
+  "deepseek-r1": {
+    label: "DeepSeek R1",
+    description: "Reasoning, 2x duurder",
+    color: "bg-amber-600",
+  },
+  gemini: {
+    label: "Gemini",
+    description: "Gratis, 1500/dag",
+    color: "bg-pink-600",
   },
 };
 
@@ -145,11 +155,14 @@ function ConfigEditor({
           disabled={saving}
           className="w-full rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-slate-100 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50"
         >
-          {LLM_PROVIDERS.map((provider) => (
-            <option key={provider} value={provider}>
-              {provider === "mistral" ? "Mistral (gratis tier)" : "DeepSeek (betere redenering)"}
-            </option>
-          ))}
+          {LLM_PROVIDERS.map((provider) => {
+            const info = PROVIDER_INFO[provider];
+            return (
+              <option key={provider} value={provider}>
+                {info?.label || provider} - {info?.description || ""}
+              </option>
+            );
+          })}
         </select>
       ) : (
         <input
@@ -294,25 +307,6 @@ export default function LlmConfigPage() {
     }
   };
 
-  const handleReasonerToggle = async () => {
-    if (!reasonerConfig) return;
-    const newValue = reasonerConfig.value.toLowerCase() === "true" ? "false" : "true";
-    try {
-      setSaving(true);
-      setError(null);
-      const updated = await updateLlmConfig("deepseek_use_reasoner", { value: newValue });
-      setConfigs((prev) =>
-        prev.map((c) => (c.key === "deepseek_use_reasoner" ? updated : c))
-      );
-      setMessage(`DeepSeek Reasoner ${newValue === "true" ? "ingeschakeld" : "uitgeschakeld"}`);
-      setTimeout(() => setMessage(null), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to toggle reasoner");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleSeed = async () => {
     try {
       setSaving(true);
@@ -336,8 +330,7 @@ export default function LlmConfigPage() {
   const providerConfigs = configs.filter((c) => c.config_type === "provider");
   const providerCount = providerConfigs.length;
 
-  // Separate deepseek_use_reasoner from regular provider configs
-  const reasonerConfig = providerConfigs.find((c) => c.key === "deepseek_use_reasoner");
+  // Filter to just phase provider configs (exclude legacy deepseek_use_reasoner if present)
   const phaseProviderConfigs = providerConfigs.filter((c) => c.key !== "deepseek_use_reasoner");
 
   // Sort provider configs in logical order
@@ -466,38 +459,6 @@ export default function LlmConfigPage() {
               />
             ))}
           </div>
-
-          {/* DeepSeek Reasoner Toggle */}
-          {reasonerConfig && (
-            <div className="rounded-lg border border-slate-700 bg-slate-800 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-medium text-slate-100">DeepSeek Reasoner (R1)</h3>
-                  <p className="text-xs text-slate-400">
-                    Gebruik het reasoning model voor diepere analyse. Langzamer maar grondiger redenering.
-                  </p>
-                </div>
-                <button
-                  onClick={handleReasonerToggle}
-                  disabled={saving}
-                  className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 ${
-                    reasonerConfig.value.toLowerCase() === "true" ? "bg-emerald-600" : "bg-slate-600"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
-                      reasonerConfig.value.toLowerCase() === "true" ? "translate-x-7" : "translate-x-1"
-                    }`}
-                  />
-                </button>
-              </div>
-              {reasonerConfig.value.toLowerCase() === "true" && (
-                <div className="mt-3 rounded bg-emerald-900/30 px-3 py-2 text-xs text-emerald-300">
-                  ✓ Actief: DeepSeek gebruikt nu <code className="font-mono">deepseek-reasoner</code> i.p.v. <code className="font-mono">deepseek-chat</code>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       )}
 
@@ -559,8 +520,8 @@ export default function LlmConfigPage() {
         <h2 className="mb-2 font-semibold text-slate-100">Uitleg</h2>
         <div className="space-y-2 text-sm text-slate-300">
           <p>
-            <strong className="text-orange-400">LLM Providers:</strong> Wissel direct tussen Mistral
-            (gratis, snel) en DeepSeek (betere redenering) per analysefase. Wijzigingen zijn
+            <strong className="text-orange-400">LLM Providers:</strong> Wissel direct tussen Mistral,
+            DeepSeek, DeepSeek R1 (reasoning) en Gemini (gratis, 1500/dag) per analysefase. Wijzigingen zijn
             <em className="text-emerald-400"> direct actief</em> - geen backend restart nodig.
           </p>
           <p>

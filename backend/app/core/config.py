@@ -241,6 +241,16 @@ class Settings(BaseSettings):
         description="Base URL for DeepSeek API"
     )
 
+    # Gemini Configuration
+    gemini_api_key: Optional[str] = Field(
+        default=None,
+        description="Google Gemini API key (free tier: 1500 requests/day)"
+    )
+    gemini_model_name: str = Field(
+        default="gemini-2.5-flash",
+        description="Gemini model name (gemini-2.5-flash for free tier)"
+    )
+
     # Per-prompt LLM provider selection (toggle between mistral/deepseek)
     llm_provider_classification: str = Field(
         default="mistral",
@@ -424,6 +434,11 @@ class Settings(BaseSettings):
     def has_tavily_key(self) -> bool:
         """Check if Tavily API key is available."""
         return bool(self.tavily_api_key)
+
+    @property
+    def has_gemini_key(self) -> bool:
+        """Check if Gemini API key is available."""
+        return bool(self.gemini_api_key)
 
 
 def get_settings() -> Settings:
