@@ -152,6 +152,45 @@ make clean             # Clean up generated files
 | Insight Backfill | 30 min | Generates LLM insights for events missing them |
 | Event Maintenance | 24 hours | Refreshes centroids, archives stale events |
 
+### LLM Prompts Updaten
+
+De LLM prompts worden opgeslagen in de Supabase `llm_config` tabel. Om een prompt te updaten:
+
+```python
+# Python script om database prompt te updaten
+import requests
+
+# Lees de lokale template
+with open('backend/app/llm/templates/factual_prompt.txt', 'r') as f:
+    prompt_content = f.read()
+
+url = 'https://xfqvwplrgwubbgbumzwk.supabase.co/rest/v1/llm_config'
+headers = {
+    'apikey': '<SUPABASE_ANON_KEY>',
+    'Authorization': 'Bearer <SUPABASE_ANON_KEY>',
+    'Content-Type': 'application/json',
+    'Prefer': 'return=minimal'
+}
+
+# Update prompt_factual (of prompt_critical)
+resp = requests.patch(
+    url + '?key=eq.prompt_factual',
+    headers=headers,
+    json={'value': prompt_content}
+)
+print(f'Status: {resp.status_code}')  # 204 = success
+```
+
+**Beschikbare prompt keys:**
+- `prompt_factual` - Fase 1: feitelijke analyse (summary, timeline, clusters)
+- `prompt_critical` - Fase 2: kritische analyse (frames, fallacies, authority)
+- `prompt_classification` - Artikel classificatie naar event type
+
+**Workflow:**
+1. Bewerk de lokale template in `backend/app/llm/templates/`
+2. Upload naar database met bovenstaand script
+3. Genereer insights opnieuw: `curl -X POST "http://localhost:8000/admin/trigger/generate-insights/{event_id}"`
+
 ### Admin Endpoints
 
 ```bash

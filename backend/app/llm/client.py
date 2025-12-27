@@ -192,7 +192,14 @@ class DeepSeekClient(BaseLLMClient):
         if not api_key:
             raise LLMAuthenticationError("DeepSeek API key ontbreekt; configureer DEEPSEEK_API_KEY in .env")
 
-        timeout = self.settings.llm_api_timeout_seconds
+        # Use DeepSeek-specific timeout (longer for complex prompts)
+        read_timeout = self.settings.deepseek_timeout_seconds
+        timeout_config = httpx.Timeout(
+            connect=30.0,
+            read=read_timeout,
+            write=30.0,
+            pool=30.0,
+        )
         max_retries = self.settings.llm_api_max_retries
         backoff = self.settings.llm_api_retry_backoff_seconds or 0.0
         base_url = self.settings.deepseek_api_base_url.rstrip("/")
@@ -221,7 +228,7 @@ class DeepSeekClient(BaseLLMClient):
             try:
                 async with httpx.AsyncClient(
                     base_url=base_url,
-                    timeout=timeout,
+                    timeout=timeout_config,
                     transport=self.transport,
                 ) as client:
                     response = await client.post(
@@ -325,7 +332,14 @@ class DeepSeekClient(BaseLLMClient):
         if not api_key:
             raise LLMAuthenticationError("DeepSeek API key ontbreekt; configureer DEEPSEEK_API_KEY in .env")
 
-        timeout = self.settings.llm_api_timeout_seconds
+        # Use DeepSeek-specific timeout (longer for complex prompts)
+        read_timeout = self.settings.deepseek_timeout_seconds
+        timeout_config = httpx.Timeout(
+            connect=30.0,
+            read=read_timeout,
+            write=30.0,
+            pool=30.0,
+        )
         max_retries = self.settings.llm_api_max_retries
         backoff = self.settings.llm_api_retry_backoff_seconds or 0.0
         base_url = self.settings.deepseek_api_base_url.rstrip("/")
@@ -351,7 +365,7 @@ class DeepSeekClient(BaseLLMClient):
             try:
                 async with httpx.AsyncClient(
                     base_url=base_url,
-                    timeout=timeout,
+                    timeout=timeout_config,
                     transport=self.transport,
                 ) as client:
                     response = await client.post(
@@ -440,7 +454,14 @@ class DeepSeekClient(BaseLLMClient):
         if not api_key:
             raise LLMAuthenticationError("DeepSeek API key ontbreekt; configureer DEEPSEEK_API_KEY in .env")
 
-        timeout = self.settings.llm_api_timeout_seconds
+        # Use DeepSeek-specific timeout (longer for complex prompts)
+        read_timeout = self.settings.deepseek_timeout_seconds
+        timeout_config = httpx.Timeout(
+            connect=30.0,  # Connection timeout
+            read=read_timeout,  # Read timeout (long for DeepSeek)
+            write=30.0,  # Write timeout
+            pool=30.0,  # Pool timeout
+        )
         max_retries = self.settings.llm_api_max_retries
         backoff = self.settings.llm_api_retry_backoff_seconds or 0.0
         base_url = self.settings.deepseek_api_base_url.rstrip("/")
@@ -469,7 +490,7 @@ class DeepSeekClient(BaseLLMClient):
             try:
                 async with httpx.AsyncClient(
                     base_url=base_url,
-                    timeout=timeout,
+                    timeout=timeout_config,
                     transport=self.transport,
                 ) as client:
                     response = await client.post(

@@ -477,11 +477,14 @@ export async function getEventDetail(eventId: string | number, options?: ApiFetc
   const computedLastUpdated = latestArticleDate?.toISOString() || event.last_updated_at;
 
   // Fetch LLM insights to get the generated title (NOT the article title)
-  const { data: llmInsights } = await supabase
+  // Order by id desc to get the latest insight (in case of regeneration)
+  const { data: llmInsightsArr } = await supabase
     .from('llm_insights')
     .select('summary')
     .eq('event_id', event.id)
-    .single();
+    .order('id', { ascending: false })
+    .limit(1);
+  const llmInsights = llmInsightsArr?.[0] ?? null;
 
   // Don't truncate title on detail page - show full title
   const { title: llmTitle } = extractTitleFromSummary(llmInsights?.summary, { truncate: false });
@@ -541,11 +544,14 @@ export async function getEventInsights(eventId: string | number, options?: ApiFe
     numericEventId = event.id;
   }
 
-  const { data: insights, error } = await supabase
+  // Order by id desc to get the latest insight (in case of regeneration)
+  const { data: insightsArr, error } = await supabase
     .from('llm_insights')
     .select('*')
     .eq('event_id', numericEventId)
-    .single();
+    .order('id', { ascending: false })
+    .limit(1);
+  const insights = insightsArr?.[0] ?? null;
 
   if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
     throw new ApiClientError(error.message, 500, {

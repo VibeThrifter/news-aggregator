@@ -200,11 +200,15 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
             <h1 className="font-serif text-3xl font-bold text-ink-900 lg:text-4xl">{event.title}</h1>
             {insights?.summary ? (
               <div className="max-w-3xl rounded-sm border border-paper-200 bg-paper-100 p-4">
-                <div className="prose prose-sm prose-ink max-w-none text-ink-700
-                  prose-p:leading-relaxed prose-p:my-2
+                <div className="prose prose-sm prose-neutral max-w-none
+                  prose-p:leading-relaxed prose-p:my-2 prose-p:text-ink-700
                   prose-strong:text-ink-900 prose-strong:font-semibold
-                  prose-headings:text-ink-900 prose-headings:font-serif prose-headings:mt-4 prose-headings:mb-2">
-                  <ReactMarkdown>{insights.summary}</ReactMarkdown>
+                  prose-headings:text-ink-900 prose-headings:font-serif prose-headings:mt-4 prose-headings:mb-2
+                  prose-li:text-ink-700 prose-ul:my-2 prose-ol:my-2">
+                  <ReactMarkdown>{
+                    // Strip first sentence (title) from summary to avoid duplication
+                    insights.summary.replace(/^.+?[.!?]\s*/, '')
+                  }</ReactMarkdown>
                 </div>
               </div>
             ) : null}

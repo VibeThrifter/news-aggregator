@@ -191,9 +191,9 @@ class Settings(BaseSettings):
         description="Base URL for the configured LLM provider API",
     )
     llm_api_timeout_seconds: float = Field(
-        default=45.0,
+        default=120.0,
         ge=1.0,
-        le=120.0,
+        le=300.0,
         description="Request timeout (in seconds) for LLM API calls",
     )
     llm_api_max_retries: int = Field(
@@ -239,6 +239,12 @@ class Settings(BaseSettings):
     deepseek_api_base_url: str = Field(
         default="https://api.deepseek.com/v1",
         description="Base URL for DeepSeek API"
+    )
+    deepseek_timeout_seconds: float = Field(
+        default=300.0,
+        ge=30.0,
+        le=600.0,
+        description="Request timeout for DeepSeek API (longer than default, DeepSeek is slow)"
     )
 
     # Gemini Configuration
