@@ -7,7 +7,6 @@ from typing import Any, Dict, List
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from sqlalchemy.orm import aliased
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
@@ -17,15 +16,17 @@ from backend.app.llm.client import (
     BaseLLMClient,
     DeepSeekClient,
     GeminiClient,
-    LLMClientError,
     LLMGenericResult,
+    LLMQuotaExhaustedError,
+    LLMRateLimitError,
     LLMResult,
+    LLMTimeoutError,
     MistralClient,
 )
 from backend.app.services.llm_config_service import get_llm_config_service
 from backend.app.llm.prompt_builder import PromptBuilder, PromptGenerationResult
 from backend.app.llm.schemas import CriticalPayload, FactualPayload, InsightsPayload
-from backend.app.repositories import InsightRepository, InsightPersistenceResult
+from backend.app.repositories import InsightRepository
 
 logger = get_logger(__name__).bind(component="InsightService")
 
@@ -75,6 +76,43 @@ class InsightService:
         provider = await config_service.get_value(f"provider_{phase}", default="mistral")
         return self._build_client(provider)
 
+    async def _call_with_fallback(
+        self,
+        client: BaseLLMClient,
+        prompt: str,
+        schema_class: type,
+        *,
+        phase: str,
+        correlation_id: str | None = None,
+    ) -> LLMGenericResult:
+        """Call LLM with automatic Mistral fallback on rate limit or quota errors.
+
+        If the primary provider fails due to rate limits, quota exhaustion, or
+        timeouts after all retries, automatically falls back to Mistral.
+        """
+        try:
+            return await client.generate_json(prompt, schema_class, correlation_id=correlation_id)
+        except (LLMRateLimitError, LLMQuotaExhaustedError, LLMTimeoutError) as exc:
+            # Don't fallback if already using Mistral
+            if client.provider == "mistral":
+                raise
+
+            logger.warning(
+                "llm_fallback_triggered",
+                phase=phase,
+                original_provider=client.provider,
+                fallback_provider="mistral",
+                error_type=type(exc).__name__,
+                error=str(exc),
+                correlation_id=correlation_id,
+            )
+
+            # Create Mistral client as fallback
+            fallback_client = MistralClient(settings=self.settings)
+            return await fallback_client.generate_json(
+                prompt, schema_class, correlation_id=correlation_id
+            )
+
     async def generate_for_event(
         self,
         event_id: int,
@@ -98,9 +136,11 @@ class InsightService:
             provider=factual_client.provider,
             correlation_id=correlation_id,
         )
-        factual_result = await factual_client.generate_json(
+        factual_result = await self._call_with_fallback(
+            factual_client,
             factual_package.prompt,
             FactualPayload,
+            phase="factual",
             correlation_id=correlation_id,
         )
         factual_payload: FactualPayload = factual_result.payload
@@ -126,9 +166,11 @@ class InsightService:
             provider=critical_client.provider,
             correlation_id=correlation_id,
         )
-        critical_result = await critical_client.generate_json(
+        critical_result = await self._call_with_fallback(
+            critical_client,
             critical_package.prompt,
             CriticalPayload,
+            phase="critical",
             correlation_id=correlation_id,
         )
         critical_payload: CriticalPayload = critical_result.payload

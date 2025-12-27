@@ -41,6 +41,22 @@ class LLMResponseError(LLMClientError):
         self.retryable = retryable
 
 
+class LLMRateLimitError(LLMClientError):
+    """Raised when the provider rate limit or quota is exceeded after all retries."""
+
+    def __init__(self, message: str, provider: str) -> None:
+        super().__init__(message)
+        self.provider = provider
+
+
+class LLMQuotaExhaustedError(LLMClientError):
+    """Raised when the provider budget/balance is exhausted (e.g., DeepSeek credit depleted)."""
+
+    def __init__(self, message: str, provider: str) -> None:
+        super().__init__(message)
+        self.provider = provider
+
+
 @dataclass(slots=True)
 class LLMResult:
     """Structured result returned by an LLM client."""
@@ -485,6 +501,7 @@ class DeepSeekClient(BaseLLMClient):
 
         attempt = 0
         last_exception: Optional[Exception] = None
+        is_rate_limit = False
         while attempt <= max_retries:
             attempt += 1
             try:
@@ -500,7 +517,13 @@ class DeepSeekClient(BaseLLMClient):
                     )
                 if response.status_code == 401:
                     raise LLMAuthenticationError("DeepSeek API key ongeldig of ontbreekt toegangsrechten")
-                if response.status_code in {429} or response.status_code >= 500:
+                if response.status_code == 402:
+                    # Payment required - budget exhausted
+                    raise LLMQuotaExhaustedError("DeepSeek budget uitgeput", provider="deepseek")
+                if response.status_code == 429:
+                    is_rate_limit = True
+                    raise LLMResponseError("DeepSeek rate limit bereikt", retryable=True)
+                if response.status_code >= 500:
                     raise LLMResponseError(
                         f"DeepSeek gaf status {response.status_code}", retryable=True
                     )
@@ -553,6 +576,8 @@ class DeepSeekClient(BaseLLMClient):
                 )
             except LLMAuthenticationError:
                 raise
+            except LLMQuotaExhaustedError:
+                raise  # Don't retry, immediately trigger fallback
             except LLMTimeoutError as exc:
                 last_exception = exc
             except httpx.TimeoutException:
@@ -564,6 +589,10 @@ class DeepSeekClient(BaseLLMClient):
                     raise
                 last_exception = exc
             except Exception as exc:
+                # Check for budget-related errors in exception message
+                error_str = str(exc).lower()
+                if "balance" in error_str or "credit" in error_str or "insufficient" in error_str:
+                    raise LLMQuotaExhaustedError(f"DeepSeek budget uitgeput: {exc}", provider="deepseek")
                 last_exception = LLMResponseError(str(exc), retryable=False)
 
             if attempt > max_retries:
@@ -580,13 +609,16 @@ class DeepSeekClient(BaseLLMClient):
                 error=str(last_exception) if last_exception else "onbekend",
             )
 
+        # After all retries, raise appropriate error
+        if is_rate_limit:
+            raise LLMRateLimitError("DeepSeek rate limit bereikt na alle retries", provider=self.provider)
         if last_exception:
             raise last_exception
         raise LLMResponseError("Onbekende fout bij het aanroepen van DeepSeek", retryable=False)
 
 
 class GeminiClient(BaseLLMClient):
-    """Async client for the Google Gemini API (free tier: 1500 requests/day)."""
+    """Async client for the Google Gemini API (free tier: 250 requests/day for Flash)."""
 
     provider = "gemini"
 
@@ -825,6 +857,7 @@ class GeminiClient(BaseLLMClient):
 
         attempt = 0
         last_exception: Optional[Exception] = None
+        is_rate_limit = False
         while attempt <= max_retries:
             attempt += 1
             try:
@@ -890,7 +923,8 @@ class GeminiClient(BaseLLMClient):
                 last_exception = exc
             except Exception as exc:
                 error_str = str(exc).lower()
-                if "quota" in error_str or "rate" in error_str or "429" in error_str:
+                if "quota" in error_str or "rate" in error_str or "429" in error_str or "resource_exhausted" in error_str:
+                    is_rate_limit = True
                     last_exception = LLMResponseError("Gemini rate limit bereikt", retryable=True)
                 elif "api key" in error_str or "invalid" in error_str:
                     raise LLMAuthenticationError("Gemini API key ongeldig")
@@ -911,6 +945,9 @@ class GeminiClient(BaseLLMClient):
                 error=str(last_exception) if last_exception else "onbekend",
             )
 
+        # After all retries, raise appropriate error
+        if is_rate_limit:
+            raise LLMRateLimitError("Gemini rate limit bereikt na alle retries", provider=self.provider)
         if last_exception:
             raise last_exception
         raise LLMResponseError("Onbekende fout bij het aanroepen van Gemini", retryable=False)
@@ -1315,6 +1352,8 @@ __all__ = [
     "LLMAuthenticationError",
     "LLMClientError",
     "LLMGenericResult",
+    "LLMQuotaExhaustedError",
+    "LLMRateLimitError",
     "LLMResponse",
     "LLMResponseError",
     "LLMResult",
