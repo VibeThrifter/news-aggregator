@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
@@ -29,9 +28,9 @@ class InvolvedCountry(BaseModel):
 
 
 class InsightTimelineItem(BaseModel):
-    time: datetime = Field(..., description="Event moment timestamp (ISO-8601)")
+    time: str = Field(..., description="Event moment: year (1934), date (2025-12-28), or ISO-8601 datetime")
     headline: str = Field(..., min_length=1)
-    sources: List[HttpUrl] = Field(default_factory=list)
+    sources: list[HttpUrl] = Field(default_factory=list)
     spectrum: SpectrumLabel
 
 
@@ -45,15 +44,15 @@ class InsightClusterSource(BaseModel):
 class InsightCluster(BaseModel):
     label: str = Field(..., min_length=1)
     spectrum: SpectrumLabel
-    source_types: List[str] = Field(default_factory=list)
+    source_types: list[str] = Field(default_factory=list)
     summary: str = Field(..., min_length=1)
-    characteristics: List[str] = Field(default_factory=list)
-    sources: List[InsightClusterSource] = Field(default_factory=list)
+    characteristics: list[str] = Field(default_factory=list)
+    sources: list[InsightClusterSource] = Field(default_factory=list)
 
 
 class InsightContradictionClaim(BaseModel):
     summary: str = Field(..., min_length=1)
-    sources: List[HttpUrl] = Field(default_factory=list)
+    sources: list[HttpUrl] = Field(default_factory=list)
     spectrum: str = Field(..., min_length=1)
 
 
@@ -67,7 +66,7 @@ class InsightContradiction(BaseModel):
 class InsightFallacy(BaseModel):
     type: str = Field(..., min_length=1)
     description: str = Field(..., min_length=1)
-    sources: List[HttpUrl] = Field(default_factory=list)
+    sources: list[HttpUrl] = Field(default_factory=list)
     spectrum: str = Field(..., min_length=1)
 
 
@@ -84,7 +83,7 @@ class InsightFrame(BaseModel):
         description="Specific technique used (e.g., the exact metaphor, euphemism, or strategic word choice)"
     )
     description: str = Field(..., min_length=1, description="How this frame/technique is applied and its effect on the reader")
-    sources: List[HttpUrl] = Field(default_factory=list, description="Articles using this frame")
+    sources: list[HttpUrl] = Field(default_factory=list, description="Articles using this frame")
     spectrum: str = Field(..., min_length=1, description="Media spectrum of sources using this frame")
 
 
@@ -94,7 +93,7 @@ class CoverageGap(BaseModel):
     perspective: str = Field(..., min_length=1, description="Name/label of the missing perspective")
     description: str = Field(..., min_length=1, description="Explanation of what viewpoint or context is missing")
     relevance: str = Field(..., min_length=1, description="Why this perspective matters for understanding the event")
-    potential_sources: List[str] = Field(default_factory=list, description="Types of sources that might provide this perspective")
+    potential_sources: list[str] = Field(default_factory=list, description="Types of sources that might provide this perspective")
 
 
 # === NIEUWE KRITISCHE ANALYSE SECTIES ===
@@ -106,10 +105,10 @@ class UnsubstantiatedClaim(BaseModel):
     claim: str = Field(..., min_length=1, description="De letterlijke claim uit het artikel")
     presented_as: str = Field(..., description="Hoe de claim wordt gepresenteerd: feit, advies, mening, voorspelling")
     source_in_article: str = Field(..., min_length=1, description="Wie maakt deze claim in het artikel")
-    article_url: Optional[HttpUrl] = Field(default=None, description="URL van het artikel waarin deze claim voorkomt")
+    article_url: HttpUrl | None = Field(default=None, description="URL van het artikel waarin deze claim voorkomt")
     evidence_provided: str = Field(..., description="Welk bewijs wordt aangedragen (of 'geen')")
-    missing_context: List[str] = Field(default_factory=list, description="Welke context ontbreekt")
-    critical_questions: List[str] = Field(default_factory=list, description="Vragen die een kritische journalist zou stellen")
+    missing_context: list[str] = Field(default_factory=list, description="Welke context ontbreekt")
+    critical_questions: list[str] = Field(default_factory=list, description="Vragen die een kritische journalist zou stellen")
 
 
 class AuthorityAnalysis(BaseModel):
@@ -117,16 +116,16 @@ class AuthorityAnalysis(BaseModel):
 
     authority: str = Field(..., min_length=1, description="Naam van de autoriteit/organisatie")
     authority_type: str = Field(..., description="Beschrijf accuraat - vermijd generieke labels")
-    article_url: Optional[HttpUrl] = Field(default=None, description="URL van het artikel waarin deze autoriteit wordt geciteerd")
+    article_url: HttpUrl | None = Field(default=None, description="URL van het artikel waarin deze autoriteit wordt geciteerd")
     claimed_expertise: str = Field(..., min_length=1, description="Op welk terrein claimen zij expertise")
     actual_role: str = Field(default="", description="Wat doen/zijn ze daadwerkelijk")
     scope_creep: str = Field(default="", description="Adviseert buiten mandaat? Bijv. gezondheidsexpert over economie")
     composition_question: str = Field(default="", description="Voor adviesorganen: wie benoemt leden? Welke achtergronden en standpunten zijn vertegenwoordigd? Is er ideologische diversiteit?")
     funding_sources: str = Field(default="", description="Wie financiert dit instituut/deze expert?")
     track_record: str = Field(default="", description="Eerdere uitspraken/adviezen en hoe die uitpakten")
-    potential_interests: List[str] = Field(default_factory=list, description="Financiële, politieke, reputationele belangen")
+    potential_interests: list[str] = Field(default_factory=list, description="Financiële, politieke, reputationele belangen")
     independence_check: str = Field(default="", description="Onafhankelijk van wie? Gefinancierd door wie?")
-    critical_questions: List[str] = Field(default_factory=list, description="Sceptische vragen bij deze autoriteit")
+    critical_questions: list[str] = Field(default_factory=list, description="Sceptische vragen bij deze autoriteit")
 
     @model_validator(mode="before")
     @classmethod
@@ -147,11 +146,11 @@ class MediaAnalysis(BaseModel):
     """Kritische analyse van de berichtgeving zelf."""
 
     source: str = Field(..., min_length=1, description="Naam van het medium")
-    article_url: Optional[HttpUrl] = Field(default=None, description="URL van het specifieke artikel dat wordt geanalyseerd")
+    article_url: HttpUrl | None = Field(default=None, description="URL van het specifieke artikel dat wordt geanalyseerd")
     tone: str = Field(..., min_length=1, description="Toon: feitelijk, kritisch, sensationeel, alarmerend, geruststellend, activistisch")
     sourcing_pattern: str = Field(default="", description="Wie citeren ze? Wie niet?")
-    questions_not_asked: List[str] = Field(default_factory=list, description="Belangrijke vragen die de journalist niet stelde")
-    perspectives_omitted: List[str] = Field(default_factory=list, description="Weggelaten perspectieven")
+    questions_not_asked: list[str] = Field(default_factory=list, description="Belangrijke vragen die de journalist niet stelde")
+    perspectives_omitted: list[str] = Field(default_factory=list, description="Weggelaten perspectieven")
     framing_by_omission: str = Field(default="", description="Hoe weglating de framing beïnvloedt")
     copy_paste_score: str = Field(default="", description="Mate van kopie van persberichten/andere media (hoog/middel/laag)")
     anonymous_source_count: int = Field(default=0, description="Aantal anonieme bronnen in dit artikel")
@@ -182,7 +181,7 @@ class ScientificPlurality(BaseModel):
     topic: str = Field(..., min_length=1, description="Het wetenschappelijke onderwerp")
     presented_view: str = Field(..., min_length=1, description="De gepresenteerde wetenschappelijke visie")
     alternative_views_mentioned: bool = Field(..., description="Worden alternatieve visies genoemd?")
-    known_debates: List[str] = Field(default_factory=list, description="Bekende wetenschappelijke debatten over dit onderwerp")
+    known_debates: list[str] = Field(default_factory=list, description="Bekende wetenschappelijke debatten over dit onderwerp")
     notable_dissenters: str = Field(default="", description="Bekende wetenschappers met afwijkende mening")
     assessment: str = Field(..., min_length=1, description="Beoordeling van de pluraliteit in de berichtgeving")
 
@@ -200,7 +199,7 @@ class StatisticalIssue(BaseModel):
     """Een misleidende of onjuist gepresenteerde statistiek."""
 
     claim: str = Field(..., min_length=1, description="De statistische claim uit het artikel")
-    article_url: Optional[HttpUrl] = Field(default=None, description="URL van het artikel met deze statistiek")
+    article_url: HttpUrl | None = Field(default=None, description="URL van het artikel met deze statistiek")
     issue: str = Field(..., min_length=1, description="Wat er misleidend aan is")
     better_framing: str = Field(default="", description="Hoe het beter gepresenteerd zou kunnen worden")
 
@@ -237,57 +236,66 @@ class FactualPayload(BaseModel):
     """Phase 1: Factual analysis only."""
 
     summary: str = Field(..., min_length=100, description="Comprehensive narrative summary combining all articles")
-    timeline: List[InsightTimelineItem] = Field(default_factory=list)
-    clusters: List[InsightCluster] = Field(default_factory=list)
-    contradictions: List[InsightContradiction] = Field(default_factory=list)
-    involved_countries: List[InvolvedCountry] = Field(
+    timeline: list[InsightTimelineItem] = Field(default_factory=list)
+    clusters: list[InsightCluster] = Field(default_factory=list)
+    contradictions: list[InsightContradiction] = Field(default_factory=list)
+    involved_countries: list[InvolvedCountry] = Field(
         default_factory=list,
         description="Countries involved in this news event (excluding NL/BE)"
+    )
+    search_keywords: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="3-5 English keywords for searching international news about this event (e.g., names, places, key terms)"
     )
 
 
 class CriticalPayload(BaseModel):
     """Phase 2: Critical analysis only."""
 
-    fallacies: List[InsightFallacy] = Field(default_factory=list)
-    frames: List[InsightFrame] = Field(default_factory=list, description="Framing perspectives used in news coverage")
-    coverage_gaps: List[CoverageGap] = Field(default_factory=list, description="Underrepresented perspectives or missing contexts")
-    unsubstantiated_claims: List[UnsubstantiatedClaim] = Field(default_factory=list, description="Claims zonder adequate onderbouwing")
-    authority_analysis: List[AuthorityAnalysis] = Field(default_factory=list, description="Kritische analyse van geciteerde autoriteiten")
-    media_analysis: List[MediaAnalysis] = Field(default_factory=list, description="Kritische analyse van de berichtgeving zelf")
-    statistical_issues: List[StatisticalIssue] = Field(default_factory=list, description="Misleidende statistieken")
-    timing_analysis: Optional[TimingAnalysis] = Field(default=None, description="Analyse van de timing van het nieuwsbericht")
-    scientific_plurality: Optional[ScientificPlurality] = Field(default=None, description="Analyse van wetenschappelijke pluraliteit")
+    fallacies: list[InsightFallacy] = Field(default_factory=list)
+    frames: list[InsightFrame] = Field(default_factory=list, description="Framing perspectives used in news coverage")
+    coverage_gaps: list[CoverageGap] = Field(default_factory=list, description="Underrepresented perspectives or missing contexts")
+    unsubstantiated_claims: list[UnsubstantiatedClaim] = Field(default_factory=list, description="Claims zonder adequate onderbouwing")
+    authority_analysis: list[AuthorityAnalysis] = Field(default_factory=list, description="Kritische analyse van geciteerde autoriteiten")
+    media_analysis: list[MediaAnalysis] = Field(default_factory=list, description="Kritische analyse van de berichtgeving zelf")
+    statistical_issues: list[StatisticalIssue] = Field(default_factory=list, description="Misleidende statistieken")
+    timing_analysis: TimingAnalysis | None = Field(default=None, description="Analyse van de timing van het nieuwsbericht")
+    scientific_plurality: ScientificPlurality | None = Field(default=None, description="Analyse van wetenschappelijke pluraliteit")
 
     @field_validator("statistical_issues", mode="before")
     @classmethod
-    def coerce_statistical_issues(cls, v: Optional[List]) -> List:
+    def coerce_statistical_issues(cls, v: list | None) -> list:
         """Convert null to empty list for statistical_issues."""
         return v if v is not None else []
 
 
 class InsightsPayload(BaseModel):
     summary: str = Field(..., min_length=100, description="Comprehensive narrative summary combining all articles")
-    timeline: List[InsightTimelineItem] = Field(default_factory=list)
-    clusters: List[InsightCluster] = Field(default_factory=list)
-    contradictions: List[InsightContradiction] = Field(default_factory=list)
-    involved_countries: List[InvolvedCountry] = Field(
+    timeline: list[InsightTimelineItem] = Field(default_factory=list)
+    clusters: list[InsightCluster] = Field(default_factory=list)
+    contradictions: list[InsightContradiction] = Field(default_factory=list)
+    involved_countries: list[InvolvedCountry] = Field(
         default_factory=list,
         description="Countries involved in this news event (excluding NL/BE)"
     )
-    fallacies: List[InsightFallacy] = Field(default_factory=list)
-    frames: List[InsightFrame] = Field(default_factory=list, description="Framing perspectives used in news coverage")
-    coverage_gaps: List[CoverageGap] = Field(default_factory=list, description="Underrepresented perspectives or missing contexts")
+    search_keywords: list[str] = Field(
+        default_factory=list,
+        description="English keywords for international news search"
+    )
+    fallacies: list[InsightFallacy] = Field(default_factory=list)
+    frames: list[InsightFrame] = Field(default_factory=list, description="Framing perspectives used in news coverage")
+    coverage_gaps: list[CoverageGap] = Field(default_factory=list, description="Underrepresented perspectives or missing contexts")
     # Kritische analyse secties
-    unsubstantiated_claims: List[UnsubstantiatedClaim] = Field(default_factory=list, description="Claims zonder adequate onderbouwing")
-    authority_analysis: List[AuthorityAnalysis] = Field(default_factory=list, description="Kritische analyse van geciteerde autoriteiten")
-    media_analysis: List[MediaAnalysis] = Field(default_factory=list, description="Kritische analyse van de berichtgeving zelf")
-    statistical_issues: List[StatisticalIssue] = Field(default_factory=list, description="Misleidende statistieken")
-    timing_analysis: Optional[TimingAnalysis] = Field(default=None, description="Analyse van de timing van het nieuwsbericht")
-    scientific_plurality: Optional[ScientificPlurality] = Field(default=None, description="Analyse van wetenschappelijke pluraliteit")
+    unsubstantiated_claims: list[UnsubstantiatedClaim] = Field(default_factory=list, description="Claims zonder adequate onderbouwing")
+    authority_analysis: list[AuthorityAnalysis] = Field(default_factory=list, description="Kritische analyse van geciteerde autoriteiten")
+    media_analysis: list[MediaAnalysis] = Field(default_factory=list, description="Kritische analyse van de berichtgeving zelf")
+    statistical_issues: list[StatisticalIssue] = Field(default_factory=list, description="Misleidende statistieken")
+    timing_analysis: TimingAnalysis | None = Field(default=None, description="Analyse van de timing van het nieuwsbericht")
+    scientific_plurality: ScientificPlurality | None = Field(default=None, description="Analyse van wetenschappelijke pluraliteit")
 
     @classmethod
-    def from_phases(cls, factual: FactualPayload, critical: CriticalPayload) -> "InsightsPayload":
+    def from_phases(cls, factual: FactualPayload, critical: CriticalPayload) -> InsightsPayload:
         """Merge factual and critical payloads into a complete InsightsPayload."""
         return cls(
             summary=factual.summary,
@@ -295,6 +303,7 @@ class InsightsPayload(BaseModel):
             clusters=factual.clusters,
             contradictions=factual.contradictions,
             involved_countries=factual.involved_countries,
+            search_keywords=factual.search_keywords,
             fallacies=critical.fallacies,
             frames=critical.frames,
             coverage_gaps=critical.coverage_gaps,

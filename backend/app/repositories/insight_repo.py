@@ -65,6 +65,7 @@ class InsightRepository:
         contradictions: list[Dict[str, Any]],
         fallacies: list[Dict[str, Any]],
         frames: list[Dict[str, Any]] | None = None,
+        involved_countries: list[Dict[str, Any]] | None = None,
         coverage_gaps: list[Dict[str, Any]] | None = None,
         # Kritische analyse velden
         unsubstantiated_claims: list[Dict[str, Any]] | None = None,
@@ -89,6 +90,7 @@ class InsightRepository:
             existing.timeline = timeline
             existing.clusters = clusters
             existing.contradictions = contradictions
+            existing.involved_countries = involved_countries
             existing.fallacies = fallacies
             existing.frames = frames
             existing.coverage_gaps = coverage_gaps
@@ -112,6 +114,7 @@ class InsightRepository:
                 timeline=timeline,
                 clusters=clusters,
                 contradictions=contradictions,
+                involved_countries=involved_countries,
                 fallacies=fallacies,
                 frames=frames,
                 coverage_gaps=coverage_gaps,

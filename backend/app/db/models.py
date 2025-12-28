@@ -67,6 +67,9 @@ class Article(Base):
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
     enriched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # International perspectives (Epic 9)
+    is_international: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source_country: Mapped[str | None] = mapped_column(String(2), nullable=True)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper
         return f"<Article id={self.id} url={self.url!r}>"
@@ -95,6 +98,11 @@ class Event(Base):
     spectrum_distribution: Mapped[Dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # International perspectives (Epic 9)
+    detected_countries: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    international_enriched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
     )
@@ -153,6 +161,8 @@ class LLMInsight(Base):
     timeline: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     clusters: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     contradictions: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    # International perspectives (Epic 9)
+    involved_countries: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     fallacies: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     frames: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     coverage_gaps: Mapped[List[Dict[str, Any]] | None] = mapped_column(JSON, nullable=True)

@@ -104,10 +104,36 @@ Voorbeelden eerste zin (=titel):
    - EXCLUDEER: Nederland (NL) - dat zijn onze primaire bronnen
    - Gebruik ISO 3166-1 alpha-2 codes (US, IL, RU, UA, CN, BE, etc.)
 
+11. **SEARCH KEYWORDS** - Genereer 3-5 ENGELSE zoektermen om DIT EXACTE VERHAAL internationaal te vinden:
+
+   DOEL: Deze keywords worden gebruikt om hetzelfde nieuwsverhaal te vinden in buitenlandse media (Google News UK, US, etc.)
+
+   FORMULE: [NAAM/LOCATIE] + [WAT GEBEURDE] = vindbare combinatie
+
+   STRATEGISCHE KEYWORDS (WEL gebruiken):
+   - ALTIJD: Het EVENT TYPE (death, killed, arrested, explosion, election, resignation, etc.)
+   - Eigennamen van personen (Netanyahu, Brigitte Bardot, Elon Musk)
+   - Specifieke organisaties (Hamas, NATO, SpaceX)
+   - Specifieke locaties als relevant (Gaza, Kyiv, Mar-a-Lago)
+
+   VERMIJD (vindt verkeerde artikelen):
+   - Generieke woorden: "criticism", "government", "policy", "controversy", "actress", "activist"
+   - Landnamen alleen: "United Kingdom", "France" (te breed)
+   - Nederlandse bronnen: "NOS", "Telegraaf", "Geenstijl"
+   - Biografische details die niet het nieuws zijn (beroep, leeftijd, achtergrond)
+
+   VOORBEELDEN:
+   - Actrice overleden: ["Brigitte Bardot", "death"] (NIET: "French actress", "animal rights")
+   - Israël erkent Somaliland: ["Israel", "Somaliland", "recognition"]
+   - Storm in Zweden: ["Sweden", "storm Eira", "deaths"]
+   - Nederlandse binnenlandpolitiek: [] (puur Nederlands, geen internationale dekking verwacht)
+
+   Als het nieuws PUUR NEDERLANDS is (bijv. binnenlandse politiek, Nederlandse celebrity), geef dan een LEGE array []
+
 JSON OUTPUT SCHEMA:
 {
   "summary": "Min 200 woorden. MOET bevatten: \\n\\n tussen alinea's en **bold** tussenkopjes",
-  "timeline": [{"time": "ISO-8601", "headline": "string", "sources": ["url"], "spectrum": "mainstream"}],
+  "timeline": [{"time": "YYYY | YYYY-MM-DD | ISO-8601 datetime", "headline": "string", "sources": ["url"], "spectrum": "mainstream"}],
   "clusters": [{
     "label": "standpoint name",
     "spectrum": "mainstream",
@@ -125,7 +151,8 @@ JSON OUTPUT SCHEMA:
     "iso_code": "XX",
     "name": "Country Name",
     "relevance": "Why this country is involved in this news event"
-  }]
+  }],
+  "search_keywords": ["English", "keywords", "for", "international", "search"]
 }
 
 Event context:
@@ -138,9 +165,29 @@ HERINNERING: Gebruik ALLEEN bovenstaande artikelen. VERZIN NIETS. Als er 1 artik
 
 ANALYSIS INSTRUCTIONS:
 1. **SUMMARY**: Combine all articles into coherent narrative, note where sources differ in facts or emphasis.
-2. **TIMELINE**: Extract key moments chronologically. Use article publication times if event times unclear.
+2. **TIMELINE**: Extract key moments from the NEWS STORY ITSELF, not article publication times.
+   - For deaths/obituaries: birth year, career highlights, key life events, death date
+   - For ongoing events: when things happened (arrests, announcements, incidents)
+   - For political news: dates of decisions, votes, statements
+   - NEVER use the article publication timestamp as a timeline event
+
+   **CRITICAL TIME FORMAT RULES** (read carefully!):
+   - If only YEAR known: "time": "1934" (JUST the 4-digit year as a STRING)
+   - If full date known: "time": "2025-12-28"
+   - If datetime known: "time": "2025-12-28T14:30:00Z"
+   - **FORBIDDEN**: "1970-01-01T..." - this is ALWAYS wrong, never output this
+   - **FORBIDDEN**: inventing day/month - if source says "in 1952", use "1952" not "1952-01-01"
+
+   Correct obituary example:
+   [
+     {"time": "1934", "headline": "Geboren in Parijs"},
+     {"time": "1952", "headline": "Filmdebuut"},
+     {"time": "1956", "headline": "Doorbraak met Et Dieu créa la femme"},
+     {"time": "2025-12-28", "headline": "Overleden op 91-jarige leeftijd"}
+   ]
 3. **CLUSTERS**: Group articles by standpoint/perspective. Don't force artificial divisions - if all agree, use one cluster.
 4. **CONTRADICTIONS**: Only real factual differences between sources. Do not invent conflicts.
 5. **INVOLVED_COUNTRIES**: Identify ALL countries involved (can be multiple). Include countries mentioned directly, countries inferred from leaders/politicians, and countries inferred from cities. Exclude only NL (Netherlands).
+6. **SEARCH_KEYWORDS**: Generate 3-5 ENGLISH keywords for finding international news about this event. Focus on proper nouns (names, places, organizations) that work across languages.
 
 Return only the JSON object.

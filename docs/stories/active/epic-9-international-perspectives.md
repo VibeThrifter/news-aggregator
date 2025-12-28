@@ -441,7 +441,7 @@ Output: https://www.timesofisrael.com/upcoming-meet-to-test-if-trump-feels-same-
 
 ## Story 9.3: International Enrichment Service
 
-**Status**: 🔲 Ready
+**Status**: ✅ Done
 **Prioriteit**: Must Have
 **Geschatte complexiteit**: Medium
 **Depends on**: Story 9.1, 9.2
@@ -602,26 +602,43 @@ class InternationalEnrichmentService:
 ```
 
 ### Acceptance Criteria
-- [ ] `InternationalEnrichmentService` die events verrijkt
-- [ ] Keyword extractie uit event titel en entities
-- [ ] Relevantie filtering (keyword in titel)
-- [ ] Deduplicatie van artikelen
-- [ ] Rate limiting tussen requests
-- [ ] Proper logging en error handling
-- [ ] Integration test met mock data
+- [x] `InternationalEnrichmentService` die events verrijkt
+- [x] Keyword extractie uit event titel en entities
+- [x] Relevantie filtering (keyword in titel)
+- [x] Deduplicatie van artikelen
+- [x] Rate limiting tussen requests
+- [x] Proper logging en error handling
+- [x] Integration test met mock data
 
 ### Subtasks
-- [ ] Implementeer `InternationalEnrichmentService`
-- [ ] Voeg `is_international` en `source_country` velden toe aan Article model
-- [ ] Database migratie voor nieuwe velden
-- [ ] Schrijf integration tests
-- [ ] Voeg logging toe voor monitoring
+- [x] Implementeer `InternationalEnrichmentService`
+- [x] Voeg `is_international` en `source_country` velden toe aan Article model
+- [x] Database migratie voor nieuwe velden
+- [x] Schrijf unit tests (17 tests)
+- [x] Voeg logging toe voor monitoring
+
+### Implementatie Details
+
+Geïmplementeerd in:
+- `backend/app/services/international_enrichment.py` - InternationalEnrichmentService
+- `backend/app/db/models.py` - Article.is_international, Article.source_country, Event.detected_countries
+- `backend/app/repositories/insight_repo.py` - involved_countries storage
+- `backend/app/services/insight_service.py` - detected_countries + search_keywords caching
+- `backend/app/llm/schemas.py` - search_keywords field in FactualPayload
+- `backend/app/llm/templates/factual_prompt.txt` - Instructions for English search keywords
+- `database/migrations/002_international_perspectives.sql` - Supabase migration
+
+**LLM-generated English search keywords:**
+- The factual prompt now generates 3-5 English keywords for international search
+- Examples: `["United Kingdom", "Egypt", "cabinet", "criticism"]`
+- Stored in `prompt_metadata.search_keywords`
+- Used by enrichment service as primary source for Google News queries
 
 ---
 
 ## Story 9.4: Admin Endpoint & Scheduled Job
 
-**Status**: 🔲 Ready
+**Status**: ✅ Done
 **Prioriteit**: Must Have
 **Geschatte complexiteit**: Small
 **Depends on**: Story 9.3
@@ -688,29 +705,31 @@ async def scheduled_international_enrichment():
 ```
 
 ### Acceptance Criteria
-- [ ] POST `/admin/trigger/enrich-international/{event_id}` endpoint
-- [ ] POST `/admin/trigger/enrich-international-batch` endpoint
-- [ ] Repository method `get_events_without_international`
-- [ ] Optioneel: Scheduled job elke 2 uur
-- [ ] Logging van enrichment resultaten
+- [x] POST `/admin/trigger/enrich-international/{event_id}` endpoint
+- [x] POST `/admin/trigger/enrich-international-batch` endpoint
+- [x] Repository method `get_events_without_international`
+- [x] Scheduled job elke 2 uur
+- [x] Logging van enrichment resultaten
 
 ### Subtasks
-- [ ] Voeg admin endpoints toe
-- [ ] Implementeer repository query
-- [ ] Optioneel: Voeg scheduled job toe
-- [ ] Test endpoints handmatig
-- [ ] Update CLAUDE.md met nieuwe endpoints
+- [x] Voeg admin endpoints toe
+- [x] Implementeer repository query
+- [x] Voeg scheduled job toe
+- [x] Test endpoints handmatig
+- [x] Update CLAUDE.md met nieuwe endpoints
 
 ---
 
 ## Story 9.5: Database Schema Updates
 
-**Status**: 🔲 Ready
+**Status**: ✅ Done (merged into Story 9.3)
 **Prioriteit**: Must Have
 **Geschatte complexiteit**: Small
 
 ### Beschrijving
 Voeg noodzakelijke velden toe aan het database schema voor internationale artikelen.
+
+**Note**: Deze wijzigingen zijn geïmplementeerd als onderdeel van Story 9.3.
 
 ### Schema Changes
 
@@ -740,16 +759,16 @@ class Article(Base):
 ```
 
 ### Acceptance Criteria
-- [ ] `is_international` en `source_country` velden op Article
-- [ ] Database migratie (of Supabase SQL)
-- [ ] Model updates met type hints
-- [ ] Backward compatible (bestaande artikelen = NL, niet international)
+- [x] `is_international` en `source_country` velden op Article
+- [x] Database migratie (of Supabase SQL)
+- [x] Model updates met type hints
+- [x] Backward compatible (bestaande artikelen = NL, niet international)
 
 ### Subtasks
-- [ ] Update SQLAlchemy models
-- [ ] Maak Supabase migratie SQL
-- [ ] Test met bestaande data
-- [ ] Update seed data als nodig
+- [x] Update SQLAlchemy models
+- [x] Maak Supabase migratie SQL
+- [x] Test met bestaande data
+- [x] Update seed data als nodig
 
 ---
 

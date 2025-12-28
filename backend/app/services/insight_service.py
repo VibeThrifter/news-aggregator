@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -23,12 +24,41 @@ from backend.app.llm.client import (
     LLMTimeoutError,
     MistralClient,
 )
-from backend.app.services.llm_config_service import get_llm_config_service
 from backend.app.llm.prompt_builder import PromptBuilder, PromptGenerationResult
 from backend.app.llm.schemas import CriticalPayload, FactualPayload, InsightsPayload
 from backend.app.repositories import InsightRepository
+from backend.app.services.llm_config_service import get_llm_config_service
 
 logger = get_logger(__name__).bind(component="InsightService")
+
+
+def _extract_title_from_summary(summary: str) -> str | None:
+    """Extract the title (first line) from an LLM-generated summary.
+
+    The LLM generates summaries where the first line is a short title (max 60 chars)
+    without punctuation, followed by a blank line and the actual content.
+
+    Returns None if no valid title can be extracted.
+    """
+    if not summary:
+        return None
+
+    # Try to match: title\n\n (title without punctuation, followed by blank line)
+    match = re.match(r"^([^\n.!?]+)\n\n", summary)
+    if match:
+        title = match.group(1).strip()
+        # Validate: title should be reasonably short (max 80 chars to allow some flexibility)
+        if 5 <= len(title) <= 80:
+            return title
+
+    # Fallback: try title with punctuation followed by blank line
+    match = re.match(r"^([^\n]+[.!?])\s*\n\n", summary)
+    if match:
+        title = match.group(1).strip()
+        if 5 <= len(title) <= 80:
+            return title
+
+    return None
 
 
 @dataclass(slots=True)
@@ -195,7 +225,7 @@ class InsightService:
         prompt_metadata["model"] = critical_result.model  # backwards compat
         prompt_metadata["factual_prompt_length"] = factual_package.prompt_length
         prompt_metadata["critical_prompt_length"] = critical_package.prompt_length
-        total_usage: Dict[str, Any] = {}
+        total_usage: dict[str, Any] = {}
         if factual_result.usage:
             for k, v in factual_result.usage.items():
                 total_usage[f"factual_{k}"] = v
@@ -214,6 +244,16 @@ class InsightService:
             usage=total_usage if total_usage else None,
         )
 
+        # Store search_keywords in prompt_metadata BEFORE upsert (Epic 9)
+        if merged_payload.search_keywords:
+            prompt_metadata["search_keywords"] = merged_payload.search_keywords
+            logger.info(
+                "search_keywords_generated",
+                event_id=event_id,
+                keywords=merged_payload.search_keywords,
+                correlation_id=correlation_id,
+            )
+
         async with self.session_factory() as session:
             repo = InsightRepository(session)
             persistence = await repo.upsert_insight(
@@ -225,6 +265,7 @@ class InsightService:
                 timeline=payload_dict.get("timeline", []),
                 clusters=payload_dict.get("clusters", []),
                 contradictions=payload_dict.get("contradictions", []),
+                involved_countries=payload_dict.get("involved_countries", []),
                 fallacies=payload_dict.get("fallacies", []),
                 frames=payload_dict.get("frames", []),
                 coverage_gaps=payload_dict.get("coverage_gaps", []),
@@ -246,6 +287,34 @@ class InsightService:
                     f"but should be for event {event_id}"
                 )
 
+            # Update event fields from LLM insights
+            event = await session.get(Event, event_id)
+            if event:
+                # Update title with LLM-generated title (first line of summary)
+                llm_title = _extract_title_from_summary(merged_payload.summary)
+                if llm_title:
+                    old_title = event.title
+                    event.title = llm_title
+                    logger.info(
+                        "event_title_updated",
+                        event_id=event_id,
+                        old_title=old_title,
+                        new_title=llm_title,
+                        correlation_id=correlation_id,
+                    )
+
+                # Store detected countries for international enrichment (Epic 9)
+                if merged_payload.involved_countries:
+                    event.detected_countries = [
+                        c.iso_code for c in merged_payload.involved_countries
+                    ]
+                    logger.info(
+                        "event_countries_detected",
+                        event_id=event_id,
+                        countries=event.detected_countries,
+                        correlation_id=correlation_id,
+                    )
+
             await session.commit()
 
         logger.info(
@@ -265,8 +334,8 @@ class InsightService:
         )
 
     @staticmethod
-    def _build_prompt_metadata(package: PromptGenerationResult) -> Dict[str, Any]:
-        metadata: Dict[str, Any] = {
+    def _build_prompt_metadata(package: PromptGenerationResult) -> dict[str, Any]:
+        metadata: dict[str, Any] = {
             "selected_article_ids": package.selected_article_ids,
             "selected_count": package.selected_count,
             "total_articles": package.total_articles,
@@ -279,7 +348,7 @@ class InsightService:
         *,
         limit: int = 10,
         correlation_id: str | None = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Generate insights for events that are missing them.
 
         This method is designed to be called periodically by a scheduler job
@@ -312,7 +381,7 @@ class InsightService:
                 .limit(limit)
             )
             result = await session.execute(stmt)
-            event_ids: List[int] = [row[0] for row in result.fetchall()]
+            event_ids: list[int] = [row[0] for row in result.fetchall()]
 
         if not event_ids:
             log.info("backfill_no_events_needed")
@@ -326,7 +395,7 @@ class InsightService:
 
         processed = 0
         failed = 0
-        failed_ids: List[int] = []
+        failed_ids: list[int] = []
 
         for event_id in event_ids:
             try:
