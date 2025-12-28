@@ -202,17 +202,27 @@ function extractTitleFromSummary(
   if (!summary) {
     return { title: null, description: null };
   }
-  // Split on first sentence ending (. ! ?)
-  const match = summary.match(/^(.+?[.!?])\s*(.*)$/s);
+
+  // LLM summaries have format: "Title\n\nContent..." where title has no punctuation
+  // First try to match title followed by blank line
+  const blankLineMatch = summary.match(/^([^\n]+)\n\n(.*)$/s);
   let title: string;
   let rest: string | null;
 
-  if (match) {
-    title = match[1].trim();
-    rest = match[2].trim() || null;
+  if (blankLineMatch) {
+    // Title is first line before blank line
+    title = blankLineMatch[1].trim();
+    rest = blankLineMatch[2].trim() || null;
   } else {
-    title = summary;
-    rest = null;
+    // Fallback: split on first sentence ending (. ! ?)
+    const sentenceMatch = summary.match(/^(.+?[.!?])\s*(.*)$/s);
+    if (sentenceMatch) {
+      title = sentenceMatch[1].trim();
+      rest = sentenceMatch[2].trim() || null;
+    } else {
+      title = summary;
+      rest = null;
+    }
   }
 
   // Truncate long titles (only for card views, not detail pages)
