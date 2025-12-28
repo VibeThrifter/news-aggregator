@@ -149,7 +149,8 @@ make clean             # Clean up generated files
 | Job | Interval | Description |
 | --- | -------- | ----------- |
 | RSS Feed Polling | 15 min | Polls all RSS feeds for new articles |
-| Insight Backfill | 30 min | Generates LLM insights for events missing them |
+| Insight Backfill | 15 min | Generates LLM insights for events missing them |
+| International Enrichment | 2 hours | Adds international perspectives via Google News (Epic 9) |
 | Event Maintenance | 24 hours | Refreshes centroids, archives stale events |
 
 ### LLM Prompts Updaten
@@ -226,6 +227,15 @@ curl -X POST "http://localhost:8000/admin/trigger/generate-insights/{event_id}"
 
 # Trigger event maintenance
 curl -X POST "http://localhost:8000/admin/trigger/maintenance"
+
+# International enrichment for specific event (Epic 9)
+curl -X POST "http://localhost:8000/admin/trigger/enrich-international/{event_id}"
+
+# Batch international enrichment (default 5 events)
+curl -X POST "http://localhost:8000/admin/trigger/enrich-international-batch"
+
+# Batch enrichment with custom limit
+curl -X POST "http://localhost:8000/admin/trigger/enrich-international-batch?limit=10"
 
 # Check scheduler status
 curl "http://localhost:8000/admin/scheduler/status"

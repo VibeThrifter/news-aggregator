@@ -182,3 +182,53 @@ export function getSourceFaviconUrl(sourceName: string): string {
   const normalizedName = sourceName.toLowerCase().replace(/\s+/g, "");
   return `https://www.google.com/s2/favicons?domain=${normalizedName}.nl&sz=32`;
 }
+
+// Country name mapping: ISO 3166-1 alpha-2 to Dutch name
+export const COUNTRY_NAMES: Record<string, string> = {
+  AU: "Australië",
+  BE: "België",
+  BR: "Brazilië",
+  CN: "China",
+  DE: "Duitsland",
+  EG: "Egypte",
+  FR: "Frankrijk",
+  GB: "Verenigd Koninkrijk",
+  IL: "Israël",
+  IN: "India",
+  IR: "Iran",
+  JP: "Japan",
+  KR: "Zuid-Korea",
+  MX: "Mexico",
+  NL: "Nederland",
+  PS: "Palestina",
+  RU: "Rusland",
+  SA: "Saoedi-Arabië",
+  TR: "Turkije",
+  UA: "Oekraïne",
+  US: "Verenigde Staten",
+  ZA: "Zuid-Afrika",
+};
+
+/**
+ * Convert ISO 3166-1 alpha-2 country code to flag emoji.
+ * Works by converting each letter to its regional indicator symbol.
+ * Example: "US" -> "🇺🇸", "NL" -> "🇳🇱"
+ */
+export function getCountryFlag(isoCode: string | null | undefined): string {
+  if (!isoCode || isoCode.length !== 2) return "🌍";
+  const code = isoCode.toUpperCase();
+  const OFFSET = 0x1F1E6 - 0x41; // Regional indicator starts at U+1F1E6, 'A' is U+0041
+  return String.fromCodePoint(
+    code.charCodeAt(0) + OFFSET,
+    code.charCodeAt(1) + OFFSET
+  );
+}
+
+/**
+ * Get Dutch country name from ISO code.
+ * Falls back to the ISO code itself if not found.
+ */
+export function getCountryName(isoCode: string | null | undefined): string {
+  if (!isoCode) return "Onbekend";
+  return COUNTRY_NAMES[isoCode.toUpperCase()] || isoCode.toUpperCase();
+}

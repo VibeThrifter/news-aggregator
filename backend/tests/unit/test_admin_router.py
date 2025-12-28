@@ -24,6 +24,9 @@ dummy_enrich_module = types.ModuleType("backend.app.services.enrich_service")
 
 
 class _StubArticleEnrichmentService:
+    def __init__(self, **kwargs):  # Accept any kwargs like session_factory
+        pass
+
     async def enrich_pending(self, limit=None):  # pragma: no cover - unused in these tests
         return {"status": "stub"}
 

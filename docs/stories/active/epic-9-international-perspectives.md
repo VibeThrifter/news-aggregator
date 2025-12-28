@@ -774,7 +774,7 @@ class Article(Base):
 
 ## Story 9.6: Frontend - Internationale Bronnen Sectie
 
-**Status**: 🔲 Ready
+**Status**: ✅ Done
 **Prioriteit**: Should Have
 **Geschatte complexiteit**: Medium
 **Depends on**: Story 9.3, 9.5
@@ -849,19 +849,40 @@ export function InternationalSources({ articles, countries }: InternationalSourc
 ```
 
 ### Acceptance Criteria
-- [ ] Aparte sectie "Internationale perspectieven" op event detail
-- [ ] Landvlaggen naast bron naam (emoji of library)
-- [ ] Groepering of lijst van internationale artikelen
-- [ ] "Bronnen uit: X, Y, Z" footer
-- [ ] Graceful handling als er geen internationale bronnen zijn
-- [ ] Mobile responsive
+- [x] Aparte sectie "Internationale perspectieven" op event detail
+- [x] Landvlaggen naast bron naam (emoji of library)
+- [x] Groepering of lijst van internationale artikelen
+- [x] "Bronnen uit: X, Y, Z" footer
+- [x] Graceful handling als er geen internationale bronnen zijn
+- [x] Mobile responsive
 
 ### Subtasks
-- [ ] Update Supabase query om `is_international` te fetchen
-- [ ] Bouw `InternationalSources` component
-- [ ] Voeg country flag utility toe (emoji mapping)
-- [ ] Integreer in EventDetailScreen
-- [ ] Test met events met/zonder internationale bronnen
+- [x] Update Supabase query om `is_international` te fetchen
+- [x] Bouw `InternationalSources` component
+- [x] Voeg country flag utility toe (emoji mapping)
+- [x] Integreer in EventDetailScreen
+- [x] Test met events met/zonder internationale bronnen
+
+### Implementation Details
+
+**Files created/modified:**
+- `frontend/lib/types.ts` - Added `is_international` and `source_country` to `EventArticle` interface
+- `frontend/lib/api.ts` - Updated `getEventDetail` to map international article fields
+- `frontend/lib/format.ts` - Added `getCountryFlag()` and `getCountryName()` utilities with Dutch country names
+- `frontend/components/InternationalSources.tsx` - New component displaying international articles with country flags
+- `frontend/app/event/[id]/EventDetailScreen.tsx` - Integrated component, split articles into Dutch/international sections
+
+**Country flag implementation:**
+- Uses Unicode regional indicator symbols for flag emojis (ISO code → flag)
+- 22 country name translations in Dutch
+- Globe icon (🌍) as fallback for unknown countries
+
+**UI Changes:**
+- Dutch articles now shown under "Nederlandse bronnen (N)" heading
+- International articles shown separately under "Internationale perspectieven (N)"
+- Each international article displays: country flag, source favicon, source name, title, date
+- Footer shows "Bronnen uit: 🇺🇸 Verenigde Staten, 🇬🇧 Verenigd Koninkrijk..." etc.
+- Section only appears when international articles exist
 
 ---
 

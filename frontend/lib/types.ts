@@ -184,6 +184,8 @@ export interface EventArticle {
   published_at?: string | null;
   summary?: string | null;
   image_url?: string | null;
+  is_international?: boolean;
+  source_country?: string | null; // ISO 3166-1 alpha-2 code
 }
 
 export interface EventDetail extends EventListItem {

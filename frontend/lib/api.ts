@@ -457,6 +457,8 @@ export async function getEventDetail(eventId: string | number, options?: ApiFetc
     summary: ea.articles.summary,
     published_at: ea.articles.published_at,
     image_url: ea.articles.image_url,
+    is_international: ea.articles.is_international || false,
+    source_country: ea.articles.source_country || null,
   }));
 
   // Build source_breakdown from articles and find latest article date

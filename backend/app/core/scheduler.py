@@ -7,11 +7,20 @@ and other background jobs according to Story 1.1 requirements.
 
 import asyncio
 import uuid
-from typing import Optional
+
+import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-import structlog
 
+from ..db.session import ensure_healthy_connection, get_sessionmaker
+from ..events.maintenance import get_event_maintenance_service
+from ..repositories.event_repo import EventRepository
+from ..services.ingest_service import IngestService
+from ..services.insight_service import InsightService
+from ..services.international_enrichment import (
+    InternationalEnrichmentService,
+    get_international_enrichment_service,
+)
 from .config import get_settings
 
 # Maximum time allowed for a single poll cycle (5 minutes)
@@ -20,10 +29,8 @@ POLL_CYCLE_TIMEOUT_SECONDS = 300
 INSIGHT_BACKFILL_TIMEOUT_SECONDS = 600
 # Maximum time allowed for maintenance (10 minutes)
 MAINTENANCE_TIMEOUT_SECONDS = 600
-from ..db.session import ensure_healthy_connection, get_sessionmaker
-from ..events.maintenance import get_event_maintenance_service
-from ..services.ingest_service import IngestService
-from ..services.insight_service import InsightService
+# Maximum time allowed for international enrichment (15 minutes)
+INTERNATIONAL_ENRICHMENT_TIMEOUT_SECONDS = 900
 
 logger = structlog.get_logger()
 
@@ -36,9 +43,10 @@ class NewsAggregatorScheduler:
         self.settings = get_settings()
         self.scheduler = AsyncIOScheduler()
         # Services are lazily initialized to get fresh session factories
-        self._ingest_service: Optional[IngestService] = None
+        self._ingest_service: IngestService | None = None
         self._maintenance_service = None
-        self._insight_service: Optional[InsightService] = None
+        self._insight_service: InsightService | None = None
+        self._international_enrichment_service: InternationalEnrichmentService | None = None
         self._is_running = False
 
     def _get_ingest_service(self) -> IngestService:
@@ -59,11 +67,18 @@ class NewsAggregatorScheduler:
             self._insight_service = InsightService(settings=self.settings)
         return self._insight_service
 
+    def _get_international_enrichment_service(self) -> InternationalEnrichmentService:
+        """Get or create international enrichment service."""
+        if self._international_enrichment_service is None:
+            self._international_enrichment_service = get_international_enrichment_service()
+        return self._international_enrichment_service
+
     def _reset_services(self) -> None:
         """Reset all services to pick up fresh connections after DB reset."""
         self._ingest_service = None
         self._maintenance_service = None
         self._insight_service = None
+        self._international_enrichment_service = None
         logger.info("scheduler_services_reset")
 
     def setup_jobs(self) -> None:
@@ -88,9 +103,20 @@ class NewsAggregatorScheduler:
             max_instances=1,
         )
 
+        # International enrichment job (Epic 9)
+        self.scheduler.add_job(
+            func=self._international_enrichment_job,
+            trigger=IntervalTrigger(hours=self.settings.international_enrichment_interval_hours),
+            id="international_enrichment",
+            name="International Enrichment",
+            replace_existing=True,
+            max_instances=1,
+        )
+
         logger.info("Scheduled jobs configured",
                    rss_interval_minutes=self.settings.scheduler_interval_minutes,
                    insight_backfill_interval_minutes=self.settings.insight_backfill_interval_minutes,
+                   international_enrichment_interval_hours=self.settings.international_enrichment_interval_hours,
                    maintenance_interval_hours=self.settings.event_maintenance_interval_hours)
 
         self.scheduler.add_job(
@@ -215,6 +241,90 @@ class NewsAggregatorScheduler:
             job_logger.info("Event maintenance job completed", **stats.as_dict())
         except Exception as exc:  # pragma: no cover - defensive logging
             job_logger.error("Event maintenance job failed", error=str(exc))
+            self._reset_services()
+
+    async def _international_enrichment_job(self) -> None:
+        """Enrich events with international news perspectives via Google News."""
+
+        correlation_id = str(uuid.uuid4())
+        job_logger = logger.bind(correlation_id=correlation_id, job="international_enrichment")
+
+        try:
+            job_logger.info(
+                "Starting international enrichment job",
+                timeout_seconds=INTERNATIONAL_ENRICHMENT_TIMEOUT_SECONDS,
+            )
+
+            # Ensure database connection is healthy before proceeding
+            if not await ensure_healthy_connection():
+                job_logger.error("Database connection unhealthy, skipping enrichment cycle")
+                self._reset_services()
+                return
+
+            # Get events that need international enrichment
+            session_factory = get_sessionmaker()
+            async with session_factory() as session:
+                event_repo = EventRepository(session)
+                events = await event_repo.get_events_without_international(
+                    limit=self.settings.international_enrichment_batch_size
+                )
+
+            if not events:
+                job_logger.info("No events need international enrichment")
+                return
+
+            job_logger.info("Found events for enrichment", count=len(events))
+
+            enrichment_service = self._get_international_enrichment_service()
+            total_added = 0
+            successful = 0
+            failed = 0
+
+            try:
+                for event in events:
+                    try:
+                        result = await asyncio.wait_for(
+                            enrichment_service.enrich_event(
+                                event_id=event.id,
+                                max_articles_per_country=self.settings.international_enrichment_max_per_country,
+                                correlation_id=correlation_id,
+                            ),
+                            timeout=120,  # 2 min per event
+                        )
+                        total_added += result.articles_added
+                        successful += 1
+                        job_logger.debug(
+                            "Event enriched",
+                            event_id=event.id,
+                            articles_added=result.articles_added,
+                        )
+                    except asyncio.TimeoutError:
+                        job_logger.warning("Event enrichment timed out", event_id=event.id)
+                        failed += 1
+                    except Exception as e:
+                        job_logger.warning("Event enrichment failed", event_id=event.id, error=str(e))
+                        failed += 1
+
+                    # Rate limiting between events
+                    await asyncio.sleep(5)
+
+            except asyncio.TimeoutError:
+                job_logger.error(
+                    "International enrichment job timed out",
+                    timeout_seconds=INTERNATIONAL_ENRICHMENT_TIMEOUT_SECONDS,
+                )
+                self._reset_services()
+                return
+
+            job_logger.info(
+                "International enrichment job completed",
+                events_processed=successful,
+                events_failed=failed,
+                total_articles_added=total_added,
+            )
+
+        except Exception as exc:  # pragma: no cover - defensive logging
+            job_logger.error("International enrichment job failed", error=str(exc))
             self._reset_services()
 
     def start(self) -> None:
@@ -344,9 +454,96 @@ class NewsAggregatorScheduler:
                 "correlation_id": correlation_id
             }
 
+    async def run_international_enrichment_now(self, limit: int | None = None) -> dict:
+        """Manually trigger international enrichment (for testing/admin)."""
+        correlation_id = str(uuid.uuid4())
+        batch_size = limit or self.settings.international_enrichment_batch_size
+        logger.info(
+            "Manual international enrichment triggered",
+            correlation_id=correlation_id,
+            limit=batch_size,
+        )
+
+        try:
+            # Ensure database connection is healthy before proceeding
+            if not await ensure_healthy_connection():
+                self._reset_services()
+                return {
+                    "success": False,
+                    "error": "Database connection unhealthy after reset attempt",
+                    "correlation_id": correlation_id,
+                }
+
+            # Get events that need international enrichment
+            session_factory = get_sessionmaker()
+            async with session_factory() as session:
+                event_repo = EventRepository(session)
+                events = await event_repo.get_events_without_international(limit=batch_size)
+
+            if not events:
+                return {
+                    "success": True,
+                    "correlation_id": correlation_id,
+                    "events_processed": 0,
+                    "total_articles_added": 0,
+                    "message": "No events need international enrichment",
+                }
+
+            enrichment_service = self._get_international_enrichment_service()
+            total_added = 0
+            successful = 0
+            failed = 0
+            results = []
+
+            for event in events:
+                try:
+                    result = await enrichment_service.enrich_event(
+                        event_id=event.id,
+                        max_articles_per_country=self.settings.international_enrichment_max_per_country,
+                        correlation_id=correlation_id,
+                    )
+                    total_added += result.articles_added
+                    successful += 1
+                    results.append({
+                        "event_id": event.id,
+                        "articles_added": result.articles_added,
+                        "countries_fetched": result.countries_fetched,
+                    })
+                except Exception as e:
+                    failed += 1
+                    results.append({
+                        "event_id": event.id,
+                        "error": str(e),
+                    })
+
+                # Rate limiting between events
+                await asyncio.sleep(2)
+
+            return {
+                "success": failed == 0,
+                "correlation_id": correlation_id,
+                "events_processed": successful,
+                "events_failed": failed,
+                "total_articles_added": total_added,
+                "results": results,
+            }
+
+        except Exception as e:
+            logger.error(
+                "Manual international enrichment failed",
+                error=str(e),
+                correlation_id=correlation_id,
+            )
+            self._reset_services()
+            return {
+                "success": False,
+                "error": str(e),
+                "correlation_id": correlation_id,
+            }
+
 
 # Global scheduler instance
-_scheduler: Optional[NewsAggregatorScheduler] = None
+_scheduler: NewsAggregatorScheduler | None = None
 
 
 def get_scheduler() -> NewsAggregatorScheduler:

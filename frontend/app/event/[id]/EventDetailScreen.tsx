@@ -18,6 +18,7 @@ import {
   parseIsoDate,
 } from "@/lib/format";
 import { ArticleList } from "@/components/ArticleList";
+import { InternationalSources } from "@/components/InternationalSources";
 import { SpectrumBar } from "@/components/SpectrumBar";
 import { ArticleLookupProvider } from "@/components/ArticleLookupContext";
 import { ClusterGrid } from "@/components/ClusterGrid";
@@ -167,6 +168,13 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
   const showInsights = hasInsightsContent(insights);
   const articles = event?.articles ?? [];
 
+  // Split articles into Dutch (non-international) and international
+  const { dutchArticles, internationalArticles } = useMemo(() => {
+    const dutch = articles.filter((a) => !a.is_international);
+    const international = articles.filter((a) => a.is_international);
+    return { dutchArticles: dutch, internationalArticles: international };
+  }, [articles]);
+
   const insightsFallbackReason = useMemo(() => {
     if (insightsError) {
       return buildErrorMessage(insightsError, "Kon insights niet laden.");
@@ -206,8 +214,12 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
                   prose-headings:text-ink-900 prose-headings:font-serif prose-headings:mt-4 prose-headings:mb-2
                   prose-li:text-ink-700 prose-ul:my-2 prose-ol:my-2">
                   <ReactMarkdown>{
-                    // Strip first sentence (title) from summary to avoid duplication
-                    insights.summary.replace(/^.+?[.!?]\s*/, '')
+                    // Strip first line (title) from summary - LLM generates title without punctuation
+                    // Match: title\n\n or title.\n\n or title\n or title. (sentence with period)
+                    insights.summary
+                      .replace(/^[^\n.!?]+\n\n/, '')  // Title without punctuation followed by blank line
+                      .replace(/^[^\n]+[.!?]\s*\n\n/, '')  // Title with punctuation followed by blank line
+                      .replace(/^[^\n.!?]+\n/, '')  // Fallback: title without punctuation, single newline
                   }</ReactMarkdown>
                 </div>
               </div>
@@ -244,13 +256,19 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
 
       <section className="space-y-4">
         <div>
-          <h2 className="font-serif text-2xl font-bold text-ink-900">Artikelen</h2>
+          <h2 className="font-serif text-2xl font-bold text-ink-900">
+            Nederlandse bronnen ({dutchArticles.length})
+          </h2>
           <p className="mt-1 text-sm text-ink-600">
-            Lijst van artikelen die aan dit event gekoppeld zijn met spectrumlabels en publicatietijd.
+            Artikelen van Nederlandse media over dit event met spectrumlabels en publicatietijd.
           </p>
         </div>
-        <ArticleList articles={articles} />
+        <ArticleList articles={dutchArticles} />
       </section>
+
+      {internationalArticles.length > 0 && (
+        <InternationalSources articles={articles} />
+      )}
 
       {insightsFallbackReason ? <InsightsFallback eventId={event.id} reason={insightsFallbackReason} /> : null}
 

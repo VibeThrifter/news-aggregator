@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Mapping, Sequence
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,7 +34,7 @@ class EventMaintenanceBundle:
     """Container grouping an event with its associated articles."""
 
     event: Event
-    articles: List[Article]
+    articles: list[Article]
 
 
 def _slugify(value: str) -> str:
@@ -42,10 +43,10 @@ def _slugify(value: str) -> str:
 
 
 def _merge_entities(
-    existing: List[Dict[str, Any]] | None,
-    new_entities: List[Dict[str, Any]] | None,
-) -> List[Dict[str, Any]]:
-    merged: Dict[tuple[str, str], Dict[str, Any]] = {}
+    existing: list[dict[str, Any]] | None,
+    new_entities: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    merged: dict[tuple[str, str], dict[str, Any]] = {}
     for source in (existing or []) + (new_entities or []):
         if not source:
             continue
@@ -67,7 +68,7 @@ def _average_embedding(
     new_vector: Sequence[float],
     *,
     count: int,
-) -> List[float]:
+) -> list[float]:
     if not new_vector:
         return list(existing or [])
     if not existing or count <= 0:
@@ -85,14 +86,14 @@ def _average_tfidf(
     new_vector: Mapping[str, float],
     *,
     count: int,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     if not new_vector:
         return dict(existing or {})
     if not existing or count <= 0:
         return dict(new_vector)
 
     union = set(existing.keys()).union(new_vector.keys())
-    averaged: Dict[str, float] = {}
+    averaged: dict[str, float] = {}
     for token in union:
         current = new_vector.get(token, 0.0)
         prior = existing.get(token, 0.0)
@@ -109,7 +110,7 @@ class EventRepository:
         self.session = session
         self.log = logger.bind(component="EventRepository")
 
-    async def fetch_index_snapshots(self) -> List[EventCentroidSnapshot]:
+    async def fetch_index_snapshots(self) -> list[EventCentroidSnapshot]:
         """Return active events that have centroid embeddings for vector indexing."""
 
         stmt = select(Event).where(Event.centroid_embedding.isnot(None))
@@ -117,7 +118,7 @@ class EventRepository:
         result = await self.session.execute(stmt)
         events: Iterable[Event] = result.scalars().all()
 
-        snapshots: List[EventCentroidSnapshot] = []
+        snapshots: list[EventCentroidSnapshot] = []
         for event in events:
             if not isinstance(event.centroid_embedding, list):
                 self.log.warning(
@@ -139,12 +140,12 @@ class EventRepository:
         self.log.info("event_snapshots_loaded", count=len(snapshots))
         return snapshots
 
-    async def load_active_events_with_articles(self) -> List[EventMaintenanceBundle]:
+    async def load_active_events_with_articles(self) -> list[EventMaintenanceBundle]:
         """Return active events and their linked articles for maintenance tasks."""
 
         stmt = select(Event).where(Event.archived_at.is_(None))
         result = await self.session.execute(stmt)
-        events: List[Event] = list(result.scalars().all())
+        events: list[Event] = list(result.scalars().all())
         if not events:
             return []
 
@@ -155,7 +156,7 @@ class EventRepository:
             .where(EventArticle.event_id.in_(event_ids))
         )
         article_rows = await self.session.execute(article_stmt)
-        grouped: Dict[int, List[Article]] = defaultdict(list)
+        grouped: dict[int, list[Article]] = defaultdict(list)
         for event_id, article in article_rows.all():
             grouped[int(event_id)].append(article)
 
@@ -177,7 +178,7 @@ class EventRepository:
 
     async def get_events_by_ids(
         self, event_ids: Sequence[int], *, include_archived: bool = False
-    ) -> List[Event]:
+    ) -> list[Event]:
         """Fetch events for the given identifiers.
 
         Args:
@@ -199,7 +200,7 @@ class EventRepository:
         article: Article,
         centroid_embedding: Sequence[float],
         centroid_tfidf: Mapping[str, float],
-        centroid_entities: List[Dict[str, Any]],
+        centroid_entities: list[dict[str, Any]],
         timestamp: datetime,
     ) -> Event:
         """Create a new event row seeded from the first article."""
@@ -230,7 +231,7 @@ class EventRepository:
         article: Article,
         embedding: Sequence[float],
         tfidf_vector: Mapping[str, float],
-        entities: List[Dict[str, Any]],
+        entities: list[dict[str, Any]],
         similarity_score: float,
         scoring_breakdown: Mapping[str, float],
         timestamp: datetime,
@@ -295,6 +296,35 @@ class EventRepository:
             await self.session.flush()
             self.log.info("event_archived", count=archived)
         return archived
+
+    async def get_events_without_international(
+        self,
+        *,
+        limit: int = 10,
+        min_articles: int = 2,
+    ) -> list[Event]:
+        """Fetch events that haven't been enriched with international perspectives.
+
+        Args:
+            limit: Maximum number of events to return
+            min_articles: Minimum article count for an event to be eligible
+
+        Returns:
+            List of events without international enrichment, ordered by recency
+        """
+        stmt = (
+            select(Event)
+            .where(Event.archived_at.is_(None))
+            .where(Event.international_enriched_at.is_(None))
+            .where(Event.detected_countries.isnot(None))
+            .where(Event.article_count >= min_articles)
+            .order_by(Event.last_updated_at.desc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        events = list(result.scalars().all())
+        self.log.info("events_without_international_loaded", count=len(events))
+        return events
 
 
 __all__ = [

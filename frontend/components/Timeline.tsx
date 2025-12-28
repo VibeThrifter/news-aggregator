@@ -8,14 +8,53 @@ interface TimelineProps {
   data: TimelineEvent[];
 }
 
-function formatTime(time: string): string {
+function formatTime(time: string, headline?: string): string {
+  // Year-only format (e.g., "1934", "1952")
+  if (/^\d{4}$/.test(time)) {
+    return time;
+  }
+
   const date = new Date(time);
   if (isNaN(date.getTime())) return time;
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const eventYear = date.getFullYear();
+
+  // Detect malformed timestamps: 1970-01-01T00:XX:XX indicates LLM converted year to Unix seconds
+  // e.g., "1934" becomes 1934 seconds after epoch = 1970-01-01T00:32:14
+  if (eventYear === 1970 && date.getMonth() === 0 && date.getDate() === 1) {
+    // Try to extract year from headline (e.g., "Geboren in 1934" or historical context)
+    if (headline) {
+      const yearMatch = headline.match(/\b(1[89]\d{2}|20[0-2]\d)\b/);
+      if (yearMatch) {
+        return yearMatch[1];
+      }
+    }
+    // If no year in headline, this is likely a historical event - hide the broken date
+    return "–";
+  }
+
   const day = date.getDate();
   const month = date.toLocaleDateString("nl-NL", { month: "short" });
-  const hours = date.getHours().toString().padStart(2, "0");
-  const minutes = date.getMinutes().toString().padStart(2, "0");
-  return `${day} ${month} ${hours}:${minutes}`;
+
+  // Check if time is midnight (00:00) - likely a date-only value
+  const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
+
+  // Historical events (more than 1 year ago): show day month year
+  if (eventYear < currentYear - 1) {
+    return `${day} ${month} ${eventYear}`;
+  }
+
+  // Recent events with time: show day month hour:min
+  if (hasTime) {
+    const hours = date.getHours().toString().padStart(2, "0");
+    const minutes = date.getMinutes().toString().padStart(2, "0");
+    return `${day} ${month} ${hours}:${minutes}`;
+  }
+
+  // Recent date-only: show day month year
+  return `${day} ${month} ${eventYear}`;
 }
 
 export function Timeline({ data }: TimelineProps) {
@@ -37,7 +76,7 @@ export function Timeline({ data }: TimelineProps) {
             className="relative flex items-start gap-3"
           >
             <div className="absolute -left-[21px] top-1 h-2 w-2 rounded-full bg-blue-500" />
-            <span className="text-sm text-blue-600 font-mono w-28 shrink-0 font-medium">{formatTime(item.time)}</span>
+            <span className="text-sm text-blue-600 font-mono w-28 shrink-0 font-medium">{formatTime(item.time, item.headline)}</span>
             <p className="text-sm text-ink-700 leading-snug">{item.headline}</p>
           </motion.div>
         ))}

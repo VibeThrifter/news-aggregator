@@ -1,7 +1,7 @@
 """Admin endpoints for manual job triggers and system status."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
@@ -11,8 +11,11 @@ from backend.app.core.scheduler import get_scheduler
 from backend.app.services.enrich_service import ArticleEnrichmentService
 from backend.app.services.event_service import EventService
 from backend.app.services.insight_service import InsightGenerationOutcome, InsightService
+from backend.app.services.international_enrichment import (
+    get_international_enrichment_service,
+)
 from backend.app.services.llm_config_service import get_llm_config_service
-from backend.app.services.source_service import SourceService, get_source_service
+from backend.app.services.source_service import get_source_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -22,18 +25,18 @@ class SourceResponse(BaseModel):
     source_id: str
     display_name: str
     feed_url: str
-    spectrum: Union[str, int, float, None]
+    spectrum: str | int | float | None
     enabled: bool
     is_main_source: bool
 
 
 class SourceUpdateRequest(BaseModel):
-    enabled: Optional[bool] = None
-    is_main_source: Optional[bool] = None
+    enabled: bool | None = None
+    is_main_source: bool | None = None
 
 
 class SourcesListResponse(BaseModel):
-    sources: List[SourceResponse]
+    sources: list[SourceResponse]
     total: int
 
 
@@ -43,17 +46,17 @@ class LlmConfigResponse(BaseModel):
     key: str
     value: str
     config_type: str
-    description: Optional[str]
+    description: str | None
     updated_at: datetime
 
 
 class LlmConfigUpdateRequest(BaseModel):
     value: str
-    description: Optional[str] = None
+    description: str | None = None
 
 
 class LlmConfigListResponse(BaseModel):
-    configs: List[LlmConfigResponse]
+    configs: list[LlmConfigResponse]
     total: int
 
 
@@ -171,7 +174,7 @@ async def scheduler_status():
     return scheduler.get_job_status()
 
 
-def _build_links(event_id: int) -> Dict[str, str]:
+def _build_links(event_id: int) -> dict[str, str]:
     base_id = str(event_id)
     return {
         "self": f"/admin/trigger/generate-insights/{base_id}",
@@ -180,7 +183,7 @@ def _build_links(event_id: int) -> Dict[str, str]:
     }
 
 
-def _build_data_envelope(result: InsightGenerationOutcome) -> Dict[str, Any]:
+def _build_data_envelope(result: InsightGenerationOutcome) -> dict[str, Any]:
     status = "created" if result.created else "updated"
     generated_at: datetime | None = getattr(result.insight, "generated_at", None)
     return {
@@ -194,8 +197,8 @@ def _build_data_envelope(result: InsightGenerationOutcome) -> Dict[str, Any]:
     }
 
 
-def _build_meta(result: InsightGenerationOutcome) -> Dict[str, Any]:
-    meta: Dict[str, Any] = {
+def _build_meta(result: InsightGenerationOutcome) -> dict[str, Any]:
+    meta: dict[str, Any] = {
         "provider": result.llm_result.provider,
         "model": result.llm_result.model,
         "message": "Insights-run gestart" if result.created else "Bestaande insights geüpdatet",
@@ -206,7 +209,7 @@ def _build_meta(result: InsightGenerationOutcome) -> Dict[str, Any]:
 
 
 def _json_api_error(status_code: int, *, code: str, message: str, details: Any | None = None) -> JSONResponse:
-    content: Dict[str, Any] = {"error": {"code": code, "message": message}}
+    content: dict[str, Any] = {"error": {"code": code, "message": message}}
     if details is not None:
         content["error"]["details"] = details
     return JSONResponse(status_code=status_code, content=content)
@@ -264,7 +267,7 @@ def _config_to_response(config) -> LlmConfigResponse:
 
 
 @router.get("/llm-config", response_model=LlmConfigListResponse)
-async def list_llm_configs(config_type: Optional[str] = None):
+async def list_llm_configs(config_type: str | None = None):
     """List all LLM configuration entries.
 
     Args:
@@ -337,3 +340,154 @@ async def invalidate_llm_config_cache():
     service = get_llm_config_service()
     service.invalidate_cache()
     return {"message": "Config cache invalidated"}
+
+
+# International Enrichment endpoints (Epic 9)
+class InternationalEnrichmentResponse(BaseModel):
+    """Response for international enrichment operations."""
+
+    event_id: int
+    countries_detected: list[str]
+    countries_fetched: list[str]
+    countries_excluded: list[str]
+    articles_found: int
+    articles_added: int
+    articles_duplicate: int
+    errors: list[str]
+
+
+class BatchEnrichmentResponse(BaseModel):
+    """Response for batch international enrichment."""
+
+    success: bool
+    events_processed: int
+    total_articles_added: int
+    results: list[InternationalEnrichmentResponse]
+    errors: list[str]
+
+
+@router.post(
+    "/trigger/enrich-international/{event_id}",
+    response_model=InternationalEnrichmentResponse,
+)
+async def trigger_international_enrichment(
+    event_id: int,
+    max_per_country: int = 5,
+):
+    """Trigger international enrichment for a specific event.
+
+    Fetches international news articles from Google News based on the
+    countries detected in the event's LLM insight.
+
+    Args:
+        event_id: ID of the event to enrich
+        max_per_country: Maximum articles to fetch per country (1-20)
+    """
+    if max_per_country < 1 or max_per_country > 20:
+        raise HTTPException(
+            status_code=400,
+            detail="max_per_country must be between 1 and 20",
+        )
+
+    service = get_international_enrichment_service()
+    result = await service.enrich_event(
+        event_id=event_id,
+        max_articles_per_country=max_per_country,
+    )
+
+    return InternationalEnrichmentResponse(
+        event_id=result.event_id,
+        countries_detected=result.countries_detected,
+        countries_fetched=result.countries_fetched,
+        countries_excluded=result.countries_excluded,
+        articles_found=result.articles_found,
+        articles_added=result.articles_added,
+        articles_duplicate=result.articles_duplicate,
+        errors=result.errors,
+    )
+
+
+@router.post(
+    "/trigger/enrich-international-batch",
+    response_model=BatchEnrichmentResponse,
+)
+async def trigger_batch_international_enrichment(
+    limit: int = 5,
+    max_per_country: int = 5,
+):
+    """Enrich multiple events with international perspectives.
+
+    Finds events that have detected countries but haven't been enriched yet,
+    and fetches international articles for each.
+
+    Args:
+        limit: Maximum number of events to process (1-20)
+        max_per_country: Maximum articles to fetch per country per event (1-20)
+    """
+    import asyncio
+
+    from backend.app.db.session import get_sessionmaker
+    from backend.app.repositories.event_repo import EventRepository
+
+    if limit < 1 or limit > 20:
+        raise HTTPException(
+            status_code=400,
+            detail="limit must be between 1 and 20",
+        )
+    if max_per_country < 1 or max_per_country > 20:
+        raise HTTPException(
+            status_code=400,
+            detail="max_per_country must be between 1 and 20",
+        )
+
+    session_factory = get_sessionmaker()
+    async with session_factory() as session:
+        event_repo = EventRepository(session)
+        events = await event_repo.get_events_without_international(limit=limit)
+
+    if not events:
+        return BatchEnrichmentResponse(
+            success=True,
+            events_processed=0,
+            total_articles_added=0,
+            results=[],
+            errors=[],
+        )
+
+    enrichment_service = get_international_enrichment_service()
+    results: list[InternationalEnrichmentResponse] = []
+    errors: list[str] = []
+    total_added = 0
+
+    for event in events:
+        try:
+            result = await enrichment_service.enrich_event(
+                event_id=event.id,
+                max_articles_per_country=max_per_country,
+            )
+            results.append(
+                InternationalEnrichmentResponse(
+                    event_id=result.event_id,
+                    countries_detected=result.countries_detected,
+                    countries_fetched=result.countries_fetched,
+                    countries_excluded=result.countries_excluded,
+                    articles_found=result.articles_found,
+                    articles_added=result.articles_added,
+                    articles_duplicate=result.articles_duplicate,
+                    errors=result.errors,
+                )
+            )
+            total_added += result.articles_added
+        except Exception as e:
+            errors.append(f"Event {event.id}: {e}")
+
+        # Rate limiting between events
+        await asyncio.sleep(2)
+
+    return BatchEnrichmentResponse(
+        success=len(errors) == 0,
+        events_processed=len(results),
+        total_articles_added=total_added,
+        results=results,
+        errors=errors,
+    )
