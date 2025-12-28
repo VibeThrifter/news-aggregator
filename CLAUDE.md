@@ -154,42 +154,60 @@ make clean             # Clean up generated files
 
 ### LLM Prompts Updaten
 
-De LLM prompts worden opgeslagen in de Supabase `llm_config` tabel. Om een prompt te updaten:
+De LLM prompts worden opgeslagen in de Supabase `llm_config` tabel. De lokale templates in `backend/app/llm/templates/` dienen als versiecontrole en referentie.
 
-```python
-# Python script om database prompt te updaten
-import requests
-
-# Lees de lokale template
-with open('backend/app/llm/templates/factual_prompt.txt', 'r') as f:
-    prompt_content = f.read()
-
-url = 'https://xfqvwplrgwubbgbumzwk.supabase.co/rest/v1/llm_config'
-headers = {
-    'apikey': '<SUPABASE_ANON_KEY>',
-    'Authorization': 'Bearer <SUPABASE_ANON_KEY>',
-    'Content-Type': 'application/json',
-    'Prefer': 'return=minimal'
-}
-
-# Update prompt_factual (of prompt_critical)
-resp = requests.patch(
-    url + '?key=eq.prompt_factual',
-    headers=headers,
-    json={'value': prompt_content}
-)
-print(f'Status: {resp.status_code}')  # 204 = success
-```
+**BELANGRIJK: Houd database en lokale templates in sync!**
+- Database = productie (wat de LLM daadwerkelijk gebruikt)
+- Lokale templates = versiecontrole (voor git history en review)
 
 **Beschikbare prompt keys:**
-- `prompt_factual` - Fase 1: feitelijke analyse (summary, timeline, clusters)
-- `prompt_critical` - Fase 2: kritische analyse (frames, fallacies, authority)
-- `prompt_classification` - Artikel classificatie naar event type
+| Key | Bestand | Doel |
+|-----|---------|------|
+| `prompt_factual` | `factual_prompt.txt` | Fase 1: feitelijke analyse (summary, timeline, clusters) |
+| `prompt_critical` | `critical_prompt.txt` | Fase 2: kritische analyse (frames, fallacies, authority) |
+| `prompt_classification` | - | Artikel classificatie naar event type |
 
-**Workflow:**
-1. Bewerk de lokale template in `backend/app/llm/templates/`
-2. Upload naar database met bovenstaand script
-3. Genereer insights opnieuw: `curl -X POST "http://localhost:8000/admin/trigger/generate-insights/{event_id}"`
+**Workflow bij prompt wijzigingen:**
+
+1. **Wijzig BEIDE** - database én lokale template:
+   ```bash
+   # Update database
+   PYTHONPATH=. python3.11 -c "
+   import requests
+
+   new_prompt = '''<NIEUWE PROMPT HIER>'''
+
+   url = 'https://xfqvwplrgwubbgbumzwk.supabase.co/rest/v1/llm_config'
+   headers = {
+       'apikey': '<SUPABASE_ANON_KEY>',
+       'Authorization': 'Bearer <SUPABASE_ANON_KEY>',
+       'Content-Type': 'application/json',
+       'Prefer': 'return=minimal'
+   }
+   resp = requests.patch(url + '?key=eq.prompt_factual', headers=headers, json={'value': new_prompt})
+   print(f'Database: {resp.status_code}')  # 204 = success
+   "
+   ```
+
+2. **Update lokale template** - bewerk `backend/app/llm/templates/<bestand>.txt` met dezelfde wijzigingen
+
+3. **Test de wijziging:**
+   ```bash
+   curl -X POST "http://localhost:8000/admin/trigger/generate-insights/{event_id}"
+   ```
+
+4. **Commit lokale template** - zodat wijzigingen in git history staan
+
+**Huidige prompt ophalen uit database:**
+```bash
+PYTHONPATH=. python3.11 -c "
+import requests
+url = 'https://xfqvwplrgwubbgbumzwk.supabase.co/rest/v1/llm_config'
+headers = {'apikey': '<SUPABASE_ANON_KEY>'}
+resp = requests.get(url + '?key=eq.prompt_factual&select=value', headers=headers)
+print(resp.json()[0]['value'])
+"
+```
 
 ### Admin Endpoints
 

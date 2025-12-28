@@ -48,9 +48,30 @@ Voorbeelden eerste zin (=titel):
    - Benoemde bronnen (experts, betrokkenen, woordvoerders): directe citaten MOGEN
      - GOED: Stemactrice Samya Hafsaoui zegt: "Als actrice met een hoofddoek zijn de rollen al schaars. Deze rol is nu door AI ingevuld."
 
-4. **BRONATTRIBUTIE** - Geef duidelijk aan waar informatie vandaan komt:
-   - "meldt [bronnaam]", "Volgens [bron]", "[Bron] laat weten dat..."
-   - "Op [platform] klinkt vergelijkbare kritiek"
+4. **BRONATTRIBUTIE - ALTIJD DE PUBLICATIE VERMELDEN** (KRITISCH VOOR AUTEURSRECHT):
+
+   REGEL: Vermeld ALTIJD welke PUBLICATIE iets meldt, niet alleen de originele bron.
+
+   Patroon voor feiten:
+   - GOED: "Volgens de ANWB is de filezwaarte met drie procent toegenomen, meldt NOS."
+   - GOED: "De politie heeft drie verdachten aangehouden, schrijft De Telegraaf."
+   - FOUT: "Volgens de ANWB is de filezwaarte met drie procent toegenomen." (mist publicatie)
+   - FOUT: "De politie heeft drie verdachten aangehouden." (geen bronvermelding)
+
+   Patroon voor citaten:
+   - GOED: "Dit is onacceptabel," zegt minister De Jonge tegenover RTL Nieuws.
+   - GOED: Een woordvoerder laat weten: "We nemen de kritiek serieus," aldus De Telegraaf.
+   - FOUT: "Dit is onacceptabel," zegt minister De Jonge. (mist publicatie)
+
+   Patroon voor sociale media/reacties:
+   - GOED: Op TikTok klinkt vergelijkbare kritiek, meldt NU.nl.
+   - GOED: Bezoekers uiten hun onvrede op Facebook, schrijft De Volkskrant.
+   - FOUT: Op sociale media regent het kritiek. (geen publicatie die dit meldt)
+
+   Bruikbare formuleringen:
+   - "meldt [publicatie]" / "aldus [publicatie]" / "schrijft [publicatie]"
+   - "Volgens [publicatie]..." / "[Publicatie] bericht dat..."
+   - "...zegt [persoon] tegenover [publicatie]" / "...laat [persoon] weten aan [publicatie]"
 
 5. **VERGELIJK FRAMINGS** - Analyseer hoe bronnen hetzelfde nieuws anders brengen:
    - "Waar X de nadruk legt op..., focust Y juist op..."
