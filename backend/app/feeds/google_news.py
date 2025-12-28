@@ -17,7 +17,7 @@ import httpx
 import structlog
 from dateutil import parser as date_parser
 
-from backend.app.services.country_detector import Country
+from backend.app.services.country_detector import Country, get_country_from_url
 
 logger = structlog.get_logger(__name__)
 
@@ -34,7 +34,7 @@ class GoogleNewsArticle:
     title: str
     published_at: datetime
     source_name: str
-    source_country: str  # ISO country code
+    source_country: str | None  # ISO country code, None if TLD doesn't match search country
     summary: str | None = None
     is_international: bool = True
     google_url: str | None = None  # Original Google News URL (for debugging)
@@ -238,12 +238,27 @@ class GoogleNewsReader:
         elif hasattr(entry, "description"):
             summary = self._clean_html(entry.description)
 
+        # Only set source_country if the URL's TLD matches the search country
+        # This prevents misattribution (e.g., NY Post showing as Saudi source)
+        url_country = get_country_from_url(real_url)
+        if url_country == self.country_code:
+            source_country = self.country_code
+        else:
+            # URL doesn't have a matching ccTLD - don't assign a country
+            source_country = None
+            self.logger.debug(
+                "source_country_not_matched",
+                url=real_url[:80],
+                search_country=self.country_code,
+                url_country=url_country,
+            )
+
         return GoogleNewsArticle(
             url=real_url,
             title=title,
             published_at=published_at,
             source_name=source_name,
-            source_country=self.country_code,
+            source_country=source_country,
             summary=summary,
             is_international=True,
             google_url=google_url,

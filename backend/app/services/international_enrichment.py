@@ -97,6 +97,7 @@ class InternationalEnrichmentService:
         event_id: int,
         *,
         max_articles_per_country: int | None = None,
+        search_keywords: list[str] | None = None,
         correlation_id: str | None = None,
     ) -> EnrichmentResult:
         """Enrich an event with international perspectives.
@@ -104,6 +105,7 @@ class InternationalEnrichmentService:
         Args:
             event_id: ID of the event to enrich
             max_articles_per_country: Override default max articles per country
+            search_keywords: Pre-extracted English keywords (from keyword extraction phase)
             correlation_id: Optional correlation ID for logging
 
         Returns:
@@ -191,8 +193,8 @@ class InternationalEnrichmentService:
                     articles_duplicate=0,
                 )
 
-            # Extract keywords from event
-            keywords = await self._extract_keywords(session, event)
+            # Use provided keywords or extract from event
+            keywords = search_keywords or await self._extract_keywords(session, event)
             if not keywords:
                 log.warning("no_keywords_extracted")
                 return EnrichmentResult(
@@ -221,6 +223,7 @@ class InternationalEnrichmentService:
                 try:
                     reader = GoogleNewsReader(
                         country,
+                        use_native_lang=True,  # Search in local language for local sources
                         rate_limit_delay=self.RATE_LIMIT_BETWEEN_COUNTRIES,
                     )
                     articles = await reader.fetch_by_keywords(
@@ -321,6 +324,10 @@ class InternationalEnrichmentService:
                 articles_added=added,
                 articles_duplicate=duplicates,
             )
+
+            # NOTE: Insight regeneration is now handled by InsightService._extract_keywords_and_enrich()
+            # which calls this method synchronously BEFORE generating insights.
+            # This eliminates the inefficient double-generation that was happening before.
 
             return EnrichmentResult(
                 event_id=event_id,
@@ -451,13 +458,15 @@ class InternationalEnrichmentService:
             source_name=ga.source_name,
             source_metadata={
                 "google_news_url": ga.google_url,
-                "country": candidate.country.iso_code,
-                "country_name": candidate.country.name,
+                "search_country": candidate.country.iso_code,  # Country we searched in
+                "search_country_name": candidate.country.name,
             },
             published_at=ga.published_at,
             fetched_at=datetime.now(timezone.utc),
             is_international=True,
-            source_country=candidate.country.iso_code,
+            # Use the validated source_country from GoogleNewsArticle
+            # This is None if the URL's TLD doesn't match the search country
+            source_country=ga.source_country,
         )
 
 

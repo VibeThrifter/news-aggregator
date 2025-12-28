@@ -10,11 +10,259 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 import structlog
 import yaml
 
 logger = structlog.get_logger(__name__)
+
+
+# TLD to ISO country code mapping
+# Only includes country-code TLDs (ccTLDs) - generic TLDs like .com are not mapped
+TLD_TO_COUNTRY: dict[str, str] = {
+    # Middle East
+    "sa": "SA",  # Saudi Arabia
+    "ae": "AE",  # UAE
+    "il": "IL",  # Israel
+    "ps": "PS",  # Palestine
+    "ir": "IR",  # Iran
+    "iq": "IQ",  # Iraq
+    "jo": "JO",  # Jordan
+    "lb": "LB",  # Lebanon
+    "sy": "SY",  # Syria
+    "ye": "YE",  # Yemen
+    "om": "OM",  # Oman
+    "qa": "QA",  # Qatar
+    "kw": "KW",  # Kuwait
+    "bh": "BH",  # Bahrain
+    # Europe - Western
+    "uk": "GB",  # United Kingdom
+    "de": "DE",  # Germany
+    "fr": "FR",  # France
+    "nl": "NL",  # Netherlands
+    "be": "BE",  # Belgium
+    "lu": "LU",  # Luxembourg
+    "at": "AT",  # Austria
+    "ch": "CH",  # Switzerland
+    "ie": "IE",  # Ireland
+    "mt": "MT",  # Malta
+    "cy": "CY",  # Cyprus
+    "is": "IS",  # Iceland
+    # Europe - Southern
+    "it": "IT",  # Italy
+    "es": "ES",  # Spain
+    "pt": "PT",  # Portugal
+    "gr": "GR",  # Greece
+    # Europe - Northern
+    "se": "SE",  # Sweden
+    "no": "NO",  # Norway
+    "dk": "DK",  # Denmark
+    "fi": "FI",  # Finland
+    # Europe - Central/Eastern
+    "pl": "PL",  # Poland
+    "cz": "CZ",  # Czech Republic
+    "hu": "HU",  # Hungary
+    "sk": "SK",  # Slovakia
+    "ro": "RO",  # Romania
+    "bg": "BG",  # Bulgaria
+    "si": "SI",  # Slovenia
+    "hr": "HR",  # Croatia
+    "rs": "RS",  # Serbia
+    "ba": "BA",  # Bosnia and Herzegovina
+    "me": "ME",  # Montenegro
+    "mk": "MK",  # North Macedonia
+    "al": "AL",  # Albania
+    "xk": "XK",  # Kosovo
+    # Europe - Baltic
+    "lt": "LT",  # Lithuania
+    "lv": "LV",  # Latvia
+    "ee": "EE",  # Estonia
+    # Europe - Eastern/Caucasus
+    "ru": "RU",  # Russia
+    "ua": "UA",  # Ukraine
+    "by": "BY",  # Belarus
+    "md": "MD",  # Moldova
+    "ge": "GE",  # Georgia
+    "am": "AM",  # Armenia
+    "az": "AZ",  # Azerbaijan
+    # Asia - East
+    "cn": "CN",  # China
+    "jp": "JP",  # Japan
+    "kr": "KR",  # South Korea
+    "kp": "KP",  # North Korea
+    "tw": "TW",  # Taiwan
+    "hk": "HK",  # Hong Kong
+    "mn": "MN",  # Mongolia
+    # Asia - Southeast
+    "id": "ID",  # Indonesia
+    "my": "MY",  # Malaysia
+    "sg": "SG",  # Singapore
+    "ph": "PH",  # Philippines
+    "th": "TH",  # Thailand
+    "vn": "VN",  # Vietnam
+    "mm": "MM",  # Myanmar
+    "kh": "KH",  # Cambodia
+    "la": "LA",  # Laos
+    "bn": "BN",  # Brunei
+    # Asia - South
+    "in": "IN",  # India
+    "pk": "PK",  # Pakistan
+    "bd": "BD",  # Bangladesh
+    "lk": "LK",  # Sri Lanka
+    "np": "NP",  # Nepal
+    "bt": "BT",  # Bhutan
+    "mv": "MV",  # Maldives
+    # Asia - Central
+    "kz": "KZ",  # Kazakhstan
+    "uz": "UZ",  # Uzbekistan
+    "tm": "TM",  # Turkmenistan
+    "kg": "KG",  # Kyrgyzstan
+    "tj": "TJ",  # Tajikistan
+    "af": "AF",  # Afghanistan
+    # Turkey
+    "tr": "TR",  # Turkey
+    # Africa - North
+    "eg": "EG",  # Egypt
+    "ly": "LY",  # Libya
+    "tn": "TN",  # Tunisia
+    "dz": "DZ",  # Algeria
+    "ma": "MA",  # Morocco
+    "sd": "SD",  # Sudan
+    # Africa - West
+    "ng": "NG",  # Nigeria
+    "gh": "GH",  # Ghana
+    "sn": "SN",  # Senegal
+    "ci": "CI",  # Ivory Coast
+    "ml": "ML",  # Mali
+    "bf": "BF",  # Burkina Faso
+    "ne": "NE",  # Niger
+    "tg": "TG",  # Togo
+    "bj": "BJ",  # Benin
+    "cm": "CM",  # Cameroon
+    # Africa - East
+    "ke": "KE",  # Kenya
+    "et": "ET",  # Ethiopia
+    "tz": "TZ",  # Tanzania
+    "ug": "UG",  # Uganda
+    "rw": "RW",  # Rwanda
+    "so": "SO",  # Somalia
+    # Africa - Central
+    "cd": "CD",  # Democratic Republic of Congo
+    "cg": "CG",  # Republic of Congo
+    "ga": "GA",  # Gabon
+    "td": "TD",  # Chad
+    # Africa - Southern
+    "za": "ZA",  # South Africa
+    "zw": "ZW",  # Zimbabwe
+    "zm": "ZM",  # Zambia
+    "mw": "MW",  # Malawi
+    "mz": "MZ",  # Mozambique
+    "ao": "AO",  # Angola
+    "na": "NA",  # Namibia
+    "bw": "BW",  # Botswana
+    "mg": "MG",  # Madagascar
+    "mu": "MU",  # Mauritius
+    # Americas - North
+    "us": "US",  # United States (rarely used)
+    "ca": "CA",  # Canada
+    "mx": "MX",  # Mexico
+    # Americas - Central
+    "gt": "GT",  # Guatemala
+    "hn": "HN",  # Honduras
+    "sv": "SV",  # El Salvador
+    "ni": "NI",  # Nicaragua
+    "cr": "CR",  # Costa Rica
+    "pa": "PA",  # Panama
+    # Americas - Caribbean
+    "cu": "CU",  # Cuba
+    "jm": "JM",  # Jamaica
+    "ht": "HT",  # Haiti
+    "do": "DO",  # Dominican Republic
+    "pr": "PR",  # Puerto Rico
+    "tt": "TT",  # Trinidad and Tobago
+    "bs": "BS",  # Bahamas
+    "bb": "BB",  # Barbados
+    # Americas - South
+    "br": "BR",  # Brazil
+    "ar": "AR",  # Argentina
+    "co": "CO",  # Colombia
+    "cl": "CL",  # Chile
+    "pe": "PE",  # Peru
+    "ve": "VE",  # Venezuela
+    "ec": "EC",  # Ecuador
+    "bo": "BO",  # Bolivia
+    "py": "PY",  # Paraguay
+    "uy": "UY",  # Uruguay
+    "gy": "GY",  # Guyana
+    "sr": "SR",  # Suriname
+    # Oceania
+    "au": "AU",  # Australia
+    "nz": "NZ",  # New Zealand
+    "fj": "FJ",  # Fiji
+    "pg": "PG",  # Papua New Guinea
+}
+
+
+def get_country_from_url(url: str) -> str | None:
+    """Extract country ISO code from URL based on TLD.
+
+    Only returns a country code if the domain has a recognizable
+    country-code TLD (ccTLD). Generic TLDs like .com, .org, .net
+    return None.
+
+    Args:
+        url: Full URL to analyze
+
+    Returns:
+        ISO 3166-1 alpha-2 country code if ccTLD found, None otherwise
+
+    Examples:
+        >>> get_country_from_url("https://arabnews.com.sa/article")
+        'SA'
+        >>> get_country_from_url("https://nypost.com/article")
+        None
+        >>> get_country_from_url("https://bbc.co.uk/news")
+        'GB'
+    """
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.netloc.lower()
+
+        if not hostname:
+            return None
+
+        # Remove www. prefix if present
+        if hostname.startswith("www."):
+            hostname = hostname[4:]
+
+        # Split by dots to get TLD parts
+        parts = hostname.split(".")
+
+        if len(parts) < 2:
+            return None
+
+        # Check for compound TLDs like .co.uk, .com.au, .com.sa
+        if len(parts) >= 3:
+            # Check second-level + TLD (e.g., "co.uk", "com.sa")
+            second_level = parts[-2]
+            tld = parts[-1]
+
+            # If second level is generic (.co, .com, .org, .net, .gov, .ac, .edu)
+            # then the real country is in the TLD
+            if second_level in ("co", "com", "org", "net", "gov", "ac", "edu", "or", "ne"):
+                if tld in TLD_TO_COUNTRY:
+                    return TLD_TO_COUNTRY[tld]
+
+        # Check simple TLD
+        tld = parts[-1]
+        if tld in TLD_TO_COUNTRY:
+            return TLD_TO_COUNTRY[tld]
+
+        return None
+
+    except Exception:
+        return None
 
 
 @dataclass

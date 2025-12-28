@@ -25,13 +25,13 @@ function getSourceFavicon(url: string): string {
 }
 
 export function InternationalSources({ articles }: InternationalSourcesProps) {
-  // Filter to only international articles
+  // Filter to only international articles (don't require source_country)
   const internationalArticles = useMemo(
-    () => articles.filter((a) => a.is_international && a.source_country),
+    () => articles.filter((a) => a.is_international),
     [articles]
   );
 
-  // Get unique countries represented
+  // Get unique countries represented (only those with verified source_country)
   const uniqueCountries = useMemo(() => {
     const countries = new Set<string>();
     for (const article of internationalArticles) {
@@ -85,11 +85,13 @@ export function InternationalSources({ articles }: InternationalSourcesProps) {
               )}
               {/* Card content */}
               <div className="flex flex-1 flex-col gap-3 p-4">
-                {/* Header with flag, favicon and source */}
+                {/* Header with flag (if known), favicon and source */}
                 <div className="flex items-center gap-2">
-                  <span className="text-lg" title={getCountryName(article.source_country)}>
-                    {flag}
-                  </span>
+                  {flag && (
+                    <span className="text-lg" title={getCountryName(article.source_country)}>
+                      {flag}
+                    </span>
+                  )}
                   {favicon && (
                     <img
                       src={favicon}
@@ -121,14 +123,16 @@ export function InternationalSources({ articles }: InternationalSourcesProps) {
         })}
       </div>
 
-      {/* Footer showing countries represented */}
-      <p className="text-sm text-ink-500">
-        Bronnen uit: {uniqueCountries.map((iso) => (
-          <span key={iso} className="inline-flex items-center gap-1 mr-2">
-            {getCountryFlag(iso)} {getCountryName(iso)}
-          </span>
-        ))}
-      </p>
+      {/* Footer showing countries represented (only if we have verified countries) */}
+      {uniqueCountries.length > 0 && (
+        <p className="text-sm text-ink-500">
+          Bronnen uit: {uniqueCountries.map((iso) => (
+            <span key={iso} className="inline-flex items-center gap-1 mr-2">
+              {getCountryFlag(iso)} {getCountryName(iso)}
+            </span>
+          ))}
+        </p>
+      )}
     </section>
   );
 }
