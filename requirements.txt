@@ -29,3 +29,4 @@ playwright==1.49.0
 playwright-stealth==1.0.6
 tweepy
 google-generativeai>=0.8.0
+googlenewsdecoder>=0.1.7

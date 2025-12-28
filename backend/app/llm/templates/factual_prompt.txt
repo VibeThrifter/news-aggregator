@@ -97,6 +97,13 @@ Voorbeelden eerste zin (=titel):
    - GOED: 2 kopjes met elk 3-4 alinea's (vloeiend verhaal)
    - VERPLICHT: gebruik \n\n tussen alinea's en ** rond tussenkopjes
 
+10. **BETROKKEN LANDEN** - Identificeer landen die een rol spelen in het nieuws:
+   - Landen die expliciet genoemd worden (bijv. "Rusland", "Israël")
+   - Landen afgeleid van personen (bijv. Netanyahu → Israël, Putin → Rusland)
+   - Landen afgeleid van steden/locaties (bijv. Moskou → Rusland, Gaza → Palestina)
+   - EXCLUDEER: Nederland (NL) - dat zijn onze primaire bronnen
+   - Gebruik ISO 3166-1 alpha-2 codes (US, IL, RU, UA, CN, BE, etc.)
+
 JSON OUTPUT SCHEMA:
 {
   "summary": "Min 200 woorden. MOET bevatten: \\n\\n tussen alinea's en **bold** tussenkopjes",
@@ -113,6 +120,11 @@ JSON OUTPUT SCHEMA:
     "claim_a": {"summary": "string", "sources": ["url"], "spectrum": "mainstream"},
     "claim_b": {"summary": "string", "sources": ["url"], "spectrum": "mainstream"},
     "verification": "onbevestigd|bevestigd|tegengesproken"
+  }],
+  "involved_countries": [{
+    "iso_code": "XX",
+    "name": "Country Name",
+    "relevance": "Why this country is involved in this news event"
   }]
 }
 
@@ -129,5 +141,6 @@ ANALYSIS INSTRUCTIONS:
 2. **TIMELINE**: Extract key moments chronologically. Use article publication times if event times unclear.
 3. **CLUSTERS**: Group articles by standpoint/perspective. Don't force artificial divisions - if all agree, use one cluster.
 4. **CONTRADICTIONS**: Only real factual differences between sources. Do not invent conflicts.
+5. **INVOLVED_COUNTRIES**: Identify ALL countries involved (can be multiple). Include countries mentioned directly, countries inferred from leaders/politicians, and countries inferred from cities. Exclude only NL (Netherlands).
 
 Return only the JSON object.

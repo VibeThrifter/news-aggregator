@@ -1,0 +1,510 @@
+# Country mapping for international news perspectives
+# Maps country names/aliases to Google News RSS parameters
+
+countries:
+  israel:
+    name: "Israel"
+    iso_code: "IL"
+    google_news:
+      primary:
+        gl: "IL"
+        hl: "en"
+        ceid: "IL:en"
+      native:
+        gl: "IL"
+        hl: "iw"
+        ceid: "IL:iw"
+    aliases:
+      - "israël"
+      - "israeli"
+      - "israëlisch"
+      - "israëlische"
+      - "tel aviv"
+      - "jerusalem"
+      - "netanyahu"
+      - "idf"
+      - "knesset"
+
+  palestine:
+    name: "Palestine"
+    iso_code: "PS"
+    google_news:
+      primary:
+        gl: "PS"
+        hl: "ar"
+        ceid: "PS:ar"
+    aliases:
+      - "palestina"
+      - "palestinian"
+      - "palestijns"
+      - "gaza"
+      - "west bank"
+      - "westelijke jordaanoever"
+      - "hamas"
+      - "ramallah"
+
+  russia:
+    name: "Russia"
+    iso_code: "RU"
+    google_news:
+      primary:
+        gl: "RU"
+        hl: "en"
+        ceid: "RU:en"
+      native:
+        gl: "RU"
+        hl: "ru"
+        ceid: "RU:ru"
+    aliases:
+      - "rusland"
+      - "russian"
+      - "russisch"
+      - "russische"
+      - "moscow"
+      - "moskou"
+      - "kremlin"
+      - "putin"
+
+  ukraine:
+    name: "Ukraine"
+    iso_code: "UA"
+    google_news:
+      primary:
+        gl: "UA"
+        hl: "en"
+        ceid: "UA:en"
+      native:
+        gl: "UA"
+        hl: "uk"
+        ceid: "UA:uk"
+    aliases:
+      - "oekraïne"
+      - "ukrainian"
+      - "oekraïens"
+      - "oekraïense"
+      - "kiev"
+      - "kyiv"
+      - "charkov"
+      - "charkiv"
+      - "kharkiv"
+      - "zelensky"
+      - "zelenskyy"
+
+  china:
+    name: "China"
+    iso_code: "CN"
+    google_news:
+      primary:
+        gl: "HK"
+        hl: "en"
+        ceid: "HK:en"
+    aliases:
+      - "chinese"
+      - "chinees"
+      - "beijing"
+      - "peking"
+      - "xi jinping"
+      - "shanghai"
+
+  united_states:
+    name: "United States"
+    iso_code: "US"
+    google_news:
+      primary:
+        gl: "US"
+        hl: "en"
+        ceid: "US:en"
+    aliases:
+      - "amerika"
+      - "american"
+      - "amerikaans"
+      - "amerikaanse"
+      - "vs"
+      - "verenigde staten"
+      - "washington"
+      - "white house"
+      - "witte huis"
+      - "trump"
+      - "biden"
+      - "pentagon"
+      - "congress"
+
+  united_kingdom:
+    name: "United Kingdom"
+    iso_code: "GB"
+    google_news:
+      primary:
+        gl: "GB"
+        hl: "en"
+        ceid: "GB:en"
+    aliases:
+      - "engeland"
+      - "british"
+      - "brits"
+      - "london"
+      - "londen"
+      - "downing street"
+      - "westminster"
+
+  germany:
+    name: "Germany"
+    iso_code: "DE"
+    google_news:
+      primary:
+        gl: "DE"
+        hl: "en"
+        ceid: "DE:en"
+      native:
+        gl: "DE"
+        hl: "de"
+        ceid: "DE:de"
+    aliases:
+      - "duitsland"
+      - "german"
+      - "duits"
+      - "berlin"
+      - "berlijn"
+      - "scholz"
+      - "bundestag"
+
+  belgium:
+    name: "Belgium"
+    iso_code: "BE"
+    google_news:
+      primary:
+        gl: "BE"
+        hl: "nl"
+        ceid: "BE:nl"
+      native:
+        gl: "BE"
+        hl: "fr"
+        ceid: "BE:fr"
+    aliases:
+      - "belgië"
+      - "belgian"
+      - "belgisch"
+      - "belgische"
+      - "brussel"
+      - "brussels"
+      - "antwerpen"
+      - "gent"
+      - "de croo"
+
+  france:
+    name: "France"
+    iso_code: "FR"
+    google_news:
+      primary:
+        gl: "FR"
+        hl: "en"
+        ceid: "FR:en"
+      native:
+        gl: "FR"
+        hl: "fr"
+        ceid: "FR:fr"
+    aliases:
+      - "frankrijk"
+      - "french"
+      - "frans"
+      - "paris"
+      - "parijs"
+      - "macron"
+      - "élysée"
+
+  iran:
+    name: "Iran"
+    iso_code: "IR"
+    google_news:
+      primary:
+        gl: "IR"
+        hl: "en"
+        ceid: "IR:en"
+    aliases:
+      - "iranian"
+      - "iraans"
+      - "tehran"
+      - "teheran"
+      - "khamenei"
+      - "persian"
+
+  saudi_arabia:
+    name: "Saudi Arabia"
+    iso_code: "SA"
+    google_news:
+      primary:
+        gl: "SA"
+        hl: "en"
+        ceid: "SA:en"
+      native:
+        gl: "SA"
+        hl: "ar"
+        ceid: "SA:ar"
+    aliases:
+      - "saoedi-arabië"
+      - "saudi"
+      - "saoedisch"
+      - "riyadh"
+      - "riyad"
+      - "mbs"
+      - "bin salman"
+
+  turkey:
+    name: "Turkey"
+    iso_code: "TR"
+    google_news:
+      primary:
+        gl: "TR"
+        hl: "en"
+        ceid: "TR:en"
+      native:
+        gl: "TR"
+        hl: "tr"
+        ceid: "TR:tr"
+    aliases:
+      - "turkije"
+      - "turkish"
+      - "turks"
+      - "ankara"
+      - "istanbul"
+      - "erdogan"
+
+  india:
+    name: "India"
+    iso_code: "IN"
+    google_news:
+      primary:
+        gl: "IN"
+        hl: "en"
+        ceid: "IN:en"
+    aliases:
+      - "indian"
+      - "indiaas"
+      - "new delhi"
+      - "mumbai"
+      - "modi"
+      - "delhi"
+
+  japan:
+    name: "Japan"
+    iso_code: "JP"
+    google_news:
+      primary:
+        gl: "JP"
+        hl: "en"
+        ceid: "JP:en"
+    aliases:
+      - "japanese"
+      - "japans"
+      - "tokyo"
+      - "tokio"
+
+  south_korea:
+    name: "South Korea"
+    iso_code: "KR"
+    google_news:
+      primary:
+        gl: "KR"
+        hl: "en"
+        ceid: "KR:en"
+    aliases:
+      - "zuid-korea"
+      - "korean"
+      - "koreaans"
+      - "seoul"
+
+  north_korea:
+    name: "North Korea"
+    iso_code: "KP"
+    google_news:
+      primary:
+        gl: "KR"
+        hl: "en"
+        ceid: "KR:en"
+    aliases:
+      - "noord-korea"
+      - "pyongyang"
+      - "kim jong un"
+      - "kim jong-un"
+
+  australia:
+    name: "Australia"
+    iso_code: "AU"
+    google_news:
+      primary:
+        gl: "AU"
+        hl: "en"
+        ceid: "AU:en"
+    aliases:
+      - "australië"
+      - "australian"
+      - "australisch"
+      - "sydney"
+      - "canberra"
+
+  brazil:
+    name: "Brazil"
+    iso_code: "BR"
+    google_news:
+      primary:
+        gl: "BR"
+        hl: "en"
+        ceid: "BR:en"
+      native:
+        gl: "BR"
+        hl: "pt-BR"
+        ceid: "BR:pt-BR"
+    aliases:
+      - "brazilië"
+      - "brazilian"
+      - "braziliaans"
+      - "brasilia"
+      - "são paulo"
+      - "lula"
+
+  south_africa:
+    name: "South Africa"
+    iso_code: "ZA"
+    google_news:
+      primary:
+        gl: "ZA"
+        hl: "en"
+        ceid: "ZA:en"
+    aliases:
+      - "zuid-afrika"
+      - "south african"
+      - "zuidafrikaans"
+      - "pretoria"
+      - "johannesburg"
+      - "cape town"
+
+  egypt:
+    name: "Egypt"
+    iso_code: "EG"
+    google_news:
+      primary:
+        gl: "EG"
+        hl: "en"
+        ceid: "EG:en"
+      native:
+        gl: "EG"
+        hl: "ar"
+        ceid: "EG:ar"
+    aliases:
+      - "egypte"
+      - "egyptian"
+      - "egyptisch"
+      - "cairo"
+      - "kairo"
+      - "sisi"
+
+  mexico:
+    name: "Mexico"
+    iso_code: "MX"
+    google_news:
+      primary:
+        gl: "MX"
+        hl: "en"
+        ceid: "MX:en"
+      native:
+        gl: "MX"
+        hl: "es"
+        ceid: "MX:es"
+    aliases:
+      - "mexican"
+      - "mexicaans"
+      - "mexico city"
+      - "mexico-stad"
+
+  syria:
+    name: "Syria"
+    iso_code: "SY"
+    google_news:
+      primary:
+        gl: "SY"
+        hl: "ar"
+        ceid: "SY:ar"
+    aliases:
+      - "syrië"
+      - "syrian"
+      - "syrisch"
+      - "damascus"
+      - "assad"
+
+  lebanon:
+    name: "Lebanon"
+    iso_code: "LB"
+    google_news:
+      primary:
+        gl: "LB"
+        hl: "en"
+        ceid: "LB:en"
+    aliases:
+      - "libanon"
+      - "lebanese"
+      - "libanees"
+      - "beirut"
+      - "beiroet"
+      - "hezbollah"
+
+  poland:
+    name: "Poland"
+    iso_code: "PL"
+    google_news:
+      primary:
+        gl: "PL"
+        hl: "en"
+        ceid: "PL:en"
+      native:
+        gl: "PL"
+        hl: "pl"
+        ceid: "PL:pl"
+    aliases:
+      - "polen"
+      - "polish"
+      - "pools"
+      - "warsaw"
+      - "warschau"
+
+  spain:
+    name: "Spain"
+    iso_code: "ES"
+    google_news:
+      primary:
+        gl: "ES"
+        hl: "en"
+        ceid: "ES:en"
+      native:
+        gl: "ES"
+        hl: "es"
+        ceid: "ES:es"
+    aliases:
+      - "spanje"
+      - "spanish"
+      - "spaans"
+      - "madrid"
+      - "barcelona"
+
+  italy:
+    name: "Italy"
+    iso_code: "IT"
+    google_news:
+      primary:
+        gl: "IT"
+        hl: "en"
+        ceid: "IT:en"
+      native:
+        gl: "IT"
+        hl: "it"
+        ceid: "IT:it"
+    aliases:
+      - "italië"
+      - "italian"
+      - "italiaans"
+      - "rome"
+      - "roma"
+      - "milan"
+      - "milaan"
+
+# Countries to exclude from international fetching (we already monitor these)
+excluded_countries:
+  - "NL"  # Netherlands - our primary sources

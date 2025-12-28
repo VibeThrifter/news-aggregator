@@ -11,6 +11,23 @@ SpectrumLabel = Literal["mainstream", "links", "rechts", "alternatief", "overhei
 ClaimPresentation = Literal["feit", "advies", "mening", "voorspelling"]
 
 
+class InvolvedCountry(BaseModel):
+    """A country involved in the news event, detected by LLM analysis."""
+
+    iso_code: str = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="ISO 3166-1 alpha-2 country code (e.g., 'US', 'IL', 'RU')"
+    )
+    name: str = Field(..., min_length=1, description="Full country name in English")
+    relevance: str = Field(
+        ...,
+        min_length=1,
+        description="Brief explanation of how this country is involved"
+    )
+
+
 class InsightTimelineItem(BaseModel):
     time: datetime = Field(..., description="Event moment timestamp (ISO-8601)")
     headline: str = Field(..., min_length=1)
@@ -223,6 +240,10 @@ class FactualPayload(BaseModel):
     timeline: List[InsightTimelineItem] = Field(default_factory=list)
     clusters: List[InsightCluster] = Field(default_factory=list)
     contradictions: List[InsightContradiction] = Field(default_factory=list)
+    involved_countries: List[InvolvedCountry] = Field(
+        default_factory=list,
+        description="Countries involved in this news event (excluding NL/BE)"
+    )
 
 
 class CriticalPayload(BaseModel):
@@ -250,6 +271,10 @@ class InsightsPayload(BaseModel):
     timeline: List[InsightTimelineItem] = Field(default_factory=list)
     clusters: List[InsightCluster] = Field(default_factory=list)
     contradictions: List[InsightContradiction] = Field(default_factory=list)
+    involved_countries: List[InvolvedCountry] = Field(
+        default_factory=list,
+        description="Countries involved in this news event (excluding NL/BE)"
+    )
     fallacies: List[InsightFallacy] = Field(default_factory=list)
     frames: List[InsightFrame] = Field(default_factory=list, description="Framing perspectives used in news coverage")
     coverage_gaps: List[CoverageGap] = Field(default_factory=list, description="Underrepresented perspectives or missing contexts")
@@ -269,6 +294,7 @@ class InsightsPayload(BaseModel):
             timeline=factual.timeline,
             clusters=factual.clusters,
             contradictions=factual.contradictions,
+            involved_countries=factual.involved_countries,
             fallacies=critical.fallacies,
             frames=critical.frames,
             coverage_gaps=critical.coverage_gaps,
@@ -295,6 +321,7 @@ __all__ = [
     "InsightFrame",
     "InsightTimelineItem",
     "InsightsPayload",
+    "InvolvedCountry",
     "MediaAnalysis",
     "ScientificPlurality",
     "SpectrumLabel",
