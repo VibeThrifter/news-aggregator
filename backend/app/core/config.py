@@ -122,6 +122,24 @@ class Settings(BaseSettings):
         le=100,
         description="Maximum number of events to process per backfill run"
     )
+    international_enrichment_interval_hours: int = Field(
+        default=2,
+        ge=1,
+        le=24,
+        description="Interval in hours for automatic international enrichment"
+    )
+    international_enrichment_batch_size: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Maximum number of events to enrich per scheduled run"
+    )
+    international_enrichment_max_per_country: int = Field(
+        default=5,
+        ge=1,
+        le=10,
+        description="Maximum articles to fetch per country during enrichment"
+    )
 
     # Database Configuration
     database_url: str = Field(

@@ -90,7 +90,8 @@ async def _seed_event(
 @pytest.mark.asyncio
 async def test_build_prompt_contains_required_sections(session_factory: async_sessionmaker[AsyncSession]) -> None:
     event_id = await _seed_event(session_factory, spectra=["center", "rechts", "links"])
-    settings = Settings(llm_prompt_article_cap=3, llm_prompt_max_characters=6000)
+    # Use 10000 chars to accommodate expanded template (Epic 9 country detection)
+    settings = Settings(llm_prompt_article_cap=3, llm_prompt_max_characters=10000)
     builder = PromptBuilder(session_factory=session_factory, settings=settings)
 
     prompt = await builder.build_prompt(event_id)
@@ -108,7 +109,8 @@ async def test_build_prompt_balances_spectra_and_trims_when_needed(session_facto
     spectra = ["center", "center", "rechts", "links", "alternatief"]
     long_stub = "Dit is een uitgebreide paragraaf die wordt herhaald voor prompt trimming. " * 20
     event_id = await _seed_event(session_factory, spectra=spectra, content_stub=long_stub)
-    settings = Settings(llm_prompt_article_cap=5, llm_prompt_max_characters=6000)
+    # Use 10000 chars to accommodate expanded template (Epic 9 country detection)
+    settings = Settings(llm_prompt_article_cap=5, llm_prompt_max_characters=10000)
     builder = PromptBuilder(session_factory=session_factory, settings=settings)
 
     prompt = await builder.build_prompt(event_id)

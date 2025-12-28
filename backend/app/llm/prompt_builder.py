@@ -85,6 +85,9 @@ class ArticleCapsule:
     summary: str
     key_points: List[str]
     entities: List[str]
+    # International perspectives (Epic 9)
+    is_international: bool = False
+    source_country: str | None = None
 
     @property
     def reference_time(self) -> datetime:
@@ -244,6 +247,8 @@ class PromptBuilder:
                     summary=summary,
                     key_points=key_points,
                     entities=entities,
+                    is_international=article.is_international,
+                    source_country=article.source_country,
                 )
             )
         return capsules
@@ -304,14 +309,26 @@ class PromptBuilder:
         latest = max(times).isoformat() if times else "onbekend"
         distribution = _assemble_distribution(event, capsules)
 
+        # Count international sources
+        international_capsules = [c for c in capsules if c.is_international]
+        dutch_count = len(capsules) - len(international_capsules)
+        international_count = len(international_capsules)
+        international_countries = sorted(set(
+            c.source_country for c in international_capsules if c.source_country
+        ))
+
         lines = [
             f"- Event ID: {event.id}",
             f"- Titel: {event.title or 'onbekend'}",
             f"- Omschrijving: {event.description or 'n.v.t.'}",
             f"- Periode: {earliest} t/m {latest}",
             f"- Totaal aantal gekoppelde artikelen: {total}",
-            "- Spectrumverdeling (geselecteerde subset):",
+            f"- Nederlandse bronnen: {dutch_count}",
+            f"- Internationale bronnen: {international_count}",
         ]
+        if international_countries:
+            lines.append(f"- Landen internationale bronnen: {', '.join(international_countries)}")
+        lines.append("- Spectrumverdeling (geselecteerde subset):")
         for spectrum, count in distribution.items():
             lines.append(f"  * {spectrum}: {count}")
         if event.tags:
@@ -326,9 +343,13 @@ class PromptBuilder:
             key_points = capsule.key_points or [capsule.summary]
             key_block = "\n".join(f"    - {point}" for point in key_points)
             entity_block = ", ".join(capsule.entities[:5]) or "geen expliciete entiteiten"
+            # Build source line with optional country for international sources
+            source_line = f"   Bron: {capsule.source_name} | Spectrum: {capsule.spectrum} | Type: {capsule.source_type}"
+            if capsule.is_international and capsule.source_country:
+                source_line += f" | Land: {capsule.source_country} (INTERNATIONAAL)"
             block = (
                 f"{idx}. {capsule.title}\n"
-                f"   Bron: {capsule.source_name} | Spectrum: {capsule.spectrum} | Type: {capsule.source_type}\n"
+                f"{source_line}\n"
                 f"   Gepubliceerd: {timeframe}\n"
                 f"   Samenvatting: {capsule.summary}\n"
                 f"   Kernpunten:\n{key_block}\n"

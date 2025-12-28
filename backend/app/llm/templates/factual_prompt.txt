@@ -76,20 +76,31 @@ Voorbeelden eerste zin (=titel):
 5. **VERGELIJK FRAMINGS** - Analyseer hoe bronnen hetzelfde nieuws anders brengen:
    - "Waar X de nadruk legt op..., focust Y juist op..."
    - "Mainstream bronnen benadrukken..., terwijl alternatieve media wijzen op..."
+   - "Nederlandse media focussen op..., terwijl internationale bronnen de nadruk leggen op..."
    - Benoem expliciet wanneer bronnen van perspectief of framing verschillen
 
-6. **NARRATIEVE STRUCTUUR** - Bouw het verhaal logisch op:
+6. **INTERNATIONALE PERSPECTIEVEN** - Als er artikelen zijn gemarkeerd met "(INTERNATIONAAL)":
+   - Vergelijk HOE buitenlandse media dit nieuws brengen versus Nederlandse bronnen
+   - Let op ANDERE accenten: wat benadrukken internationale bronnen dat NL media missen?
+   - Let op FRAMING: wordt het nieuws positiever/negatiever/neutraler gebracht?
+   - Let op CONTEXT: welke achtergrond geven buitenlandse bronnen die NL mist?
+   - Integreer deze vergelijking in je summary met formuleringen als:
+     - "Terwijl Nederlandse media de nadruk leggen op X, belichten internationale bronnen juist Y"
+     - "Opvallend is dat [internationale bron] ook wijst op..."
+     - "Waar NOS focust op de Nederlandse reactie, plaatst [internationale bron] het in een bredere context van..."
+
+7. **NARRATIEVE STRUCTUUR** - Bouw het verhaal logisch op:
    - Kernverhaal → Reacties/gevolgen → Verschillende standpunten → Achtergrond/context
 
-7. **BALANS & SYNTHESE** - Combineer alle bronnen tot één coherent verhaal:
+8. **BALANS & SYNTHESE** - Combineer alle bronnen tot één coherent verhaal:
    - Niet elke bron apart behandelen, maar thematisch groeperen
    - Toon meerdere perspectieven en geef ruimte aan alle kanten
 
-8. **VERDIEPING** - Maak de summary rijker dan de bronnen:
+9. **VERDIEPING** - Maak de summary rijker dan de bronnen:
    - Feitensynthese: combineer feiten uit meerdere bronnen tot nieuwe formuleringen
    - Implicatie-analyse: wat betekent dit nieuws? (eigen duiding, gebaseerd op de feiten)
 
-9. **OPMAAK** - Maak de tekst visueel leesbaar met MARKDOWN:
+10. **OPMAAK** - Maak de tekst visueel leesbaar met MARKDOWN:
    - Korte alinea's van 2-4 zinnen, gescheiden door \n\n (dubbele newline)
    - Gebruik MAXIMAAL 2-3 **tussenkopjes** (niet meer!)
    - Onder elk kopje: MINIMAAL 2 alinea's, bij voorkeur 3-4
@@ -97,14 +108,14 @@ Voorbeelden eerste zin (=titel):
    - GOED: 2 kopjes met elk 3-4 alinea's (vloeiend verhaal)
    - VERPLICHT: gebruik \n\n tussen alinea's en ** rond tussenkopjes
 
-10. **BETROKKEN LANDEN** - Identificeer landen die een rol spelen in het nieuws:
+11. **BETROKKEN LANDEN** - Identificeer landen die een rol spelen in het nieuws:
    - Landen die expliciet genoemd worden (bijv. "Rusland", "Israël")
    - Landen afgeleid van personen (bijv. Netanyahu → Israël, Putin → Rusland)
    - Landen afgeleid van steden/locaties (bijv. Moskou → Rusland, Gaza → Palestina)
    - EXCLUDEER: Nederland (NL) - dat zijn onze primaire bronnen
    - Gebruik ISO 3166-1 alpha-2 codes (US, IL, RU, UA, CN, BE, etc.)
 
-11. **SEARCH KEYWORDS** - Genereer 3-5 ENGELSE zoektermen om DIT EXACTE VERHAAL internationaal te vinden:
+12. **SEARCH KEYWORDS** - Genereer 3-5 ENGELSE zoektermen om DIT EXACTE VERHAAL internationaal te vinden:
 
    DOEL: Deze keywords worden gebruikt om hetzelfde nieuwsverhaal te vinden in buitenlandse media (Google News UK, US, etc.)
 
@@ -132,7 +143,7 @@ Voorbeelden eerste zin (=titel):
 
 JSON OUTPUT SCHEMA:
 {
-  "summary": "Min 200 woorden. MOET bevatten: \\n\\n tussen alinea's en **bold** tussenkopjes",
+  "summary": "Min 200 woorden. MOET bevatten: \\n\\n tussen alinea's en **bold** tussenkopjes. Als er internationale bronnen zijn: vergelijk NL vs internationaal perspectief.",
   "timeline": [{"time": "YYYY | YYYY-MM-DD | ISO-8601 datetime", "headline": "string", "sources": ["url"], "spectrum": "mainstream"}],
   "clusters": [{
     "label": "standpoint name",
@@ -164,7 +175,7 @@ Article capsules:
 HERINNERING: Gebruik ALLEEN bovenstaande artikelen. VERZIN NIETS. Als er 1 artikel is, heb je 1 bron.
 
 ANALYSIS INSTRUCTIONS:
-1. **SUMMARY**: Combine all articles into coherent narrative, note where sources differ in facts or emphasis.
+1. **SUMMARY**: Combine all articles into coherent narrative, note where sources differ in facts or emphasis. If INTERNATIONAL sources are present (marked with "INTERNATIONAAL"), dedicate a paragraph to comparing how Dutch vs international media cover this story.
 2. **TIMELINE**: Extract key moments from the NEWS STORY ITSELF, not article publication times.
    - For deaths/obituaries: birth year, career highlights, key life events, death date
    - For ongoing events: when things happened (arrests, announcements, incidents)
