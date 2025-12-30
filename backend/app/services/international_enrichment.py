@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -31,6 +32,49 @@ from backend.app.services.country_detector import (
 logger = get_logger(__name__)
 
 
+# Western/transatlantic sources to filter out when US/GB are not involved in event
+# These are major US media and international wire services that don't provide
+# unique local perspectives for non-Western events
+WESTERN_SOURCES = {
+    # US media
+    "cnn.com",
+    "nytimes.com",
+    "washingtonpost.com",
+    "foxnews.com",
+    "nypost.com",
+    "nbcnews.com",
+    "cbsnews.com",
+    "abcnews.go.com",
+    "pbs.org",
+    "npr.org",
+    "usatoday.com",
+    "wsj.com",
+    "politico.com",
+    "huffpost.com",
+    "bloomberg.com",
+    "axios.com",
+    "vox.com",
+    "thehill.com",
+    "newsweek.com",
+    "time.com",
+    "forbes.com",
+    # UK / Transatlantic
+    "bbc.com",
+    "bbc.co.uk",
+    "reuters.com",
+    "apnews.com",
+    "theguardian.com",
+    "telegraph.co.uk",
+    "independent.co.uk",
+    "dailymail.co.uk",
+    "news.sky.com",
+    "sky.com",
+    "ft.com",
+    # Wire services
+    "afp.com",
+}
+
+
 # Dutch stopwords for keyword extraction
 DUTCH_STOPWORDS = {
     "de", "het", "een", "van", "in", "op", "en", "is", "dat", "met",
@@ -38,6 +82,48 @@ DUTCH_STOPWORDS = {
     "niet", "over", "om", "als", "dan", "maar", "nog", "wel", "meer",
     "hebben", "worden", "kunnen", "zal", "zou", "moet", "mag", "heeft",
 }
+
+
+def _extract_domain(url: str) -> str | None:
+    """Extract the registrable domain from a URL.
+
+    Examples:
+        https://www.cnn.com/article → cnn.com
+        https://news.bbc.co.uk/story → bbc.co.uk
+        https://edition.cnn.com/news → cnn.com
+    """
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.netloc.lower()
+        if not hostname:
+            return None
+
+        # Remove www. prefix
+        if hostname.startswith("www."):
+            hostname = hostname[4:]
+
+        parts = hostname.split(".")
+        if len(parts) < 2:
+            return None
+
+        # Handle compound TLDs like .co.uk
+        if len(parts) >= 3 and parts[-2] in ("co", "com", "org", "net", "gov", "ac"):
+            # e.g., bbc.co.uk → bbc.co.uk
+            return ".".join(parts[-3:])
+
+        # Simple TLD: e.g., cnn.com → cnn.com
+        return ".".join(parts[-2:])
+
+    except Exception:
+        return None
+
+
+def is_western_source(url: str) -> bool:
+    """Check if a URL is from a known Western/transatlantic source."""
+    domain = _extract_domain(url)
+    if not domain:
+        return False
+    return domain in WESTERN_SOURCES
 
 
 @dataclass
@@ -262,10 +348,32 @@ class InternationalEnrichmentService:
 
             # Filter by relevance (must have at least 1 keyword match in title)
             relevant = [c for c in all_candidates if c.keyword_matches > 0]
+
+            # Filter out Western sources if US/GB are not involved in the event
+            # This removes CNN, BBC, Reuters etc. for non-Western events
+            filter_western = "US" not in detected_countries and "GB" not in detected_countries
+            western_filtered = 0
+
+            if filter_western:
+                filtered = []
+                for c in relevant:
+                    if is_western_source(c.google_article.url):
+                        western_filtered += 1
+                        log.debug(
+                            "western_source_filtered",
+                            url=c.google_article.url[:60],
+                            source=c.google_article.source_name,
+                        )
+                    else:
+                        filtered.append(c)
+                relevant = filtered
+
             log.info(
                 "relevance_filtering",
                 total_found=len(all_candidates),
                 relevant=len(relevant),
+                western_filtered=western_filtered,
+                filter_western_active=filter_western,
             )
 
             # Deduplicate by URL and persist
@@ -325,9 +433,9 @@ class InternationalEnrichmentService:
                 articles_duplicate=duplicates,
             )
 
-            # NOTE: Insight regeneration is now handled by InsightService._extract_keywords_and_enrich()
-            # which calls this method synchronously BEFORE generating insights.
-            # This eliminates the inefficient double-generation that was happening before.
+            # NOTE: Insight regeneration is now handled by
+            # InsightService._extract_keywords_and_enrich() which calls this method
+            # synchronously BEFORE generating insights.
 
             return EnrichmentResult(
                 event_id=event_id,

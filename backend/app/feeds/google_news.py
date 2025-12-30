@@ -238,19 +238,17 @@ class GoogleNewsReader:
         elif hasattr(entry, "description"):
             summary = self._clean_html(entry.description)
 
-        # Only set source_country if the URL's TLD matches the search country
-        # This prevents misattribution (e.g., NY Post showing as Saudi source)
-        url_country = get_country_from_url(real_url)
-        if url_country == self.country_code:
-            source_country = self.country_code
-        else:
-            # URL doesn't have a matching ccTLD - don't assign a country
-            source_country = None
+        # Set source_country based on TLD detection (not search country)
+        # This correctly identifies the actual source country:
+        # - kuna.net.kw → KW (Kuwait)
+        # - aa.com.tr → TR (Turkey)
+        # - cnn.com → None (generic TLD, no country)
+        source_country = get_country_from_url(real_url)
+        if source_country:
             self.logger.debug(
-                "source_country_not_matched",
+                "source_country_detected",
                 url=real_url[:80],
-                search_country=self.country_code,
-                url_country=url_country,
+                source_country=source_country,
             )
 
         return GoogleNewsArticle(

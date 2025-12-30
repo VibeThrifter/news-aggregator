@@ -31,17 +31,6 @@ export function InternationalSources({ articles }: InternationalSourcesProps) {
     [articles]
   );
 
-  // Get unique countries represented (only those with verified source_country)
-  const uniqueCountries = useMemo(() => {
-    const countries = new Set<string>();
-    for (const article of internationalArticles) {
-      if (article.source_country) {
-        countries.add(article.source_country);
-      }
-    }
-    return Array.from(countries).sort();
-  }, [internationalArticles]);
-
   if (internationalArticles.length === 0) {
     return null; // Don't show section if no international articles
   }
@@ -85,23 +74,19 @@ export function InternationalSources({ articles }: InternationalSourcesProps) {
               )}
               {/* Card content */}
               <div className="flex flex-1 flex-col gap-3 p-4">
-                {/* Header with flag (if known), favicon and source */}
-                <div className="flex items-center gap-2">
-                  {flag && (
-                    <span className="text-lg" title={getCountryName(article.source_country)}>
-                      {flag}
-                    </span>
-                  )}
+                {/* Header with favicon, source and flag */}
+                <div className="flex items-center gap-1.5">
                   {favicon && (
                     <img
                       src={favicon}
                       alt=""
-                      className="h-4 w-4 rounded"
+                      className="h-4 w-4 shrink-0 rounded"
                       loading="lazy"
                     />
                   )}
-                  <span className="text-xs font-medium uppercase tracking-wider text-ink-500">
+                  <span className="text-xs font-medium uppercase tracking-wider text-ink-500 leading-tight">
                     {article.source}
+                    {flag && <span className="ml-1 text-sm align-middle" title={getCountryName(article.source_country)}>{flag}</span>}
                   </span>
                 </div>
 
@@ -123,16 +108,6 @@ export function InternationalSources({ articles }: InternationalSourcesProps) {
         })}
       </div>
 
-      {/* Footer showing countries represented (only if we have verified countries) */}
-      {uniqueCountries.length > 0 && (
-        <p className="text-sm text-ink-500">
-          Bronnen uit: {uniqueCountries.map((iso) => (
-            <span key={iso} className="inline-flex items-center gap-1 mr-2">
-              {getCountryFlag(iso)} {getCountryName(iso)}
-            </span>
-          ))}
-        </p>
-      )}
     </section>
   );
 }

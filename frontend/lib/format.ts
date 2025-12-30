@@ -213,9 +213,10 @@ export const COUNTRY_NAMES: Record<string, string> = {
  * Convert ISO 3166-1 alpha-2 country code to flag emoji.
  * Works by converting each letter to its regional indicator symbol.
  * Example: "US" -> "🇺🇸", "NL" -> "🇳🇱"
+ * Returns empty string if no valid country code provided.
  */
 export function getCountryFlag(isoCode: string | null | undefined): string {
-  if (!isoCode || isoCode.length !== 2) return "🌍";
+  if (!isoCode || isoCode.length !== 2) return "";
   const code = isoCode.toUpperCase();
   const OFFSET = 0x1F1E6 - 0x41; // Regional indicator starts at U+1F1E6, 'A' is U+0041
   return String.fromCodePoint(

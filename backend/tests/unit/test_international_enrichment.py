@@ -1,17 +1,20 @@
 """Unit tests for InternationalEnrichmentService."""
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.app.feeds.google_news import GoogleNewsArticle, GoogleNewsReaderError
+from backend.app.feeds.google_news import GoogleNewsArticle
 from backend.app.services.country_detector import Country, GoogleNewsParams
 from backend.app.services.international_enrichment import (
     DUTCH_STOPWORDS,
+    WESTERN_SOURCES,
     EnrichmentResult,
     InternationalArticleCandidate,
     InternationalEnrichmentService,
+    _extract_domain,
+    is_western_source,
 )
 
 
@@ -235,8 +238,8 @@ class TestInternationalEnrichmentService:
         assert article.is_international is True
         assert article.source_country == "IL"
         assert article.guid.startswith("gnews:")
-        assert article.source_metadata["country"] == "IL"
-        assert article.source_metadata["country_name"] == "Israel"
+        assert article.source_metadata["search_country"] == "IL"
+        assert article.source_metadata["search_country_name"] == "Israel"
 
     @pytest.mark.asyncio
     async def test_enrich_event_not_found(
@@ -434,3 +437,50 @@ class TestGetCountriesFromInsight:
         countries = await service._get_countries_from_insight(session, 123)
 
         assert countries == []
+
+
+class TestWesternSourcesFiltering:
+    """Tests for Western source detection and filtering."""
+
+    def test_western_sources_list_not_empty(self):
+        """Verify the Western sources blocklist is populated."""
+        assert len(WESTERN_SOURCES) > 0
+        assert "cnn.com" in WESTERN_SOURCES
+        assert "bbc.com" in WESTERN_SOURCES
+        assert "reuters.com" in WESTERN_SOURCES
+
+    def test_extract_domain_simple(self):
+        """Test domain extraction from simple URLs."""
+        assert _extract_domain("https://www.cnn.com/article/123") == "cnn.com"
+        assert _extract_domain("https://edition.cnn.com/news") == "cnn.com"
+        assert _extract_domain("https://aljazeera.com/news/story") == "aljazeera.com"
+
+    def test_extract_domain_compound_tld(self):
+        """Test domain extraction from compound TLDs like .co.uk."""
+        assert _extract_domain("https://www.bbc.co.uk/news") == "bbc.co.uk"
+        assert _extract_domain("https://news.bbc.co.uk/story") == "bbc.co.uk"
+        assert _extract_domain("https://telegraph.co.uk/article") == "telegraph.co.uk"
+
+    def test_extract_domain_invalid(self):
+        """Test domain extraction from invalid URLs."""
+        assert _extract_domain("") is None
+        assert _extract_domain("not-a-url") is None
+        assert _extract_domain("ftp://localhost") is None  # no TLD
+
+    def test_is_western_source_true(self):
+        """Test detection of Western sources."""
+        assert is_western_source("https://www.cnn.com/article") is True
+        assert is_western_source("https://edition.cnn.com/news") is True
+        assert is_western_source("https://www.bbc.co.uk/news/world") is True
+        assert is_western_source("https://www.nytimes.com/2024/news") is True
+        assert is_western_source("https://www.reuters.com/world") is True
+        assert is_western_source("https://www.nypost.com/article") is True
+
+    def test_is_western_source_false(self):
+        """Test that non-Western sources are not flagged."""
+        assert is_western_source("https://www.aljazeera.com/news") is False
+        assert is_western_source("https://www.timesofisrael.com/article") is False
+        assert is_western_source("https://www.haaretz.com/news") is False
+        assert is_western_source("https://www.arabnews.com/story") is False
+        assert is_western_source("https://www.lemonde.fr/article") is False
+        assert is_western_source("https://www.spiegel.de/news") is False
