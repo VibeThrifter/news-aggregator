@@ -51,6 +51,14 @@ CRITICAL LENS - Apply these where relevant (not all will apply to every story):
 - Stakeholders not interviewed or mentioned?
 - Dissenting experts not consulted?
 
+**BELANGRIJK - EIGEN FRAMING vs. GECITEERDE UITSPRAKEN**
+Maak strikt onderscheid tussen:
+1. EIGEN FRAMING: Taalgebruik/perspectief van het medium ZELF (titel, intro, woordkeuze journalist)
+2. GECITEERDE UITSPRAKEN: Wat bronnen/geïnterviewden zeggen (tussen aanhalingstekens)
+
+Een medium dat kritiek CITEERT ("'Dit is intimidatie', zei X") gebruikt NIET ZELF die framing.
+Alleen attributeren aan een bron als HET MEDIUM ZELF die taal/perspectief hanteert, niet als het rapporteert wat anderen zeggen.
+
 **MEDIA BEHAVIOR** - How is the story being told?
 - Copy-paste journalism: Do all outlets use the same angle, quotes, framing?
   (Indicates reliance on press releases or wire services)
@@ -66,10 +74,26 @@ CRITICAL LENS - Apply these where relevant (not all will apply to every story):
 SPECTRUM VALUES (use only these):
 "mainstream" | "links" | "rechts" | "alternatief" | "overheid" | "sociale_media"
 
+**DROGREDENEN - Wees STRENG en TERUGHOUDEND**
+Gebruik je kennis van logische drogredenen (stroman, ad hominem, vals dilemma, slippery slope, etc.).
+Markeer ALLEEN echte logische fouten waarbij een argument ongeldig is door een redeneerfout.
+
+NIET markeren als drogreden:
+- Interpretatieverschillen - beide kanten kunnen gelijk hebben over dezelfde feiten
+- Politieke meningsverschillen - verschillende waardeoordelen zijn geen logische fouten
+- Frames die je niet deelt maar intern logisch consistent zijn
+- Sterke standpunten die je niet deelt maar wel logisch onderbouwd zijn
+
+Voorbeeld GEEN drogreden: "VS noemt DSA censuur, EU noemt het bestrijden van desinformatie"
+→ Twee interpretaties van hetzelfde beleid. Beide kunnen waar zijn. Geen logische fout.
+
+Voorbeeld WEL drogreden: "Critici willen dat kinderen onbeschermd online zijn"
+→ Stroman: verdraait het argument van critici die over privacy gaan, niet over kinderbescherming.
+
 JSON OUTPUT SCHEMA:
 {
-  "fallacies": [{"type": "string - be specific about the fallacy type", "description": "string", "sources": ["url"], "spectrum": "mainstream"}],
-  "frames": [{"frame_type": "conflict|human_interest|economisch|moraliteit|verantwoordelijkheid|veiligheid|metafoor|eufemisme|hyperbool|strategisch|consensus|inevitability|authority_deference|fear|progress|nostalgia", "technique": "specific technique used", "description": "2-4 sentences explaining the framing effect", "sources": ["url"], "spectrum": "mainstream"}],
+  "fallacies": [{"type": "string - wees specifiek: stroman|ad_hominem|vals_dilemma|cirkelredenering|slippery_slope|andere", "description": "string - leg uit WAAROM dit een logische fout is, niet alleen een meningsverschil", "sources": ["url"], "spectrum": "mainstream"}],
+  "frames": [{"frame_type": "conflict|human_interest|economisch|moraliteit|verantwoordelijkheid|veiligheid|metafoor|eufemisme|hyperbool|strategisch|consensus|inevitability|authority_deference|fear|progress|nostalgia", "technique": "specific technique used", "description": "2-4 sentences explaining the framing effect", "sources": ["url - ALLEEN bronnen die dit frame ZELF hanteren, niet bronnen die het CITEREN"], "spectrum": "mainstream", "attribution": "eigen_framing|geciteerd - is dit het perspectief van het medium zelf, of rapporteren ze wat anderen zeggen?"}],
   "coverage_gaps": [{"perspective": "string", "description": "string", "relevance": "why this matters", "potential_sources": ["who could provide this perspective"]}],
   "unsubstantiated_claims": [{"claim": "literal claim from article", "presented_as": "feit|advies|mening|voorspelling", "source_in_article": "who made this claim", "article_url": "REQUIRED - exact URL of the article containing this claim", "evidence_provided": "what evidence given, or 'geen'", "missing_context": ["what's left out"], "critical_questions": ["questions that should be asked"]}],
   "authority_analysis": [{
@@ -148,6 +172,17 @@ ANALYSIS INSTRUCTIONS:
 
 7. **COVERAGE_GAPS** - What perspectives are missing? Who wasn't interviewed?
    Consider: affected parties, critics, independent experts, historical context, international comparison.
+
+8. **FRAMES - STRIKTE BRONATTRIBUTIE**
+   Voordat je een bron toevoegt aan een frame, vraag jezelf af:
+   - Gebruikt dit medium ZELF deze taal/dit perspectief? (eigen_framing) → WEL toevoegen
+   - Of CITEERT het medium wat anderen zeggen? (geciteerd) → NIET toevoegen aan die bron
+
+   Voorbeeld: Nieuwrechts citeert "'Dit is intimidatie', zei de EU-commissaris"
+   → Nieuwrechts RAPPORTEERT kritiek, maar HANTEERT die framing niet zelf
+   → Nieuwrechts NIET toevoegen als bron voor "moraliteit" frame
+
+   Kijk naar: titel, intro-alinea, eigen woordkeuze journalist (niet tussen aanhalingstekens)
 
 IMPORTANT: Be thorough but precise. Each observation should be sharp and well-argued.
 The goal is to help readers think critically, not to find fault with everything.

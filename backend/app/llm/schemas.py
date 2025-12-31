@@ -70,6 +70,9 @@ class InsightFallacy(BaseModel):
     spectrum: str = Field(..., min_length=1)
 
 
+FrameAttribution = Literal["eigen_framing", "geciteerd"]
+
+
 class InsightFrame(BaseModel):
     """Represents a framing technique used in news coverage (academic/NLP frames)."""
 
@@ -83,8 +86,12 @@ class InsightFrame(BaseModel):
         description="Specific technique used (e.g., the exact metaphor, euphemism, or strategic word choice)"
     )
     description: str = Field(..., min_length=1, description="How this frame/technique is applied and its effect on the reader")
-    sources: list[HttpUrl] = Field(default_factory=list, description="Articles using this frame")
+    sources: list[HttpUrl] = Field(default_factory=list, description="Articles using this frame - ONLY sources that use this framing themselves, not sources that quote others using it")
     spectrum: str = Field(..., min_length=1, description="Media spectrum of sources using this frame")
+    attribution: FrameAttribution | None = Field(
+        default=None,
+        description="eigen_framing = media outlet uses this framing itself; geciteerd = media is reporting what others say"
+    )
 
 
 class CoverageGap(BaseModel):
@@ -232,6 +239,20 @@ class TimingAnalysis(BaseModel):
         return data
 
 
+class KeywordExtractionPayload(BaseModel):
+    """Lightweight payload for keyword extraction phase (pre-enrichment)."""
+
+    search_keywords: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="3-5 English keywords for searching international news about this event"
+    )
+    involved_countries: list[InvolvedCountry] = Field(
+        default_factory=list,
+        description="Countries involved in this news event (excluding NL/BE)"
+    )
+
+
 class FactualPayload(BaseModel):
     """Phase 1: Factual analysis only."""
 
@@ -322,6 +343,7 @@ __all__ = [
     "CoverageGap",
     "CriticalPayload",
     "FactualPayload",
+    "FrameAttribution",
     "InsightCluster",
     "InsightClusterSource",
     "InsightContradiction",
@@ -331,6 +353,7 @@ __all__ = [
     "InsightTimelineItem",
     "InsightsPayload",
     "InvolvedCountry",
+    "KeywordExtractionPayload",
     "MediaAnalysis",
     "ScientificPlurality",
     "SpectrumLabel",
