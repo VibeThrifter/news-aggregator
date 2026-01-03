@@ -33,6 +33,11 @@ export function SpectrumBar({ sourceBreakdown, compact = false }: SpectrumBarPro
     const alternativeSources: SourceItem[] = [];
 
     for (const entry of sourceBreakdown) {
+      // Skip international sources - they don't belong on the Dutch political spectrum
+      if (entry.is_international) {
+        continue;
+      }
+
       const item: SourceItem = {
         source: entry.source,
         articleCount: entry.article_count,

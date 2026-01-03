@@ -145,6 +145,7 @@ export interface EventSourceBreakdownEntry {
   source: string;
   article_count: number;
   spectrum?: string | number | null; // 0-10 scale or legacy string
+  is_international?: boolean;
 }
 
 export interface EventListItem {

@@ -353,7 +353,7 @@ export async function listEvents(
     const { title: llmTitle, description: llmDescription } = extractTitleFromSummary(insightSummary);
 
     // Build source_breakdown from event_articles and find first image + latest article date
-    const sourceBreakdownMap = new Map<string, { source: string; article_count: number; spectrum: string | number | null }>();
+    const sourceBreakdownMap = new Map<string, { source: string; article_count: number; spectrum: string | number | null; is_international: boolean }>();
     let featured_image_url: string | null = null;
     let latestArticleDate: Date | null = null;
     for (const ea of event.event_articles || []) {
@@ -361,12 +361,13 @@ export async function listEvents(
       if (!article) continue;
       const source = article.source_name || 'Unknown';
       const spectrum = article.source_metadata?.spectrum || null;
-      const key = `${source}|${spectrum || ''}`;
+      const isInternational = article.is_international || false;
+      const key = `${source}|${spectrum || ''}|${isInternational}`;
       const existing = sourceBreakdownMap.get(key);
       if (existing) {
         existing.article_count++;
       } else {
-        sourceBreakdownMap.set(key, { source, article_count: 1, spectrum });
+        sourceBreakdownMap.set(key, { source, article_count: 1, spectrum, is_international: isInternational });
       }
       // Get first available image URL
       if (!featured_image_url && article.image_url) {
@@ -462,10 +463,11 @@ export async function getEventDetail(eventId: string | number, options?: ApiFetc
   }));
 
   // Build source_breakdown from articles and find latest article date
-  const sourceBreakdownMap = new Map<string, { source: string; article_count: number; spectrum: string | number | null }>();
+  const sourceBreakdownMap = new Map<string, { source: string; article_count: number; spectrum: string | number | null; is_international: boolean }>();
   let latestArticleDate: Date | null = null;
   for (const article of articles) {
-    const key = `${article.source}|${article.spectrum || ''}`;
+    const isInternational = article.is_international || false;
+    const key = `${article.source}|${article.spectrum || ''}|${isInternational}`;
     const existing = sourceBreakdownMap.get(key);
     if (existing) {
       existing.article_count++;
@@ -474,6 +476,7 @@ export async function getEventDetail(eventId: string | number, options?: ApiFetc
         source: article.source,
         article_count: 1,
         spectrum: article.spectrum || null,
+        is_international: isInternational,
       });
     }
     // Track latest article publication date

@@ -25,7 +25,12 @@ from backend.app.llm.client import (
     MistralClient,
 )
 from backend.app.llm.prompt_builder import PromptBuilder, PromptGenerationResult
-from backend.app.llm.schemas import CriticalPayload, FactualPayload, InsightsPayload
+from backend.app.llm.schemas import (
+    CriticalPayload,
+    FactualPayload,
+    InsightsPayload,
+    KeywordExtractionPayload,
+)
 from backend.app.repositories import InsightRepository
 from backend.app.services.llm_config_service import get_llm_config_service
 
@@ -143,27 +148,143 @@ class InsightService:
                 prompt, schema_class, correlation_id=correlation_id
             )
 
+    async def _extract_keywords_and_enrich(
+        self,
+        event_id: int,
+        *,
+        correlation_id: str | None = None,
+    ) -> int:
+        """Extract keywords via small LLM call and fetch international articles.
+
+        This is Phase 0 of the efficient insight generation flow:
+        1. Build lightweight keyword extraction prompt (no full articles)
+        2. Call LLM to get search keywords + involved countries
+        3. Store countries on event
+        4. Call international enrichment service synchronously
+        5. Return number of articles added
+
+        Returns:
+            Number of international articles added (0 if none or error)
+        """
+        log = logger.bind(event_id=event_id, correlation_id=correlation_id)
+
+        try:
+            # Build lightweight keyword extraction prompt
+            keyword_prompt_result = await self.prompt_builder.build_keyword_extraction_prompt(event_id)
+
+            log.info(
+                "keyword_extraction_start",
+                prompt_length=keyword_prompt_result.prompt_length,
+            )
+
+            # Use a fast/cheap provider for keyword extraction (Mistral is good for this)
+            keyword_client = await self._get_client_for_phase("factual")  # Reuse factual provider
+
+            keyword_result = await self._call_with_fallback(
+                keyword_client,
+                keyword_prompt_result.prompt,
+                KeywordExtractionPayload,
+                phase="keyword_extraction",
+                correlation_id=correlation_id,
+            )
+            keyword_payload: KeywordExtractionPayload = keyword_result.payload
+
+            log.info(
+                "keyword_extraction_complete",
+                keywords=keyword_payload.search_keywords,
+                countries=[c.iso_code for c in keyword_payload.involved_countries],
+            )
+
+            # If no countries detected, skip enrichment
+            if not keyword_payload.involved_countries:
+                log.info("no_countries_detected_skipping_enrichment")
+                return 0
+
+            # Store countries on event for enrichment service
+            async with self.session_factory() as session:
+                event = await session.get(Event, event_id)
+                if event:
+                    event.detected_countries = [
+                        c.iso_code for c in keyword_payload.involved_countries
+                    ]
+                    await session.commit()
+                    log.info(
+                        "countries_stored_on_event",
+                        countries=event.detected_countries,
+                    )
+
+            # Import here to avoid circular imports
+            from backend.app.services.international_enrichment import (
+                get_international_enrichment_service,
+            )
+
+            enrichment_service = get_international_enrichment_service()
+
+            # Pass extracted keywords directly to enrichment service
+            result = await enrichment_service.enrich_event(
+                event_id,
+                search_keywords=keyword_payload.search_keywords,
+                correlation_id=correlation_id,
+            )
+
+            log.info(
+                "international_enrichment_complete",
+                articles_added=result.articles_added,
+                countries_fetched=result.countries_fetched,
+            )
+
+            return result.articles_added
+
+        except Exception as exc:
+            log.warning(
+                "keyword_extraction_or_enrichment_failed",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            # Don't fail the whole insight generation if enrichment fails
+            return 0
+
     async def generate_for_event(
         self,
         event_id: int,
         *,
         correlation_id: str | None = None,
+        skip_international_enrichment: bool = False,
     ) -> InsightGenerationOutcome:
-        """Generate and persist insights for a specific event using 2-phase LLM calls."""
+        """Generate and persist insights for a specific event using 3-phase LLM calls.
+
+        New efficient flow (Epic 9 optimization):
+        1. Keyword extraction (small LLM call) - get search keywords + countries
+        2. International enrichment (synchronous) - fetch articles from Google News
+        3. Factual + Critical analysis (with all sources including international)
+
+        Args:
+            event_id: The event to generate insights for
+            correlation_id: Optional correlation ID for logging
+            skip_international_enrichment: Skip enrichment (used by scheduled jobs to avoid loops)
+        """
+        # Phase 0: Keyword extraction (lightweight LLM call for international search)
+        international_added = 0
+        if not skip_international_enrichment:
+            international_added = await self._extract_keywords_and_enrich(
+                event_id, correlation_id=correlation_id
+            )
 
         # Get clients for each phase (may be different providers)
         factual_client = await self._get_client_for_phase("factual")
         critical_client = await self._get_client_for_phase("critical")
 
-        # Phase 1: Factual analysis
+        # Phase 1: Factual analysis (now includes international articles if any were added)
         factual_package = await self.prompt_builder.build_factual_prompt_package(event_id, max_articles=None)
         prompt_metadata = self._build_prompt_metadata(factual_package)
-        prompt_metadata["phase"] = "two_phase"
+        prompt_metadata["phase"] = "three_phase" if international_added > 0 else "two_phase"
+        prompt_metadata["international_articles_added"] = international_added
 
         logger.info(
             "insight_generation_phase1_start",
             event_id=event_id,
             provider=factual_client.provider,
+            international_articles=international_added,
             correlation_id=correlation_id,
         )
         factual_result = await self._call_with_fallback(

@@ -115,6 +115,12 @@ JSON OUTPUT SCHEMA:
     "article_url": "REQUIRED - exact URL of the article being analyzed",
     "tone": "feitelijk|kritisch|sensationeel|alarmerend|geruststellend|activistisch",
     "sourcing_pattern": "who do they quote? who not?",
+    "quote_analysis": {
+      "balance": "gebalanceerd|scheef_naar_X - welke kant krijgt meer/prominentere quotes?",
+      "intro_framing": "hoe worden quotes ingeleid? bijv. 'beweert' vs 'stelt' vs 'waarschuwt' vs 'erkent'",
+      "selection_bias": "welke uitspraken zijn gekozen, welke waarschijnlijk weggelaten?",
+      "editorial_position": "welk standpunt ontstaat uit de COMBINATIE van: titel + quote-selectie + inleidende tekst?"
+    },
     "questions_not_asked": ["important questions the journalist didn't ask"],
     "perspectives_omitted": ["viewpoints or stakeholders not represented"],
     "framing_by_omission": "how the omission shapes the narrative",
@@ -160,6 +166,18 @@ ANALYSIS INSTRUCTIONS:
    - What questions SHOULD a skeptical journalist have asked?
    - Who is NOT quoted that should be?
    - Does the coverage feel like independent journalism or reliance on press releases?
+
+   **QUOTE_ANALYSIS - Sturing door quote-selectie:**
+   Een medium kan "neutraal citeren" maar toch sturen door:
+   - SELECTIE: Welke quotes worden gekozen? Wat wordt weggelaten?
+   - BALANS: Krijgt kant A meer/prominentere quotes dan kant B?
+   - INLEIDING: "beweert" (twijfel) vs "stelt" (neutraal) vs "waarschuwt" (urgentie) vs "geeft toe" (schuld)
+   - COMBINATIE: Wat is het TOTAALBEELD van titel + inleiding + quote-selectie?
+
+   Voorbeeld nieuwrechts.nl:
+   - Titel: "opleggers van online censuur" → Amerikaans frame
+   - Citeert kritiek van GDI/HateAid → maar met neutrale inleiding
+   - Editorial position: neigt naar VS-standpunt ondanks citeren van critici
 
 5. **STATISTICAL_ISSUES and TIMING_ANALYSIS** - Only include if genuinely relevant to this story.
    Many stories don't have statistical claims or suspicious timing. That's fine - leave these null.

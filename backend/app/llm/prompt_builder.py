@@ -36,11 +36,13 @@ def _load_template(filename: str = "pluriform_prompt.txt") -> str:
 _FILE_PROMPT_TEMPLATE = _load_template("pluriform_prompt.txt")
 _FILE_FACTUAL_TEMPLATE = _load_template("factual_prompt.txt")
 _FILE_CRITICAL_TEMPLATE = _load_template("critical_prompt.txt")
+_FILE_KEYWORD_TEMPLATE = _load_template("keyword_extraction_prompt.txt")
 
 # Legacy aliases for backwards compatibility
 PROMPT_TEMPLATE = _FILE_PROMPT_TEMPLATE
 FACTUAL_TEMPLATE = _FILE_FACTUAL_TEMPLATE
 CRITICAL_TEMPLATE = _FILE_CRITICAL_TEMPLATE
+KEYWORD_TEMPLATE = _FILE_KEYWORD_TEMPLATE
 
 
 async def _get_prompt_from_db(key: str, fallback: str) -> str:
@@ -64,6 +66,15 @@ class PromptGenerationResult:
     selected_article_ids: List[int]
     selected_count: int
     total_articles: int
+
+
+@dataclass(slots=True)
+class KeywordPromptResult:
+    """Lightweight result for keyword extraction prompt."""
+
+    prompt: str
+    prompt_length: int
+    event_id: int
 
 
 class PromptBuilderError(RuntimeError):
@@ -259,26 +270,45 @@ class PromptBuilder:
         *,
         limit: int,
     ) -> List[ArticleCapsule]:
-        grouped: Mapping[str, deque[ArticleCapsule]] = _group_by_spectrum(capsules)
-        ordered_spectra = _order_spectra(grouped)
+        # Step 1: Separate international and Dutch articles
+        international = [c for c in capsules if c.is_international]
+        dutch = [c for c in capsules if not c.is_international]
 
         selection: List[ArticleCapsule] = []
-        iteration = 0
-        while len(selection) < limit and ordered_spectra:
-            iteration += 1
-            for spectrum in list(ordered_spectra):
-                queue = grouped.get(spectrum)
-                if not queue:
-                    continue
-                if selection and len(selection) >= limit:
-                    break
-                capsule = queue.popleft()
-                selection.append(capsule)
-                if not queue:
-                    grouped.pop(spectrum, None)
-            ordered_spectra = _order_spectra(grouped)
-            if iteration > limit * 2:
+
+        # Step 2: Include ALL international articles first (they provide unique perspectives)
+        # Sort by recency and add to selection
+        international_sorted = sorted(
+            international, key=lambda c: c.reference_time, reverse=True
+        )
+        for capsule in international_sorted:
+            if len(selection) >= limit:
                 break
+            selection.append(capsule)
+
+        remaining_slots = limit - len(selection)
+
+        # Step 3: Fill remaining slots with Dutch articles using balanced spectrum selection
+        if remaining_slots > 0 and dutch:
+            grouped: Mapping[str, deque[ArticleCapsule]] = _group_by_spectrum(dutch)
+            ordered_spectra = _order_spectra(grouped)
+
+            iteration = 0
+            while len(selection) < limit and ordered_spectra:
+                iteration += 1
+                for spectrum in list(ordered_spectra):
+                    queue = grouped.get(spectrum)
+                    if not queue:
+                        continue
+                    if len(selection) >= limit:
+                        break
+                    capsule = queue.popleft()
+                    selection.append(capsule)
+                    if not queue:
+                        grouped.pop(spectrum, None)
+                ordered_spectra = _order_spectra(grouped)
+                if iteration > limit * 2:
+                    break
 
         if len(selection) > limit:
             selection = selection[:limit]
@@ -290,10 +320,14 @@ class PromptBuilder:
                 {
                     "article_id": item.article_id,
                     "spectrum": item.spectrum,
+                    "is_international": item.is_international,
+                    "source_country": item.source_country,
                     "published_at": item.reference_time.isoformat(),
                 }
                 for item in selection
             ],
+            international_count=len([s for s in selection if s.is_international]),
+            dutch_count=len([s for s in selection if not s.is_international]),
         )
         return selection
 
@@ -484,6 +518,60 @@ class PromptBuilder:
             total_articles=len(capsules),
         )
 
+    async def build_keyword_extraction_prompt(
+        self,
+        event_id: int,
+    ) -> KeywordPromptResult:
+        """Build a lightweight prompt for keyword extraction (pre-international enrichment).
+
+        This prompt only includes event context (title, entities, description) without
+        full article content, making it much cheaper to run. Used to extract search
+        keywords before fetching international articles.
+        """
+        async with self.session_factory() as session:
+            event = await self._fetch_event(session, event_id)
+
+        # Build minimal context for keyword extraction
+        context_lines = [
+            f"- Event ID: {event.id}",
+            f"- Title: {event.title or 'unknown'}",
+        ]
+
+        if event.description:
+            context_lines.append(f"- Description: {event.description}")
+
+        # Add key entities if available
+        if event.centroid_entities:
+            entity_strings = []
+            for entity in event.centroid_entities[:10]:
+                text = entity.get("text", "")
+                label = entity.get("label", "")
+                if text:
+                    entity_strings.append(f"{text} ({label})" if label else text)
+            if entity_strings:
+                context_lines.append(f"- Key entities: {', '.join(entity_strings)}")
+
+        # Add tags if available
+        if event.tags:
+            context_lines.append(f"- Tags: {', '.join(event.tags)}")
+
+        context_block = "\n".join(context_lines)
+
+        # Load template from database, fallback to file-based
+        template = await _get_prompt_from_db("keyword_extraction", _FILE_KEYWORD_TEMPLATE)
+        prompt = template.replace("{event_context}", context_block)
+
+        LOG.info(
+            "keyword_extraction_prompt_built",
+            event_id=event_id,
+            prompt_length=len(prompt),
+        )
+        return KeywordPromptResult(
+            prompt=prompt,
+            prompt_length=len(prompt),
+            event_id=event_id,
+        )
+
 
 def _coerce_spectrum(metadata: Mapping[str, object] | None) -> str:
     spectrum = None
@@ -590,4 +678,4 @@ def _assemble_distribution(event: Event, capsules: Sequence[ArticleCapsule]) -> 
     return distribution
 
 
-__all__ = ["PromptBuilder", "PromptBuilderError", "PromptGenerationResult"]
+__all__ = ["KeywordPromptResult", "PromptBuilder", "PromptBuilderError", "PromptGenerationResult"]

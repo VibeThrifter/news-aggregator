@@ -98,6 +98,10 @@ countries:
         gl: "HK"
         hl: "en"
         ceid: "HK:en"
+      native:
+        gl: "HK"
+        hl: "zh-HK"
+        ceid: "HK:zh-HK"
     aliases:
       - "chinese"
       - "chinees"
@@ -276,6 +280,10 @@ countries:
         gl: "IN"
         hl: "en"
         ceid: "IN:en"
+      native:
+        gl: "IN"
+        hl: "hi"
+        ceid: "IN:hi"
     aliases:
       - "indian"
       - "indiaas"
@@ -292,6 +300,10 @@ countries:
         gl: "JP"
         hl: "en"
         ceid: "JP:en"
+      native:
+        gl: "JP"
+        hl: "ja"
+        ceid: "JP:ja"
     aliases:
       - "japanese"
       - "japans"
@@ -306,6 +318,10 @@ countries:
         gl: "KR"
         hl: "en"
         ceid: "KR:en"
+      native:
+        gl: "KR"
+        hl: "ko"
+        ceid: "KR:ko"
     aliases:
       - "zuid-korea"
       - "korean"
@@ -438,6 +454,10 @@ countries:
         gl: "LB"
         hl: "en"
         ceid: "LB:en"
+      native:
+        gl: "LB"
+        hl: "ar"
+        ceid: "LB:ar"
     aliases:
       - "libanon"
       - "lebanese"
@@ -504,6 +524,1749 @@ countries:
       - "roma"
       - "milan"
       - "milaan"
+
+  somalia:
+    name: "Somalia"
+    iso_code: "SO"
+    google_news:
+      primary:
+        gl: "SO"
+        hl: "en"
+        ceid: "SO:en"
+    aliases:
+      - "somalië"
+      - "somali"
+      - "somalisch"
+      - "mogadishu"
+      - "mogadiscio"
+      - "somaliland"
+
+  ethiopia:
+    name: "Ethiopia"
+    iso_code: "ET"
+    google_news:
+      primary:
+        gl: "ET"
+        hl: "en"
+        ceid: "ET:en"
+    aliases:
+      - "ethiopië"
+      - "ethiopian"
+      - "ethiopisch"
+      - "addis ababa"
+
+  kenya:
+    name: "Kenya"
+    iso_code: "KE"
+    google_news:
+      primary:
+        gl: "KE"
+        hl: "en"
+        ceid: "KE:en"
+    aliases:
+      - "kenia"
+      - "kenyan"
+      - "keniaans"
+      - "nairobi"
+
+  # Additional African countries
+  nigeria:
+    name: "Nigeria"
+    iso_code: "NG"
+    google_news:
+      primary:
+        gl: "NG"
+        hl: "en"
+        ceid: "NG:en"
+    aliases:
+      - "nigeriaans"
+      - "lagos"
+      - "abuja"
+
+  ghana:
+    name: "Ghana"
+    iso_code: "GH"
+    google_news:
+      primary:
+        gl: "GH"
+        hl: "en"
+        ceid: "GH:en"
+    aliases:
+      - "ghanese"
+      - "accra"
+
+  morocco:
+    name: "Morocco"
+    iso_code: "MA"
+    google_news:
+      primary:
+        gl: "MA"
+        hl: "fr"
+        ceid: "MA:fr"
+    aliases:
+      - "marokko"
+      - "moroccan"
+      - "marokkaans"
+      - "rabat"
+      - "casablanca"
+
+  algeria:
+    name: "Algeria"
+    iso_code: "DZ"
+    google_news:
+      primary:
+        gl: "DZ"
+        hl: "fr"
+        ceid: "DZ:fr"
+    aliases:
+      - "algerije"
+      - "algerian"
+      - "algerijns"
+      - "algiers"
+
+  tunisia:
+    name: "Tunisia"
+    iso_code: "TN"
+    google_news:
+      primary:
+        gl: "TN"
+        hl: "fr"
+        ceid: "TN:fr"
+    aliases:
+      - "tunesië"
+      - "tunisian"
+      - "tunis"
+
+  # Middle East
+  uae:
+    name: "United Arab Emirates"
+    iso_code: "AE"
+    google_news:
+      primary:
+        gl: "AE"
+        hl: "en"
+        ceid: "AE:en"
+      native:
+        gl: "AE"
+        hl: "ar"
+        ceid: "AE:ar"
+    aliases:
+      - "vae"
+      - "emirates"
+      - "dubai"
+      - "abu dhabi"
+
+  qatar:
+    name: "Qatar"
+    iso_code: "QA"
+    google_news:
+      primary:
+        gl: "QA"
+        hl: "en"
+        ceid: "QA:en"
+      native:
+        gl: "QA"
+        hl: "ar"
+        ceid: "QA:ar"
+    aliases:
+      - "qatari"
+      - "doha"
+
+  kuwait:
+    name: "Kuwait"
+    iso_code: "KW"
+    google_news:
+      primary:
+        gl: "KW"
+        hl: "en"
+        ceid: "KW:en"
+      native:
+        gl: "KW"
+        hl: "ar"
+        ceid: "KW:ar"
+    aliases:
+      - "koeweit"
+      - "kuwaiti"
+
+  jordan:
+    name: "Jordan"
+    iso_code: "JO"
+    google_news:
+      primary:
+        gl: "JO"
+        hl: "en"
+        ceid: "JO:en"
+      native:
+        gl: "JO"
+        hl: "ar"
+        ceid: "JO:ar"
+    aliases:
+      - "jordanië"
+      - "jordanian"
+      - "amman"
+
+  iraq:
+    name: "Iraq"
+    iso_code: "IQ"
+    google_news:
+      primary:
+        gl: "IQ"
+        hl: "en"
+        ceid: "IQ:en"
+      native:
+        gl: "IQ"
+        hl: "ar"
+        ceid: "IQ:ar"
+    aliases:
+      - "irak"
+      - "iraqi"
+      - "iraaks"
+      - "baghdad"
+      - "bagdad"
+
+  # Asia
+  pakistan:
+    name: "Pakistan"
+    iso_code: "PK"
+    google_news:
+      primary:
+        gl: "PK"
+        hl: "en"
+        ceid: "PK:en"
+    aliases:
+      - "pakistaans"
+      - "islamabad"
+      - "karachi"
+
+  bangladesh:
+    name: "Bangladesh"
+    iso_code: "BD"
+    google_news:
+      primary:
+        gl: "BD"
+        hl: "en"
+        ceid: "BD:en"
+      native:
+        gl: "BD"
+        hl: "bn"
+        ceid: "BD:bn"
+    aliases:
+      - "bengali"
+      - "dhaka"
+
+  indonesia:
+    name: "Indonesia"
+    iso_code: "ID"
+    google_news:
+      primary:
+        gl: "ID"
+        hl: "en"
+        ceid: "ID:en"
+      native:
+        gl: "ID"
+        hl: "id"
+        ceid: "ID:id"
+    aliases:
+      - "indonesië"
+      - "indonesian"
+      - "jakarta"
+
+  malaysia:
+    name: "Malaysia"
+    iso_code: "MY"
+    google_news:
+      primary:
+        gl: "MY"
+        hl: "en"
+        ceid: "MY:en"
+    aliases:
+      - "maleisië"
+      - "malaysian"
+      - "kuala lumpur"
+
+  singapore:
+    name: "Singapore"
+    iso_code: "SG"
+    google_news:
+      primary:
+        gl: "SG"
+        hl: "en"
+        ceid: "SG:en"
+    aliases:
+      - "singaporean"
+
+  philippines:
+    name: "Philippines"
+    iso_code: "PH"
+    google_news:
+      primary:
+        gl: "PH"
+        hl: "en"
+        ceid: "PH:en"
+    aliases:
+      - "filipijnen"
+      - "filipino"
+      - "manila"
+
+  thailand:
+    name: "Thailand"
+    iso_code: "TH"
+    google_news:
+      primary:
+        gl: "TH"
+        hl: "en"
+        ceid: "TH:en"
+      native:
+        gl: "TH"
+        hl: "th"
+        ceid: "TH:th"
+    aliases:
+      - "thai"
+      - "bangkok"
+
+  vietnam:
+    name: "Vietnam"
+    iso_code: "VN"
+    google_news:
+      primary:
+        gl: "VN"
+        hl: "en"
+        ceid: "VN:en"
+      native:
+        gl: "VN"
+        hl: "vi"
+        ceid: "VN:vi"
+    aliases:
+      - "vietnamese"
+      - "hanoi"
+      - "ho chi minh"
+
+  taiwan:
+    name: "Taiwan"
+    iso_code: "TW"
+    google_news:
+      primary:
+        gl: "TW"
+        hl: "en"
+        ceid: "TW:en"
+      native:
+        gl: "TW"
+        hl: "zh-TW"
+        ceid: "TW:zh-TW"
+    aliases:
+      - "taiwanese"
+      - "taipei"
+
+  # Europe
+  greece:
+    name: "Greece"
+    iso_code: "GR"
+    google_news:
+      primary:
+        gl: "GR"
+        hl: "en"
+        ceid: "GR:en"
+      native:
+        gl: "GR"
+        hl: "el"
+        ceid: "GR:el"
+    aliases:
+      - "griekenland"
+      - "greek"
+      - "grieks"
+      - "athens"
+      - "athene"
+
+  portugal:
+    name: "Portugal"
+    iso_code: "PT"
+    google_news:
+      primary:
+        gl: "PT"
+        hl: "en"
+        ceid: "PT:en"
+      native:
+        gl: "PT"
+        hl: "pt-PT"
+        ceid: "PT:pt-PT"
+    aliases:
+      - "portuguese"
+      - "portugees"
+      - "lisbon"
+      - "lissabon"
+
+  sweden:
+    name: "Sweden"
+    iso_code: "SE"
+    google_news:
+      primary:
+        gl: "SE"
+        hl: "en"
+        ceid: "SE:en"
+      native:
+        gl: "SE"
+        hl: "sv"
+        ceid: "SE:sv"
+    aliases:
+      - "zweden"
+      - "swedish"
+      - "zweeds"
+      - "stockholm"
+
+  norway:
+    name: "Norway"
+    iso_code: "NO"
+    google_news:
+      primary:
+        gl: "NO"
+        hl: "en"
+        ceid: "NO:en"
+      native:
+        gl: "NO"
+        hl: "no"
+        ceid: "NO:no"
+    aliases:
+      - "noorwegen"
+      - "norwegian"
+      - "noors"
+      - "oslo"
+
+  denmark:
+    name: "Denmark"
+    iso_code: "DK"
+    google_news:
+      primary:
+        gl: "DK"
+        hl: "en"
+        ceid: "DK:en"
+    aliases:
+      - "denemarken"
+      - "danish"
+      - "deens"
+      - "copenhagen"
+      - "kopenhagen"
+
+  finland:
+    name: "Finland"
+    iso_code: "FI"
+    google_news:
+      primary:
+        gl: "FI"
+        hl: "en"
+        ceid: "FI:en"
+    aliases:
+      - "finnish"
+      - "fins"
+      - "helsinki"
+
+  austria:
+    name: "Austria"
+    iso_code: "AT"
+    google_news:
+      primary:
+        gl: "AT"
+        hl: "de"
+        ceid: "AT:de"
+    aliases:
+      - "oostenrijk"
+      - "austrian"
+      - "oostenrijks"
+      - "vienna"
+      - "wenen"
+
+  switzerland:
+    name: "Switzerland"
+    iso_code: "CH"
+    google_news:
+      primary:
+        gl: "CH"
+        hl: "de"
+        ceid: "CH:de"
+    aliases:
+      - "zwitserland"
+      - "swiss"
+      - "zwitsers"
+      - "bern"
+      - "zurich"
+      - "geneve"
+
+  czech_republic:
+    name: "Czech Republic"
+    iso_code: "CZ"
+    google_news:
+      primary:
+        gl: "CZ"
+        hl: "en"
+        ceid: "CZ:en"
+      native:
+        gl: "CZ"
+        hl: "cs"
+        ceid: "CZ:cs"
+    aliases:
+      - "tsjechië"
+      - "czech"
+      - "tsjechisch"
+      - "prague"
+      - "praag"
+
+  hungary:
+    name: "Hungary"
+    iso_code: "HU"
+    google_news:
+      primary:
+        gl: "HU"
+        hl: "en"
+        ceid: "HU:en"
+      native:
+        gl: "HU"
+        hl: "hu"
+        ceid: "HU:hu"
+    aliases:
+      - "hongarije"
+      - "hungarian"
+      - "hongaars"
+      - "budapest"
+      - "orban"
+
+  romania:
+    name: "Romania"
+    iso_code: "RO"
+    google_news:
+      primary:
+        gl: "RO"
+        hl: "en"
+        ceid: "RO:en"
+      native:
+        gl: "RO"
+        hl: "ro"
+        ceid: "RO:ro"
+    aliases:
+      - "roemenië"
+      - "romanian"
+      - "roemeens"
+      - "bucharest"
+      - "boekarest"
+
+  ireland:
+    name: "Ireland"
+    iso_code: "IE"
+    google_news:
+      primary:
+        gl: "IE"
+        hl: "en"
+        ceid: "IE:en"
+    aliases:
+      - "ierland"
+      - "irish"
+      - "iers"
+      - "dublin"
+
+  # Americas
+  canada:
+    name: "Canada"
+    iso_code: "CA"
+    google_news:
+      primary:
+        gl: "CA"
+        hl: "en"
+        ceid: "CA:en"
+    aliases:
+      - "canadian"
+      - "canadees"
+      - "ottawa"
+      - "toronto"
+      - "trudeau"
+
+  argentina:
+    name: "Argentina"
+    iso_code: "AR"
+    google_news:
+      primary:
+        gl: "AR"
+        hl: "es"
+        ceid: "AR:es"
+    aliases:
+      - "argentinië"
+      - "argentine"
+      - "argentijns"
+      - "buenos aires"
+      - "milei"
+
+  colombia:
+    name: "Colombia"
+    iso_code: "CO"
+    google_news:
+      primary:
+        gl: "CO"
+        hl: "es"
+        ceid: "CO:es"
+    aliases:
+      - "colombian"
+      - "colombiaans"
+      - "bogota"
+
+  chile:
+    name: "Chile"
+    iso_code: "CL"
+    google_news:
+      primary:
+        gl: "CL"
+        hl: "es"
+        ceid: "CL:es"
+    aliases:
+      - "chilean"
+      - "chileens"
+      - "santiago"
+
+  peru:
+    name: "Peru"
+    iso_code: "PE"
+    google_news:
+      primary:
+        gl: "PE"
+        hl: "es"
+        ceid: "PE:es"
+    aliases:
+      - "peruvian"
+      - "peruaans"
+      - "lima"
+
+  venezuela:
+    name: "Venezuela"
+    iso_code: "VE"
+    google_news:
+      primary:
+        gl: "VE"
+        hl: "es"
+        ceid: "VE:es"
+    aliases:
+      - "venezuelan"
+      - "venezolaans"
+      - "caracas"
+      - "maduro"
+
+  # Oceania
+  new_zealand:
+    name: "New Zealand"
+    iso_code: "NZ"
+    google_news:
+      primary:
+        gl: "NZ"
+        hl: "en"
+        ceid: "NZ:en"
+    aliases:
+      - "nieuw-zeeland"
+      - "kiwi"
+      - "wellington"
+      - "auckland"
+
+  # Additional Balkans
+  serbia:
+    name: "Serbia"
+    iso_code: "RS"
+    google_news:
+      primary:
+        gl: "RS"
+        hl: "sr"
+        ceid: "RS:sr"
+    aliases:
+      - "servië"
+      - "serbian"
+      - "belgrade"
+      - "belgrado"
+
+  croatia:
+    name: "Croatia"
+    iso_code: "HR"
+    google_news:
+      primary:
+        gl: "HR"
+        hl: "hr"
+        ceid: "HR:hr"
+    aliases:
+      - "kroatië"
+      - "croatian"
+      - "zagreb"
+
+  bulgaria:
+    name: "Bulgaria"
+    iso_code: "BG"
+    google_news:
+      primary:
+        gl: "BG"
+        hl: "bg"
+        ceid: "BG:bg"
+    aliases:
+      - "bulgarije"
+      - "bulgarian"
+      - "sofia"
+
+  slovenia:
+    name: "Slovenia"
+    iso_code: "SI"
+    google_news:
+      primary:
+        gl: "SI"
+        hl: "sl"
+        ceid: "SI:sl"
+    aliases:
+      - "slovenië"
+      - "slovenian"
+      - "ljubljana"
+
+  slovakia:
+    name: "Slovakia"
+    iso_code: "SK"
+    google_news:
+      primary:
+        gl: "SK"
+        hl: "sk"
+        ceid: "SK:sk"
+    aliases:
+      - "slowakije"
+      - "slovak"
+      - "bratislava"
+
+  # Baltic states
+  lithuania:
+    name: "Lithuania"
+    iso_code: "LT"
+    google_news:
+      primary:
+        gl: "LT"
+        hl: "lt"
+        ceid: "LT:lt"
+    aliases:
+      - "litouwen"
+      - "lithuanian"
+      - "vilnius"
+
+  latvia:
+    name: "Latvia"
+    iso_code: "LV"
+    google_news:
+      primary:
+        gl: "LV"
+        hl: "lv"
+        ceid: "LV:lv"
+    aliases:
+      - "letland"
+      - "latvian"
+      - "riga"
+
+  estonia:
+    name: "Estonia"
+    iso_code: "EE"
+    google_news:
+      primary:
+        gl: "EE"
+        hl: "et"
+        ceid: "EE:et"
+    aliases:
+      - "estland"
+      - "estonian"
+      - "tallinn"
+
+  # Additional African
+  uganda:
+    name: "Uganda"
+    iso_code: "UG"
+    google_news:
+      primary:
+        gl: "UG"
+        hl: "en"
+        ceid: "UG:en"
+    aliases:
+      - "oeganda"
+      - "ugandan"
+      - "kampala"
+
+  tanzania:
+    name: "Tanzania"
+    iso_code: "TZ"
+    google_news:
+      primary:
+        gl: "TZ"
+        hl: "en"
+        ceid: "TZ:en"
+    aliases:
+      - "tanzanian"
+      - "dar es salaam"
+
+  zimbabwe:
+    name: "Zimbabwe"
+    iso_code: "ZW"
+    google_news:
+      primary:
+        gl: "ZW"
+        hl: "en"
+        ceid: "ZW:en"
+    aliases:
+      - "zimbabwean"
+      - "harare"
+
+  botswana:
+    name: "Botswana"
+    iso_code: "BW"
+    google_news:
+      primary:
+        gl: "BW"
+        hl: "en"
+        ceid: "BW:en"
+    aliases:
+      - "gaborone"
+
+  namibia:
+    name: "Namibia"
+    iso_code: "NA"
+    google_news:
+      primary:
+        gl: "NA"
+        hl: "en"
+        ceid: "NA:en"
+    aliases:
+      - "namibian"
+      - "windhoek"
+
+  senegal:
+    name: "Senegal"
+    iso_code: "SN"
+    google_news:
+      primary:
+        gl: "SN"
+        hl: "fr"
+        ceid: "SN:fr"
+    aliases:
+      - "senegalese"
+      - "dakar"
+
+  ivory_coast:
+    name: "Ivory Coast"
+    iso_code: "CI"
+    google_news:
+      primary:
+        gl: "CI"
+        hl: "fr"
+        ceid: "CI:fr"
+    aliases:
+      - "ivoorkust"
+      - "côte d'ivoire"
+      - "abidjan"
+
+  cameroon:
+    name: "Cameroon"
+    iso_code: "CM"
+    google_news:
+      primary:
+        gl: "CM"
+        hl: "fr"
+        ceid: "CM:fr"
+    aliases:
+      - "kameroen"
+      - "cameroonian"
+      - "yaounde"
+
+  congo_drc:
+    name: "Democratic Republic of Congo"
+    iso_code: "CD"
+    google_news:
+      primary:
+        gl: "CD"
+        hl: "fr"
+        ceid: "CD:fr"
+    aliases:
+      - "congo"
+      - "kinshasa"
+      - "drc"
+
+  libya:
+    name: "Libya"
+    iso_code: "LY"
+    google_news:
+      primary:
+        gl: "LY"
+        hl: "ar"
+        ceid: "LY:ar"
+    aliases:
+      - "libië"
+      - "libyan"
+      - "tripoli"
+
+  sudan:
+    name: "Sudan"
+    iso_code: "SD"
+    google_news:
+      primary:
+        gl: "SD"
+        hl: "ar"
+        ceid: "SD:ar"
+    aliases:
+      - "soedan"
+      - "sudanese"
+      - "khartoum"
+
+  # Central Asia
+  kazakhstan:
+    name: "Kazakhstan"
+    iso_code: "KZ"
+    google_news:
+      primary:
+        gl: "KZ"
+        hl: "ru"
+        ceid: "KZ:ru"
+    aliases:
+      - "kazachstan"
+      - "kazakh"
+      - "astana"
+      - "almaty"
+
+  uzbekistan:
+    name: "Uzbekistan"
+    iso_code: "UZ"
+    google_news:
+      primary:
+        gl: "UZ"
+        hl: "ru"
+        ceid: "UZ:ru"
+    aliases:
+      - "oezbekistan"
+      - "uzbek"
+      - "tashkent"
+
+  afghanistan:
+    name: "Afghanistan"
+    iso_code: "AF"
+    google_news:
+      primary:
+        gl: "AF"
+        hl: "en"
+        ceid: "AF:en"
+    aliases:
+      - "afghan"
+      - "kabul"
+      - "taliban"
+
+  # Southeast Asia
+  myanmar:
+    name: "Myanmar"
+    iso_code: "MM"
+    google_news:
+      primary:
+        gl: "MM"
+        hl: "en"
+        ceid: "MM:en"
+    aliases:
+      - "burma"
+      - "birma"
+      - "yangon"
+      - "naypyidaw"
+
+  cambodia:
+    name: "Cambodia"
+    iso_code: "KH"
+    google_news:
+      primary:
+        gl: "KH"
+        hl: "en"
+        ceid: "KH:en"
+    aliases:
+      - "cambodja"
+      - "cambodian"
+      - "phnom penh"
+
+  sri_lanka:
+    name: "Sri Lanka"
+    iso_code: "LK"
+    google_news:
+      primary:
+        gl: "LK"
+        hl: "en"
+        ceid: "LK:en"
+    aliases:
+      - "srilankaans"
+      - "colombo"
+
+  nepal:
+    name: "Nepal"
+    iso_code: "NP"
+    google_news:
+      primary:
+        gl: "NP"
+        hl: "en"
+        ceid: "NP:en"
+    aliases:
+      - "nepalese"
+      - "kathmandu"
+
+  # Caribbean & Central America
+  cuba:
+    name: "Cuba"
+    iso_code: "CU"
+    google_news:
+      primary:
+        gl: "CU"
+        hl: "es"
+        ceid: "CU:es"
+    aliases:
+      - "cuban"
+      - "cubaans"
+      - "havana"
+      - "castro"
+
+  jamaica:
+    name: "Jamaica"
+    iso_code: "JM"
+    google_news:
+      primary:
+        gl: "JM"
+        hl: "en"
+        ceid: "JM:en"
+    aliases:
+      - "jamaican"
+      - "kingston"
+
+  puerto_rico:
+    name: "Puerto Rico"
+    iso_code: "PR"
+    google_news:
+      primary:
+        gl: "PR"
+        hl: "es"
+        ceid: "PR:es"
+    aliases:
+      - "puerto rican"
+      - "san juan"
+
+  guatemala:
+    name: "Guatemala"
+    iso_code: "GT"
+    google_news:
+      primary:
+        gl: "GT"
+        hl: "es"
+        ceid: "GT:es"
+    aliases:
+      - "guatemalan"
+
+  panama:
+    name: "Panama"
+    iso_code: "PA"
+    google_news:
+      primary:
+        gl: "PA"
+        hl: "es"
+        ceid: "PA:es"
+    aliases:
+      - "panamanian"
+
+  ecuador:
+    name: "Ecuador"
+    iso_code: "EC"
+    google_news:
+      primary:
+        gl: "EC"
+        hl: "es"
+        ceid: "EC:es"
+    aliases:
+      - "ecuadorian"
+      - "quito"
+
+  bolivia:
+    name: "Bolivia"
+    iso_code: "BO"
+    google_news:
+      primary:
+        gl: "BO"
+        hl: "es"
+        ceid: "BO:es"
+    aliases:
+      - "bolivian"
+      - "la paz"
+
+  # Other
+  iceland:
+    name: "Iceland"
+    iso_code: "IS"
+    google_news:
+      primary:
+        gl: "IS"
+        hl: "en"
+        ceid: "IS:en"
+    aliases:
+      - "ijsland"
+      - "icelandic"
+      - "reykjavik"
+
+  cyprus:
+    name: "Cyprus"
+    iso_code: "CY"
+    google_news:
+      primary:
+        gl: "CY"
+        hl: "en"
+        ceid: "CY:en"
+    aliases:
+      - "cypriotisch"
+      - "nicosia"
+
+  malta:
+    name: "Malta"
+    iso_code: "MT"
+    google_news:
+      primary:
+        gl: "MT"
+        hl: "en"
+        ceid: "MT:en"
+    aliases:
+      - "maltese"
+      - "valletta"
+
+  luxembourg:
+    name: "Luxembourg"
+    iso_code: "LU"
+    google_news:
+      primary:
+        gl: "LU"
+        hl: "fr"
+        ceid: "LU:fr"
+    aliases:
+      - "luxemburg"
+      - "luxembourgish"
+
+  georgia:
+    name: "Georgia"
+    iso_code: "GE"
+    google_news:
+      primary:
+        gl: "GE"
+        hl: "en"
+        ceid: "GE:en"
+    aliases:
+      - "georgië"
+      - "georgian"
+      - "tbilisi"
+
+  armenia:
+    name: "Armenia"
+    iso_code: "AM"
+    google_news:
+      primary:
+        gl: "AM"
+        hl: "en"
+        ceid: "AM:en"
+    aliases:
+      - "armenië"
+      - "armenian"
+      - "yerevan"
+
+  azerbaijan:
+    name: "Azerbaijan"
+    iso_code: "AZ"
+    google_news:
+      primary:
+        gl: "AZ"
+        hl: "en"
+        ceid: "AZ:en"
+    aliases:
+      - "azerbeidzjan"
+      - "azerbaijani"
+      - "baku"
+
+  belarus:
+    name: "Belarus"
+    iso_code: "BY"
+    google_news:
+      primary:
+        gl: "BY"
+        hl: "ru"
+        ceid: "BY:ru"
+    aliases:
+      - "wit-rusland"
+      - "belarusian"
+      - "minsk"
+      - "lukashenko"
+
+  moldova:
+    name: "Moldova"
+    iso_code: "MD"
+    google_news:
+      primary:
+        gl: "MD"
+        hl: "ro"
+        ceid: "MD:ro"
+    aliases:
+      - "moldavië"
+      - "moldovan"
+      - "chisinau"
+
+  yemen:
+    name: "Yemen"
+    iso_code: "YE"
+    google_news:
+      primary:
+        gl: "YE"
+        hl: "ar"
+        ceid: "YE:ar"
+    aliases:
+      - "jemen"
+      - "yemeni"
+      - "sanaa"
+      - "houthi"
+
+  oman:
+    name: "Oman"
+    iso_code: "OM"
+    google_news:
+      primary:
+        gl: "OM"
+        hl: "ar"
+        ceid: "OM:ar"
+    aliases:
+      - "omani"
+      - "muscat"
+
+  bahrain:
+    name: "Bahrain"
+    iso_code: "BH"
+    google_news:
+      primary:
+        gl: "BH"
+        hl: "ar"
+        ceid: "BH:ar"
+    aliases:
+      - "bahrein"
+      - "bahraini"
+      - "manama"
+
+  # Additional countries to reach ~140
+  angola:
+    name: "Angola"
+    iso_code: "AO"
+    google_news:
+      primary:
+        gl: "AO"
+        hl: "pt"
+        ceid: "AO:pt"
+    aliases:
+      - "angolees"
+      - "luanda"
+
+  mozambique:
+    name: "Mozambique"
+    iso_code: "MZ"
+    google_news:
+      primary:
+        gl: "MZ"
+        hl: "pt"
+        ceid: "MZ:pt"
+    aliases:
+      - "mozambikaans"
+      - "maputo"
+
+  rwanda:
+    name: "Rwanda"
+    iso_code: "RW"
+    google_news:
+      primary:
+        gl: "RW"
+        hl: "en"
+        ceid: "RW:en"
+    aliases:
+      - "rwandan"
+      - "kigali"
+
+  mali:
+    name: "Mali"
+    iso_code: "ML"
+    google_news:
+      primary:
+        gl: "ML"
+        hl: "fr"
+        ceid: "ML:fr"
+    aliases:
+      - "malian"
+      - "bamako"
+
+  burkina_faso:
+    name: "Burkina Faso"
+    iso_code: "BF"
+    google_news:
+      primary:
+        gl: "BF"
+        hl: "fr"
+        ceid: "BF:fr"
+    aliases:
+      - "burkinabe"
+      - "ouagadougou"
+
+  niger:
+    name: "Niger"
+    iso_code: "NE"
+    google_news:
+      primary:
+        gl: "NE"
+        hl: "fr"
+        ceid: "NE:fr"
+    aliases:
+      - "nigerien"
+      - "niamey"
+
+  chad:
+    name: "Chad"
+    iso_code: "TD"
+    google_news:
+      primary:
+        gl: "TD"
+        hl: "fr"
+        ceid: "TD:fr"
+    aliases:
+      - "tsjaad"
+      - "chadian"
+      - "ndjamena"
+
+  benin:
+    name: "Benin"
+    iso_code: "BJ"
+    google_news:
+      primary:
+        gl: "BJ"
+        hl: "fr"
+        ceid: "BJ:fr"
+    aliases:
+      - "beninese"
+      - "porto-novo"
+
+  togo:
+    name: "Togo"
+    iso_code: "TG"
+    google_news:
+      primary:
+        gl: "TG"
+        hl: "fr"
+        ceid: "TG:fr"
+    aliases:
+      - "togolese"
+      - "lome"
+
+  gabon:
+    name: "Gabon"
+    iso_code: "GA"
+    google_news:
+      primary:
+        gl: "GA"
+        hl: "fr"
+        ceid: "GA:fr"
+    aliases:
+      - "gabonese"
+      - "libreville"
+
+  congo_republic:
+    name: "Republic of Congo"
+    iso_code: "CG"
+    google_news:
+      primary:
+        gl: "CG"
+        hl: "fr"
+        ceid: "CG:fr"
+    aliases:
+      - "congo-brazzaville"
+      - "brazzaville"
+
+  mauritius:
+    name: "Mauritius"
+    iso_code: "MU"
+    google_news:
+      primary:
+        gl: "MU"
+        hl: "en"
+        ceid: "MU:en"
+    aliases:
+      - "mauritian"
+      - "port louis"
+
+  madagascar:
+    name: "Madagascar"
+    iso_code: "MG"
+    google_news:
+      primary:
+        gl: "MG"
+        hl: "fr"
+        ceid: "MG:fr"
+    aliases:
+      - "malagasy"
+      - "antananarivo"
+
+  zambia:
+    name: "Zambia"
+    iso_code: "ZM"
+    google_news:
+      primary:
+        gl: "ZM"
+        hl: "en"
+        ceid: "ZM:en"
+    aliases:
+      - "zambian"
+      - "lusaka"
+
+  malawi:
+    name: "Malawi"
+    iso_code: "MW"
+    google_news:
+      primary:
+        gl: "MW"
+        hl: "en"
+        ceid: "MW:en"
+    aliases:
+      - "malawian"
+      - "lilongwe"
+
+  # Additional Asia
+  mongolia:
+    name: "Mongolia"
+    iso_code: "MN"
+    google_news:
+      primary:
+        gl: "MN"
+        hl: "en"
+        ceid: "MN:en"
+    aliases:
+      - "mongolië"
+      - "mongolian"
+      - "ulaanbaatar"
+
+  laos:
+    name: "Laos"
+    iso_code: "LA"
+    google_news:
+      primary:
+        gl: "LA"
+        hl: "en"
+        ceid: "LA:en"
+    aliases:
+      - "laotian"
+      - "vientiane"
+
+  brunei:
+    name: "Brunei"
+    iso_code: "BN"
+    google_news:
+      primary:
+        gl: "BN"
+        hl: "en"
+        ceid: "BN:en"
+    aliases:
+      - "bruneian"
+      - "bandar seri begawan"
+
+  kyrgyzstan:
+    name: "Kyrgyzstan"
+    iso_code: "KG"
+    google_news:
+      primary:
+        gl: "KG"
+        hl: "ru"
+        ceid: "KG:ru"
+    aliases:
+      - "kirgizië"
+      - "kyrgyz"
+      - "bishkek"
+
+  tajikistan:
+    name: "Tajikistan"
+    iso_code: "TJ"
+    google_news:
+      primary:
+        gl: "TJ"
+        hl: "ru"
+        ceid: "TJ:ru"
+    aliases:
+      - "tadzjikistan"
+      - "tajik"
+      - "dushanbe"
+
+  turkmenistan:
+    name: "Turkmenistan"
+    iso_code: "TM"
+    google_news:
+      primary:
+        gl: "TM"
+        hl: "ru"
+        ceid: "TM:ru"
+    aliases:
+      - "turkmen"
+      - "ashgabat"
+
+  maldives:
+    name: "Maldives"
+    iso_code: "MV"
+    google_news:
+      primary:
+        gl: "MV"
+        hl: "en"
+        ceid: "MV:en"
+    aliases:
+      - "malediven"
+      - "maldivian"
+      - "male"
+
+  bhutan:
+    name: "Bhutan"
+    iso_code: "BT"
+    google_news:
+      primary:
+        gl: "BT"
+        hl: "en"
+        ceid: "BT:en"
+    aliases:
+      - "bhutanese"
+      - "thimphu"
+
+  # Additional Americas
+  honduras:
+    name: "Honduras"
+    iso_code: "HN"
+    google_news:
+      primary:
+        gl: "HN"
+        hl: "es"
+        ceid: "HN:es"
+    aliases:
+      - "honduran"
+      - "tegucigalpa"
+
+  nicaragua:
+    name: "Nicaragua"
+    iso_code: "NI"
+    google_news:
+      primary:
+        gl: "NI"
+        hl: "es"
+        ceid: "NI:es"
+    aliases:
+      - "nicaraguan"
+      - "managua"
+
+  costa_rica:
+    name: "Costa Rica"
+    iso_code: "CR"
+    google_news:
+      primary:
+        gl: "CR"
+        hl: "es"
+        ceid: "CR:es"
+    aliases:
+      - "costa rican"
+      - "san jose"
+
+  el_salvador:
+    name: "El Salvador"
+    iso_code: "SV"
+    google_news:
+      primary:
+        gl: "SV"
+        hl: "es"
+        ceid: "SV:es"
+    aliases:
+      - "salvadoran"
+      - "san salvador"
+      - "bukele"
+
+  dominican_republic:
+    name: "Dominican Republic"
+    iso_code: "DO"
+    google_news:
+      primary:
+        gl: "DO"
+        hl: "es"
+        ceid: "DO:es"
+    aliases:
+      - "dominicaans"
+      - "santo domingo"
+
+  haiti:
+    name: "Haiti"
+    iso_code: "HT"
+    google_news:
+      primary:
+        gl: "HT"
+        hl: "fr"
+        ceid: "HT:fr"
+    aliases:
+      - "haitian"
+      - "port-au-prince"
+
+  uruguay:
+    name: "Uruguay"
+    iso_code: "UY"
+    google_news:
+      primary:
+        gl: "UY"
+        hl: "es"
+        ceid: "UY:es"
+    aliases:
+      - "uruguayan"
+      - "montevideo"
+
+  paraguay:
+    name: "Paraguay"
+    iso_code: "PY"
+    google_news:
+      primary:
+        gl: "PY"
+        hl: "es"
+        ceid: "PY:es"
+    aliases:
+      - "paraguayan"
+      - "asuncion"
+
+  trinidad_tobago:
+    name: "Trinidad and Tobago"
+    iso_code: "TT"
+    google_news:
+      primary:
+        gl: "TT"
+        hl: "en"
+        ceid: "TT:en"
+    aliases:
+      - "trinidadian"
+      - "port of spain"
+
+  bahamas:
+    name: "Bahamas"
+    iso_code: "BS"
+    google_news:
+      primary:
+        gl: "BS"
+        hl: "en"
+        ceid: "BS:en"
+    aliases:
+      - "bahamian"
+      - "nassau"
+
+  barbados:
+    name: "Barbados"
+    iso_code: "BB"
+    google_news:
+      primary:
+        gl: "BB"
+        hl: "en"
+        ceid: "BB:en"
+    aliases:
+      - "barbadian"
+      - "bridgetown"
+
+  guyana:
+    name: "Guyana"
+    iso_code: "GY"
+    google_news:
+      primary:
+        gl: "GY"
+        hl: "en"
+        ceid: "GY:en"
+    aliases:
+      - "guyanese"
+      - "georgetown"
+
+  suriname:
+    name: "Suriname"
+    iso_code: "SR"
+    google_news:
+      primary:
+        gl: "SR"
+        hl: "nl"
+        ceid: "SR:nl"
+    aliases:
+      - "surinaams"
+      - "paramaribo"
+
+  # Additional Europe
+  albania:
+    name: "Albania"
+    iso_code: "AL"
+    google_news:
+      primary:
+        gl: "AL"
+        hl: "sq"
+        ceid: "AL:sq"
+    aliases:
+      - "albanië"
+      - "albanian"
+      - "tirana"
+
+  north_macedonia:
+    name: "North Macedonia"
+    iso_code: "MK"
+    google_news:
+      primary:
+        gl: "MK"
+        hl: "mk"
+        ceid: "MK:mk"
+    aliases:
+      - "macedonië"
+      - "macedonian"
+      - "skopje"
+
+  montenegro:
+    name: "Montenegro"
+    iso_code: "ME"
+    google_news:
+      primary:
+        gl: "ME"
+        hl: "sr"
+        ceid: "ME:sr"
+    aliases:
+      - "montenegrin"
+      - "podgorica"
+
+  bosnia:
+    name: "Bosnia and Herzegovina"
+    iso_code: "BA"
+    google_news:
+      primary:
+        gl: "BA"
+        hl: "bs"
+        ceid: "BA:bs"
+    aliases:
+      - "bosnië"
+      - "bosnian"
+      - "sarajevo"
+
+  kosovo:
+    name: "Kosovo"
+    iso_code: "XK"
+    google_news:
+      primary:
+        gl: "XK"
+        hl: "sq"
+        ceid: "XK:sq"
+    aliases:
+      - "kosovar"
+      - "pristina"
+
+  # Pacific
+  fiji:
+    name: "Fiji"
+    iso_code: "FJ"
+    google_news:
+      primary:
+        gl: "FJ"
+        hl: "en"
+        ceid: "FJ:en"
+    aliases:
+      - "fijian"
+      - "suva"
+
+  papua_new_guinea:
+    name: "Papua New Guinea"
+    iso_code: "PG"
+    google_news:
+      primary:
+        gl: "PG"
+        hl: "en"
+        ceid: "PG:en"
+    aliases:
+      - "papua"
+      - "port moresby"
 
 # Countries to exclude from international fetching (we already monitor these)
 excluded_countries:

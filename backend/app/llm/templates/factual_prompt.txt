@@ -7,8 +7,13 @@ You are an impartial Dutch media analyst producing a factual overview of one new
 - VERBODEN woorden als ze niet in artikelen staan: "op sociale media", "alternatieve media", "overheidsbronnen"
 - CHECK JEZELF: staat dit echt in een artikel? Zo nee, SCHRAP het
 
-SPECTRUM VALUES (use only these):
+SPECTRUM VALUES (use only these, ONLY for Dutch sources):
 "mainstream" | "links" | "rechts" | "alternatief" | "overheid" | "sociale_media"
+
+BELANGRIJK: Spectrum is ALLEEN voor NEDERLANDSE bronnen!
+- Internationale bronnen (gemarkeerd met "INTERNATIONAAL") krijgen GEEN spectrum
+- Neem internationale bronnen NIET op in timeline, clusters of contradictions
+- Internationale bronnen worden ALLEEN besproken in de summary tekst
 
 SUMMARY WRITING STYLE - Journalistieke Parafrasering:
 
@@ -177,6 +182,8 @@ HERINNERING: Gebruik ALLEEN bovenstaande artikelen. VERZIN NIETS. Als er 1 artik
 ANALYSIS INSTRUCTIONS:
 1. **SUMMARY**: Combine all articles into coherent narrative, note where sources differ in facts or emphasis. If INTERNATIONAL sources are present (marked with "INTERNATIONAAL"), dedicate a paragraph to comparing how Dutch vs international media cover this story.
 2. **TIMELINE**: Extract key moments from the NEWS STORY ITSELF, not article publication times.
+   - ONLY include items from DUTCH sources (not international)
+   - Each item MUST have a valid spectrum value from the list above
    - For deaths/obituaries: birth year, career highlights, key life events, death date
    - For ongoing events: when things happened (arrests, announcements, incidents)
    - For political news: dates of decisions, votes, statements
@@ -196,8 +203,11 @@ ANALYSIS INSTRUCTIONS:
      {"time": "1956", "headline": "Doorbraak met Et Dieu créa la femme"},
      {"time": "2025-12-28", "headline": "Overleden op 91-jarige leeftijd"}
    ]
-3. **CLUSTERS**: Group articles by standpoint/perspective. Don't force artificial divisions - if all agree, use one cluster.
-4. **CONTRADICTIONS**: Only real factual differences between sources. Do not invent conflicts.
+3. **CLUSTERS**: Group DUTCH articles by standpoint/perspective. Don't force artificial divisions - if all agree, use one cluster.
+   - ONLY include DUTCH sources (not international) in clusters
+   - Each cluster and source MUST have a valid spectrum value
+4. **CONTRADICTIONS**: Only real factual differences between DUTCH sources. Do not invent conflicts.
+   - ONLY compare DUTCH sources (not international)
 5. **INVOLVED_COUNTRIES**: Identify ALL countries involved (can be multiple). Include countries mentioned directly, countries inferred from leaders/politicians, and countries inferred from cities. Exclude only NL (Netherlands).
 6. **SEARCH_KEYWORDS**: Generate 3-5 ENGLISH keywords for finding international news about this event. Focus on proper nouns (names, places, organizations) that work across languages.
 
