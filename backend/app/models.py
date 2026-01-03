@@ -230,3 +230,95 @@ class ApiResponse(BaseModel):
     data: List[EventListItem] | EventDetail | AggregationResponse
     meta: Optional[EventFeedMeta | EventDetailMeta | dict] = None
     links: Optional[dict] = None
+
+
+# Bias Analysis Response Models (Epic 10)
+
+
+class SentenceBiasResponse(BaseModel):
+    """A single sentence with detected bias."""
+
+    sentence_index: int
+    sentence_text: str
+    bias_type: str
+    bias_source: str  # "journalist", "framing", "quote_selection", or "quote"
+    speaker: Optional[str] = None  # Only for quote bias
+    score: float = Field(..., ge=0.0, le=1.0)
+    explanation: str
+
+
+class BiasAnalysisSummary(BaseModel):
+    """Summary statistics for bias analysis."""
+
+    total_sentences: int
+    journalist_bias_count: int
+    quote_bias_count: int
+    journalist_bias_percentage: float
+    most_frequent_journalist_bias: Optional[str] = None
+    most_frequent_count: Optional[int] = None
+    average_journalist_bias_strength: Optional[float] = None
+    overall_journalist_rating: float = Field(
+        ..., ge=0.0, le=1.0, description="Lower = more objective"
+    )
+
+
+class ArticleBiasResponse(BaseModel):
+    """Full bias analysis response for a single article."""
+
+    article_id: int
+    analyzed_at: datetime
+    provider: str
+    model: str
+    summary: BiasAnalysisSummary
+    journalist_biases: List[SentenceBiasResponse]
+    quote_biases: List[SentenceBiasResponse]
+
+
+class ArticleBiasResponseMeta(BaseModel):
+    """Metadata for article bias response."""
+
+    article_id: int
+    provider: str
+    model: str
+    analyzed_at: datetime
+
+
+class SourceBiasStats(BaseModel):
+    """Bias statistics for a single source within an event."""
+
+    source: str
+    article_count: int
+    average_rating: float = Field(
+        ..., ge=0.0, le=1.0, description="Average overall_journalist_rating"
+    )
+    articles_analyzed: int
+    total_journalist_biases: int
+
+
+class BiasTypeCount(BaseModel):
+    """Count of a specific bias type across event."""
+
+    bias_type: str
+    count: int
+
+
+class EventBiasSummary(BaseModel):
+    """Aggregated bias summary for an event."""
+
+    event_id: int
+    total_articles: int
+    articles_analyzed: int
+    average_bias_rating: Optional[float] = Field(
+        None, ge=0.0, le=1.0, description="Average across all analyzed articles"
+    )
+    by_source: List[SourceBiasStats]
+    bias_type_distribution: List[BiasTypeCount]
+
+
+class EventBiasSummaryMeta(BaseModel):
+    """Metadata for event bias summary."""
+
+    event_id: int
+    generated_at: datetime
+    total_articles: int
+    articles_analyzed: int

@@ -141,7 +141,7 @@ Sommige situaties vereisen nuance:
 
 ## Story 10.1: Database Model & Repository
 
-**Status**: 🔲 To Do
+**Status**: ✅ Done
 **Prioriteit**: Must Have
 **Geschatte complexiteit**: Small
 
@@ -149,11 +149,11 @@ Sommige situaties vereisen nuance:
 Creëer database model voor opslag van per-zin bias analyse resultaten.
 
 ### Subtaken
-- [ ] Maak `ArticleBiasAnalysis` model in `backend/app/db/models.py` (volg `LLMInsight` pattern)
-- [ ] Voeg `SentenceBias` en `BiasAnalysisPayload` schemas toe aan `backend/app/llm/schemas.py`
-- [ ] Maak migration script `database/migrations/003_article_bias_analysis.sql`
-- [ ] Maak `BiasRepository` in `backend/app/repositories/bias_repo.py` (volg `InsightRepository` pattern)
-- [ ] Schrijf unit tests in `backend/tests/unit/test_bias_repo.py`
+- [x] Maak `ArticleBiasAnalysis` model in `backend/app/db/models.py` (volg `LLMInsight` pattern)
+- [x] Voeg `SentenceBias` en `BiasAnalysisPayload` schemas toe aan `backend/app/llm/schemas.py`
+- [x] Maak migration script `database/migrations/003_article_bias_analysis.sql`
+- [x] Maak `BiasRepository` in `backend/app/repositories/bias_repo.py` (volg `InsightRepository` pattern)
+- [x] Schrijf unit tests in `backend/tests/unit/test_bias_repo.py`
 
 ### Database Schema
 
@@ -298,15 +298,15 @@ Totaalbeoordeling: 0.38 (lager = objectiever)
 ```
 
 ### Acceptatiecriteria
-- [ ] Model is aangemaakt en migratie draait succesvol
-- [ ] Repository ondersteunt create, get_by_article_id, get_by_event_id
-- [ ] Unit tests dekken alle repository methodes
+- [x] Model is aangemaakt en migratie draait succesvol
+- [x] Repository ondersteunt create, get_by_article_id, get_by_event_id
+- [x] Unit tests dekken alle repository methodes (9 tests passed)
 
 ---
 
 ## Story 10.2: Bias Detection Prompt & LLM Service
 
-**Status**: 🔲 To Do
+**Status**: ✅ Done
 **Prioriteit**: Must Have
 **Geschatte complexiteit**: Medium
 
@@ -314,12 +314,12 @@ Totaalbeoordeling: 0.38 (lager = objectiever)
 Ontwikkel de LLM prompt die per-zin bias detecteert met de 26 categorieën, en een service die de analyse uitvoert.
 
 ### Subtaken
-- [ ] Maak prompt template `backend/app/llm/templates/bias_detection_prompt.txt`
-- [ ] Voeg `prompt_bias_detection` toe aan `llm_config` tabel (sync met database)
-- [ ] Maak `BiasDetectionService` in `backend/app/services/bias_service.py` (volg `InsightService` pattern)
-- [ ] Hergebruik bestaande `LLMClient` abstractie voor provider-agnostische calls
-- [ ] Implementeer `analyze_article(article_id: int) -> BiasAnalysisOutcome`
-- [ ] Schrijf unit tests in `backend/tests/unit/test_bias_service.py` met mocked LLM
+- [x] Maak prompt template `backend/app/llm/templates/bias_detection_prompt.txt`
+- [x] Voeg `prompt_bias_detection` toe aan `llm_config` tabel (sync met database)
+- [x] Maak `BiasDetectionService` in `backend/app/services/bias_service.py` (volg `InsightService` pattern)
+- [x] Hergebruik bestaande `LLMClient` abstractie voor provider-agnostische calls
+- [x] Implementeer `analyze_article(article_id: int) -> BiasAnalysisOutcome`
+- [x] Schrijf unit tests in `backend/tests/unit/test_bias_service.py` met mocked LLM
 
 ### Prompt Structuur
 
@@ -419,17 +419,43 @@ Antwoord in JSON formaat:
 ```
 
 ### Acceptatiecriteria
-- [ ] Prompt template staat in versiecontrole
-- [ ] Prompt is gesynchroniseerd met database `llm_config`
-- [ ] Service retourneert gestructureerde BiasAnalysisResponse
-- [ ] Alleen zinnen met score >= 0.5 worden geretourneerd
-- [ ] Quotes van bronnen worden correct uitgesloten
+- [x] Prompt template staat in versiecontrole
+- [x] Prompt is gesynchroniseerd met database `llm_config`
+- [x] Service retourneert gestructureerde BiasAnalysisResponse
+- [x] Alleen zinnen met score >= 0.5 worden geretourneerd
+- [x] Quotes van bronnen worden correct uitgesloten
+
+### Implementatiedetails
+
+**Prompt Template:** `backend/app/llm/templates/bias_detection_prompt.txt`
+- Comprehensive Dutch prompt with all 26 bias types
+- Clear distinction between journalist bias (counts toward score) and quote bias (informational)
+- Examples of correct classification for each bias_source type
+- Conservative approach: only flag clear cases (score >= 0.5)
+
+**Service:** `backend/app/services/bias_service.py`
+- `BiasDetectionService` with singleton pattern
+- `analyze_article(article_id)` - analyzes single article
+- `analyze_batch(limit)` - batch processing for scheduled jobs
+- Automatic Mistral fallback on rate limits
+- Summary stats computation (percentage, most frequent, overall rating)
+
+**Database Config:**
+- `provider_bias` - configurable LLM provider for bias detection
+- `prompt_bias_detection` - stored prompt template
+
+**Unit Tests:** 15 tests in `test_bias_service.py`
+- Stats computation tests
+- Client building tests
+- Article analysis tests (success, not found, no content)
+- Batch processing tests
+- Payload parsing tests
 
 ---
 
 ## Story 10.3: Admin Trigger & Scheduler Integration
 
-**Status**: 🔲 To Do
+**Status**: ✅ Done
 **Prioriteit**: Must Have
 **Geschatte complexiteit**: Small
 
@@ -437,10 +463,11 @@ Antwoord in JSON formaat:
 Voeg admin endpoints toe voor handmatige en batch bias analyse, plus optionele scheduler job.
 
 ### Subtaken
-- [ ] Voeg endpoint `POST /admin/trigger/analyze-bias/{article_id}` toe
-- [ ] Voeg endpoint `POST /admin/trigger/analyze-bias-batch?limit=N` toe
-- [ ] Voeg optionele scheduler job toe (standaard uit)
-- [ ] Update `/admin/scheduler/status` response
+- [x] Voeg endpoint `POST /admin/trigger/analyze-bias/{article_id}` toe
+- [x] Voeg endpoint `POST /admin/trigger/analyze-bias-batch?limit=N` toe
+- [x] Voeg optionele scheduler job toe (standaard uit)
+- [x] Update `/admin/scheduler/status` response
+- [x] Unit tests voor admin endpoints (7 tests added)
 
 ### Admin Endpoints
 
@@ -453,15 +480,34 @@ curl -X POST "http://localhost:8000/admin/trigger/analyze-bias-batch?limit=10"
 ```
 
 ### Acceptatiecriteria
-- [ ] Admin endpoints werken correct
-- [ ] Batch endpoint verwerkt alleen artikelen zonder bestaande analyse
-- [ ] Foutafhandeling bij niet-bestaande artikel_id
+- [x] Admin endpoints werken correct
+- [x] Batch endpoint verwerkt alleen artikelen zonder bestaande analyse
+- [x] Foutafhandeling bij niet-bestaande artikel_id
+
+### Implementatiedetails
+
+**Nieuwe Admin Endpoints:**
+- `POST /admin/trigger/analyze-bias/{article_id}` - Analyseer specifiek artikel
+- `POST /admin/trigger/analyze-bias-batch?limit=N` - Batch analyse (1-50 artikelen)
+
+**Scheduler Configuration (default disabled):**
+```bash
+BIAS_ANALYSIS_SCHEDULER_ENABLED=true   # Enable scheduled job
+BIAS_ANALYSIS_INTERVAL_HOURS=6         # Run every 6 hours
+BIAS_ANALYSIS_BATCH_SIZE=10            # Articles per run
+```
+
+**Gewijzigde Bestanden:**
+- `backend/app/routers/admin.py` - Added BiasAnalysisResponse, BatchBiasAnalysisResponse, endpoints
+- `backend/app/core/scheduler.py` - Added _bias_analysis_job(), run_bias_analysis_now()
+- `backend/app/core/config.py` - Added bias_analysis_scheduler_enabled, interval_hours, batch_size
+- `backend/tests/unit/test_admin_router.py` - Added 7 tests for bias endpoints
 
 ---
 
 ## Story 10.4: API Endpoints voor Bias Data
 
-**Status**: 🔲 To Do
+**Status**: ✅ Done
 **Prioriteit**: Must Have
 **Geschatte complexiteit**: Small
 
@@ -469,42 +515,78 @@ curl -X POST "http://localhost:8000/admin/trigger/analyze-bias-batch?limit=10"
 Maak publieke API endpoints om bias analyse resultaten op te halen.
 
 ### Subtaken
-- [ ] Voeg endpoint `GET /articles/{article_id}/bias` toe
-- [ ] Voeg bias data toe aan bestaande article detail response
-- [ ] Voeg aggregatie endpoint toe voor event-niveau samenvatting
+- [x] Voeg endpoint `GET /articles/{article_id}/bias` toe
+- [x] Voeg aggregatie endpoint toe voor event-niveau samenvatting (`GET /events/{event_id}/bias-summary`)
 
 ### API Responses
 
 ```json
-// GET /articles/{article_id}/bias
+// GET /api/v1/articles/{article_id}/bias
 {
-  "article_id": 123,
-  "analyzed_at": "2026-01-03T10:30:00Z",
-  "total_sentences": 45,
-  "flagged_count": 3,
-  "overall_bias_score": 0.65,
-  "flagged_sentences": [
-    {
-      "sentence_index": 12,
-      "sentence_text": "Experts zijn het erover eens dat...",
-      "bias_type": "External Validation Bias",
-      "score": 0.7,
-      "explanation": "Vaag beroep op anonieme experts zonder concrete bronvermelding."
-    }
-  ]
+  "data": {
+    "article_id": 123,
+    "analyzed_at": "2026-01-03T10:30:00Z",
+    "provider": "mistral",
+    "model": "mistral-small-latest",
+    "summary": {
+      "total_sentences": 45,
+      "journalist_bias_count": 3,
+      "quote_bias_count": 1,
+      "journalist_bias_percentage": 6.67,
+      "most_frequent_journalist_bias": "Word Choice Bias",
+      "most_frequent_count": 2,
+      "average_journalist_bias_strength": 0.65,
+      "overall_journalist_rating": 0.35
+    },
+    "journalist_biases": [...],
+    "quote_biases": [...]
+  },
+  "meta": {...}
+}
+
+// GET /api/v1/events/{event_id}/bias-summary
+{
+  "data": {
+    "event_id": 123,
+    "total_articles": 5,
+    "articles_analyzed": 3,
+    "average_bias_rating": 0.45,
+    "by_source": [
+      {"source": "NOS", "article_count": 2, "average_rating": 0.3, "articles_analyzed": 2, "total_journalist_biases": 3}
+    ],
+    "bias_type_distribution": [
+      {"bias_type": "Word Choice Bias", "count": 5}
+    ]
+  },
+  "meta": {...}
 }
 ```
 
 ### Acceptatiecriteria
-- [ ] Endpoints retourneren correcte data
-- [ ] 404 als artikel geen bias analyse heeft
-- [ ] Response is consistent met bestaande API patterns
+- [x] Endpoints retourneren correcte data
+- [x] 404 als artikel geen bias analyse heeft
+- [x] Response is consistent met bestaande API patterns
+
+### Implementatiedetails
+
+**Nieuwe Endpoints:**
+- `GET /api/v1/articles/{article_id}/bias` - Artikel bias analyse met journalist en quote biases
+- `GET /api/v1/events/{event_identifier}/bias-summary` - Event-niveau aggregatie per bron
+
+**Nieuwe Bestanden:**
+- `backend/app/routers/bias.py` - Bias API router
+- `backend/tests/integration/test_bias_api.py` - 7 integration tests
+
+**Gewijzigde Bestanden:**
+- `backend/app/models.py` - Added 8 new Pydantic response models
+- `backend/app/routers/__init__.py` - Export bias_router
+- `backend/app/main.py` - Register bias_router
 
 ---
 
 ## Story 10.5: Frontend - Artikel Bias Weergave
 
-**Status**: 🔲 To Do
+**Status**: ✅ Done
 **Prioriteit**: Must Have
 **Geschatte complexiteit**: Medium
 
@@ -512,12 +594,12 @@ Maak publieke API endpoints om bias analyse resultaten op te halen.
 Toon bias analyse resultaten in de frontend, zowel als samenvatting als interactieve tekst-highlighting.
 
 ### Subtaken
-- [ ] Maak `BiasAnalysis` component in `frontend/components/`
-- [ ] Maak `BiasHighlightedText` component voor interactieve weergave
-- [ ] Voeg bias sectie toe aan artikel detail pagina
-- [ ] Implementeer tooltip met uitleg bij hover over geflaggede zin
-- [ ] Voeg kleurcodering toe op basis van score (geel → oranje → rood)
-- [ ] Maak bias type legenda/uitleg
+- [x] Maak `BiasScoreBadge` component in `frontend/components/`
+- [x] Maak `BiasAnalysisModal` component voor interactieve weergave
+- [x] Voeg bias sectie toe aan artikel kaarten (ArticleList)
+- [x] Implementeer click-to-expand met uitleg bij gedetailleerde zin-analyse
+- [x] Voeg kleurcodering toe op basis van score (groen → geel → oranje → rood)
+- [x] Maak bias type legenda/uitleg in modal
 
 ### UI/UX Design - Integratie in Event Detail Pagina
 
@@ -636,11 +718,42 @@ frontend/components/
 ```
 
 ### Acceptatiecriteria
-- [ ] Bias score is duidelijk zichtbaar per artikel
-- [ ] Geflaggede zinnen zijn gegroepeerd per bias type
-- [ ] Hover/tap toont uitgebreide uitleg
-- [ ] Kleurcodering is consistent en toegankelijk
-- [ ] Component gracefully handelt ontbrekende analyse
+- [x] Bias score is duidelijk zichtbaar per artikel
+- [x] Geflaggede zinnen zijn gegroepeerd per bias type (journalist vs quote)
+- [x] Click-to-expand toont uitgebreide uitleg (modal)
+- [x] Kleurcodering is consistent en toegankelijk (5-tier: groen → rood)
+- [x] Component gracefully handelt ontbrekende analyse (placeholder badge)
+
+### Implementatiedetails
+
+**Nieuwe Bestanden:**
+- `frontend/components/BiasScoreBadge.tsx` - Compacte objectiviteitsscore badge met kleurcodering
+- `frontend/components/BiasAnalysisModal.tsx` - Modal met volledige bias analyse details
+- `frontend/components/ArticleCard.tsx` - Individuele artikel kaart met bias integratie
+
+**Gewijzigde Bestanden:**
+- `frontend/lib/types.ts` - Added BiasSource, SentenceBias, BiasAnalysisSummary, ArticleBiasAnalysis, ArticleBiasResponse
+- `frontend/lib/api.ts` - Added getArticleBias(), getArticleBiasesForEvent()
+- `frontend/components/ArticleList.tsx` - Refactored to use ArticleCard, added showBias prop
+
+**Component Features:**
+- **BiasScoreBadge**: Shows objectivity % with color coding (green 80%+ to red <20%)
+- **BiasAnalysisModal**:
+  - Summary stats (objectivity, sentence count, bias counts)
+  - Most frequent bias type highlight
+  - Grouped journalist biases (count toward score)
+  - Grouped quote biases (informational only)
+  - Per-sentence expandable cards with explanation
+- **ArticleCard**: Fetches bias on mount, shows loading state, handles missing analysis
+
+**Kleurcodering (Objectiviteitsscore):**
+| Rating | Objectiviteit | Badge Kleur |
+|--------|---------------|-------------|
+| 0.0-0.2 | 80-100% | Groen (CheckCircle) |
+| 0.2-0.4 | 60-80% | Emerald (CheckCircle) |
+| 0.4-0.6 | 40-60% | Amber (MinusCircle) |
+| 0.6-0.8 | 20-40% | Oranje (AlertTriangle) |
+| 0.8-1.0 | 0-20% | Rood (AlertTriangle) |
 
 ---
 

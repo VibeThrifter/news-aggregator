@@ -205,6 +205,47 @@ class NewsSource(Base):
         return f"<NewsSource source_id={self.source_id!r} enabled={self.enabled} is_main={self.is_main_source}>"
 
 
+class ArticleBiasAnalysis(Base):
+    """Per-sentence bias analysis results for individual articles (Epic 10)."""
+
+    __tablename__ = "article_bias_analyses"
+    __table_args__ = (
+        UniqueConstraint("article_id", "provider", name="uq_article_bias_article_provider"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    article_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("articles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    # Sentence counts
+    total_sentences: Mapped[int] = mapped_column(Integer, nullable=False)
+    journalist_bias_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    quote_bias_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Summary statistics (only for journalist biases - quotes don't count)
+    journalist_bias_percentage: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    most_frequent_bias: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    most_frequent_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    average_bias_strength: Mapped[float | None] = mapped_column(Float, nullable=True)
+    overall_rating: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    # Detailed results - separate arrays for journalist vs quote biases
+    journalist_biases: Mapped[List[Dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    quote_biases: Mapped[List[Dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    raw_response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    analyzed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging helper
+        return f"<ArticleBiasAnalysis article_id={self.article_id} provider={self.provider!r} rating={self.overall_rating:.2f}>"
+
+
 class LlmConfig(Base):
     """Configuration for LLM prompts and parameters, editable via admin dashboard."""
 

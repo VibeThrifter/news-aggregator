@@ -11,6 +11,7 @@ from backend.app.core.scheduler import get_scheduler
 from backend.app.db.session import init_db
 from backend.app.routers import (
     aggregate_router,
+    bias_router,
     events_router,
     exports_router,
     insights_router,
@@ -59,6 +60,7 @@ app.add_middleware(
 )
 
 app.include_router(aggregate_router)
+app.include_router(bias_router)  # Epic 10: Article bias analysis endpoints
 app.include_router(events_router)
 app.include_router(insights_router)
 app.include_router(admin_router)

@@ -152,6 +152,9 @@ make clean             # Clean up generated files
 | Insight Backfill | 15 min | Generates LLM insights for events missing them |
 | International Enrichment | 2 hours | Adds international perspectives via Google News (Epic 9) |
 | Event Maintenance | 24 hours | Refreshes centroids, archives stale events |
+| Bias Analysis | 6 hours | Per-sentence bias detection (Epic 10, disabled by default) |
+
+**Note:** Bias Analysis is disabled by default to save LLM costs. Enable with `BIAS_ANALYSIS_SCHEDULER_ENABLED=true`.
 
 ### LLM Prompts Updaten
 
@@ -237,8 +240,34 @@ curl -X POST "http://localhost:8000/admin/trigger/enrich-international-batch"
 # Batch enrichment with custom limit
 curl -X POST "http://localhost:8000/admin/trigger/enrich-international-batch?limit=10"
 
+# Bias analysis for specific article (Epic 10)
+curl -X POST "http://localhost:8000/admin/trigger/analyze-bias/{article_id}"
+
+# Batch bias analysis (articles without analysis)
+curl -X POST "http://localhost:8000/admin/trigger/analyze-bias-batch?limit=10"
+
 # Check scheduler status
 curl "http://localhost:8000/admin/scheduler/status"
+```
+
+### Public API Endpoints
+
+```bash
+# List all events
+curl "http://localhost:8000/api/v1/events"
+
+# Get event details (by ID or slug)
+curl "http://localhost:8000/api/v1/events/{event_id}"
+curl "http://localhost:8000/api/v1/events/{slug}"
+
+# Get LLM insights for event
+curl "http://localhost:8000/api/v1/insights/{event_id}"
+
+# Get article bias analysis (Epic 10)
+curl "http://localhost:8000/api/v1/articles/{article_id}/bias"
+
+# Get event-level bias summary (Epic 10)
+curl "http://localhost:8000/api/v1/events/{event_id}/bias-summary"
 ```
 
 ### What NOT to Do

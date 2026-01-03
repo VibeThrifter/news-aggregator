@@ -14,6 +14,7 @@ from backend.app.services.insight_service import InsightGenerationOutcome, Insig
 from backend.app.services.international_enrichment import (
     get_international_enrichment_service,
 )
+from backend.app.services.bias_service import BiasAnalysisOutcome, get_bias_detection_service
 from backend.app.services.llm_config_service import get_llm_config_service
 from backend.app.services.source_service import get_source_service
 
@@ -490,4 +491,97 @@ async def trigger_batch_international_enrichment(
         total_articles_added=total_added,
         results=results,
         errors=errors,
+    )
+
+
+# Bias Analysis endpoints (Epic 10)
+class BiasAnalysisResponse(BaseModel):
+    """Response for single article bias analysis."""
+
+    article_id: int
+    provider: str
+    model: str
+    total_sentences: int
+    journalist_bias_count: int
+    quote_bias_count: int
+    journalist_bias_percentage: float
+    overall_rating: float
+    created: bool
+
+
+class BatchBiasAnalysisResponse(BaseModel):
+    """Response for batch bias analysis."""
+
+    success: bool
+    articles_found: int
+    articles_analyzed: int
+    articles_failed: int
+    failed_article_ids: list[int] | None = None
+
+
+@router.post(
+    "/trigger/analyze-bias/{article_id}",
+    response_model=BiasAnalysisResponse,
+)
+async def trigger_bias_analysis(article_id: int):
+    """Trigger per-sentence bias analysis for a specific article.
+
+    Analyzes the article content using LLM to detect 26 types of journalistic
+    biases at sentence level. Results are persisted to the database.
+
+    Args:
+        article_id: ID of the article to analyze
+    """
+    service = get_bias_detection_service()
+
+    try:
+        outcome = await service.analyze_article(article_id)
+        return BiasAnalysisResponse(
+            article_id=article_id,
+            provider=outcome.analysis.provider,
+            model=outcome.analysis.model,
+            total_sentences=outcome.analysis.total_sentences,
+            journalist_bias_count=outcome.analysis.journalist_bias_count,
+            quote_bias_count=outcome.analysis.quote_bias_count,
+            journalist_bias_percentage=outcome.analysis.journalist_bias_percentage,
+            overall_rating=outcome.analysis.overall_rating,
+            created=outcome.created,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Bias analysis failed: {e}",
+        )
+
+
+@router.post(
+    "/trigger/analyze-bias-batch",
+    response_model=BatchBiasAnalysisResponse,
+)
+async def trigger_batch_bias_analysis(limit: int = 10):
+    """Trigger batch bias analysis for articles without existing analysis.
+
+    Finds articles that haven't been analyzed yet and runs bias detection
+    on each. Articles must have content to be analyzed.
+
+    Args:
+        limit: Maximum number of articles to analyze (1-50, default 10)
+    """
+    if limit < 1 or limit > 50:
+        raise HTTPException(
+            status_code=400,
+            detail="limit must be between 1 and 50",
+        )
+
+    service = get_bias_detection_service()
+    result = await service.analyze_batch(limit=limit)
+
+    return BatchBiasAnalysisResponse(
+        success=result["articles_failed"] == 0,
+        articles_found=result["articles_found"],
+        articles_analyzed=result["articles_analyzed"],
+        articles_failed=result["articles_failed"],
+        failed_article_ids=result.get("failed_article_ids"),
     )

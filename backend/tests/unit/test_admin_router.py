@@ -54,6 +54,34 @@ dummy_insight_module.InsightGenerationOutcome = InsightGenerationOutcome
 dummy_insight_module.InsightService = InsightService
 sys.modules.setdefault("backend.app.services.insight_service", dummy_insight_module)
 
+# Stub bias service
+dummy_bias_module = types.ModuleType("backend.app.services.bias_service")
+
+
+@dataclass(slots=True)
+class BiasAnalysisOutcome:
+    analysis: SimpleNamespace
+    created: bool
+    payload: SimpleNamespace
+
+
+class BiasDetectionService:  # pragma: no cover - replaced within individual tests
+    async def analyze_article(self, article_id: int, *, correlation_id=None):
+        raise NotImplementedError
+
+    async def analyze_batch(self, *, limit: int = 10, correlation_id=None):
+        raise NotImplementedError
+
+
+def get_bias_detection_service():
+    return BiasDetectionService()
+
+
+dummy_bias_module.BiasAnalysisOutcome = BiasAnalysisOutcome
+dummy_bias_module.BiasDetectionService = BiasDetectionService
+dummy_bias_module.get_bias_detection_service = get_bias_detection_service
+sys.modules.setdefault("backend.app.services.bias_service", dummy_bias_module)
+
 from backend.app.routers import admin
 
 
@@ -124,3 +152,150 @@ async def test_trigger_generate_insights_unexpected_error(monkeypatch):
     payload = json.loads(response.body)
     assert payload["error"]["code"] == "INSIGHT_GENERATION_FAILED"
     assert payload["error"]["details"]["reason"] == "llm down"
+
+
+# Tests for Bias Analysis endpoints (Epic 10, Story 10.3)
+
+
+@pytest.mark.asyncio
+async def test_trigger_bias_analysis_success(monkeypatch):
+    """Test successful single article bias analysis."""
+    article_id = 42
+
+    analysis = SimpleNamespace(
+        provider="mistral",
+        model="mistral-small-latest",
+        total_sentences=15,
+        journalist_bias_count=3,
+        quote_bias_count=1,
+        journalist_bias_percentage=20.0,
+        overall_rating=0.45,
+    )
+    outcome = BiasAnalysisOutcome(
+        analysis=analysis,
+        created=True,
+        payload=SimpleNamespace(),
+    )
+
+    class DummyService:
+        async def analyze_article(self, incoming_article_id: int, *, correlation_id=None):
+            assert incoming_article_id == article_id
+            return outcome
+
+    monkeypatch.setattr(admin, "get_bias_detection_service", lambda: DummyService())
+
+    response = await admin.trigger_bias_analysis(article_id)
+
+    assert response.article_id == article_id
+    assert response.provider == "mistral"
+    assert response.total_sentences == 15
+    assert response.journalist_bias_count == 3
+    assert response.quote_bias_count == 1
+    assert response.journalist_bias_percentage == 20.0
+    assert response.overall_rating == 0.45
+    assert response.created is True
+
+
+@pytest.mark.asyncio
+async def test_trigger_bias_analysis_article_not_found(monkeypatch):
+    """Test bias analysis with non-existent article."""
+    article_id = 999
+
+    class DummyService:
+        async def analyze_article(self, incoming_article_id: int, *, correlation_id=None):
+            raise ValueError(f"Article {incoming_article_id} not found")
+
+    monkeypatch.setattr(admin, "get_bias_detection_service", lambda: DummyService())
+
+    with pytest.raises(Exception) as exc_info:
+        await admin.trigger_bias_analysis(article_id)
+
+    # FastAPI HTTPException
+    assert exc_info.value.status_code == 404
+    assert "not found" in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_trigger_bias_analysis_llm_error(monkeypatch):
+    """Test bias analysis with LLM failure."""
+    article_id = 42
+
+    class DummyService:
+        async def analyze_article(self, incoming_article_id: int, *, correlation_id=None):
+            raise RuntimeError("LLM timeout")
+
+    monkeypatch.setattr(admin, "get_bias_detection_service", lambda: DummyService())
+
+    with pytest.raises(Exception) as exc_info:
+        await admin.trigger_bias_analysis(article_id)
+
+    assert exc_info.value.status_code == 500
+    assert "Bias analysis failed" in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_trigger_batch_bias_analysis_success(monkeypatch):
+    """Test successful batch bias analysis."""
+
+    class DummyService:
+        async def analyze_batch(self, *, limit: int = 10, correlation_id=None):
+            return {
+                "articles_found": 5,
+                "articles_analyzed": 5,
+                "articles_failed": 0,
+                "failed_article_ids": None,
+            }
+
+    monkeypatch.setattr(admin, "get_bias_detection_service", lambda: DummyService())
+
+    response = await admin.trigger_batch_bias_analysis(limit=5)
+
+    assert response.success is True
+    assert response.articles_found == 5
+    assert response.articles_analyzed == 5
+    assert response.articles_failed == 0
+    assert response.failed_article_ids is None
+
+
+@pytest.mark.asyncio
+async def test_trigger_batch_bias_analysis_with_failures(monkeypatch):
+    """Test batch bias analysis with some failures."""
+
+    class DummyService:
+        async def analyze_batch(self, *, limit: int = 10, correlation_id=None):
+            return {
+                "articles_found": 10,
+                "articles_analyzed": 8,
+                "articles_failed": 2,
+                "failed_article_ids": [101, 102],
+            }
+
+    monkeypatch.setattr(admin, "get_bias_detection_service", lambda: DummyService())
+
+    response = await admin.trigger_batch_bias_analysis(limit=10)
+
+    assert response.success is False
+    assert response.articles_found == 10
+    assert response.articles_analyzed == 8
+    assert response.articles_failed == 2
+    assert response.failed_article_ids == [101, 102]
+
+
+@pytest.mark.asyncio
+async def test_trigger_batch_bias_analysis_invalid_limit():
+    """Test batch bias analysis with invalid limit."""
+    with pytest.raises(Exception) as exc_info:
+        await admin.trigger_batch_bias_analysis(limit=0)
+
+    assert exc_info.value.status_code == 400
+    assert "limit must be between 1 and 50" in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_trigger_batch_bias_analysis_limit_too_high():
+    """Test batch bias analysis with limit too high."""
+    with pytest.raises(Exception) as exc_info:
+        await admin.trigger_batch_bias_analysis(limit=100)
+
+    assert exc_info.value.status_code == 400
+    assert "limit must be between 1 and 50" in str(exc_info.value.detail)

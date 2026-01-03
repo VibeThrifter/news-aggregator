@@ -15,6 +15,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from ..db.session import ensure_healthy_connection, get_sessionmaker
 from ..events.maintenance import get_event_maintenance_service
 from ..repositories.event_repo import EventRepository
+from ..services.bias_service import BiasDetectionService, get_bias_detection_service
 from ..services.ingest_service import IngestService
 from ..services.insight_service import InsightService
 from ..services.international_enrichment import (
@@ -31,6 +32,8 @@ INSIGHT_BACKFILL_TIMEOUT_SECONDS = 600
 MAINTENANCE_TIMEOUT_SECONDS = 600
 # Maximum time allowed for international enrichment (15 minutes)
 INTERNATIONAL_ENRICHMENT_TIMEOUT_SECONDS = 900
+# Maximum time allowed for bias analysis (30 minutes - many LLM calls)
+BIAS_ANALYSIS_TIMEOUT_SECONDS = 1800
 
 logger = structlog.get_logger()
 
@@ -47,6 +50,7 @@ class NewsAggregatorScheduler:
         self._maintenance_service = None
         self._insight_service: InsightService | None = None
         self._international_enrichment_service: InternationalEnrichmentService | None = None
+        self._bias_detection_service: BiasDetectionService | None = None
         self._is_running = False
 
     def _get_ingest_service(self) -> IngestService:
@@ -73,12 +77,19 @@ class NewsAggregatorScheduler:
             self._international_enrichment_service = get_international_enrichment_service()
         return self._international_enrichment_service
 
+    def _get_bias_detection_service(self) -> BiasDetectionService:
+        """Get or create bias detection service."""
+        if self._bias_detection_service is None:
+            self._bias_detection_service = get_bias_detection_service()
+        return self._bias_detection_service
+
     def _reset_services(self) -> None:
         """Reset all services to pick up fresh connections after DB reset."""
         self._ingest_service = None
         self._maintenance_service = None
         self._insight_service = None
         self._international_enrichment_service = None
+        self._bias_detection_service = None
         logger.info("scheduler_services_reset")
 
     def setup_jobs(self) -> None:
@@ -113,11 +124,32 @@ class NewsAggregatorScheduler:
             max_instances=1,
         )
 
+        # Bias analysis job (Epic 10) - optional, disabled by default
+        if self.settings.bias_analysis_scheduler_enabled:
+            self.scheduler.add_job(
+                func=self._bias_analysis_job,
+                trigger=IntervalTrigger(hours=self.settings.bias_analysis_interval_hours),
+                id="bias_analysis",
+                name="Bias Analysis",
+                replace_existing=True,
+                max_instances=1,
+            )
+            logger.info(
+                "Bias analysis job enabled",
+                interval_hours=self.settings.bias_analysis_interval_hours,
+                batch_size=self.settings.bias_analysis_batch_size,
+            )
+        else:
+            logger.info(
+                "Bias analysis job disabled (set BIAS_ANALYSIS_SCHEDULER_ENABLED=true to enable)"
+            )
+
         logger.info("Scheduled jobs configured",
                    rss_interval_minutes=self.settings.scheduler_interval_minutes,
                    insight_backfill_interval_minutes=self.settings.insight_backfill_interval_minutes,
                    international_enrichment_interval_hours=self.settings.international_enrichment_interval_hours,
-                   maintenance_interval_hours=self.settings.event_maintenance_interval_hours)
+                   maintenance_interval_hours=self.settings.event_maintenance_interval_hours,
+                   bias_analysis_enabled=self.settings.bias_analysis_scheduler_enabled)
 
         self.scheduler.add_job(
             func=self._event_maintenance_job,
@@ -327,6 +359,48 @@ class NewsAggregatorScheduler:
             job_logger.error("International enrichment job failed", error=str(exc))
             self._reset_services()
 
+    async def _bias_analysis_job(self) -> None:
+        """Analyze articles for per-sentence bias using LLM (Epic 10)."""
+
+        correlation_id = str(uuid.uuid4())
+        job_logger = logger.bind(correlation_id=correlation_id, job="bias_analysis")
+
+        try:
+            job_logger.info(
+                "Starting bias analysis job",
+                timeout_seconds=BIAS_ANALYSIS_TIMEOUT_SECONDS,
+                batch_size=self.settings.bias_analysis_batch_size,
+            )
+
+            # Ensure database connection is healthy before proceeding
+            if not await ensure_healthy_connection():
+                job_logger.error("Database connection unhealthy, skipping bias analysis cycle")
+                self._reset_services()
+                return
+
+            bias_service = self._get_bias_detection_service()
+            try:
+                stats = await asyncio.wait_for(
+                    bias_service.analyze_batch(
+                        limit=self.settings.bias_analysis_batch_size,
+                        correlation_id=correlation_id,
+                    ),
+                    timeout=BIAS_ANALYSIS_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                job_logger.error(
+                    "Bias analysis job timed out",
+                    timeout_seconds=BIAS_ANALYSIS_TIMEOUT_SECONDS,
+                )
+                self._reset_services()
+                return
+
+            job_logger.info("Bias analysis job completed", **stats)
+
+        except Exception as exc:  # pragma: no cover - defensive logging
+            job_logger.error("Bias analysis job failed", error=str(exc))
+            self._reset_services()
+
     def start(self) -> None:
         """Start the scheduler."""
         if not self._is_running:
@@ -531,6 +605,50 @@ class NewsAggregatorScheduler:
         except Exception as e:
             logger.error(
                 "Manual international enrichment failed",
+                error=str(e),
+                correlation_id=correlation_id,
+            )
+            self._reset_services()
+            return {
+                "success": False,
+                "error": str(e),
+                "correlation_id": correlation_id,
+            }
+
+    async def run_bias_analysis_now(self, limit: int | None = None) -> dict:
+        """Manually trigger bias analysis (for testing/admin)."""
+        correlation_id = str(uuid.uuid4())
+        batch_size = limit or self.settings.bias_analysis_batch_size
+        logger.info(
+            "Manual bias analysis triggered",
+            correlation_id=correlation_id,
+            limit=batch_size,
+        )
+
+        try:
+            # Ensure database connection is healthy before proceeding
+            if not await ensure_healthy_connection():
+                self._reset_services()
+                return {
+                    "success": False,
+                    "error": "Database connection unhealthy after reset attempt",
+                    "correlation_id": correlation_id,
+                }
+
+            bias_service = self._get_bias_detection_service()
+            stats = await bias_service.analyze_batch(
+                limit=batch_size,
+                correlation_id=correlation_id,
+            )
+            return {
+                "success": stats["articles_failed"] == 0,
+                "correlation_id": correlation_id,
+                **stats,
+            }
+
+        except Exception as e:
+            logger.error(
+                "Manual bias analysis failed",
                 error=str(e),
                 correlation_id=correlation_id,
             )

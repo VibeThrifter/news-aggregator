@@ -1,5 +1,7 @@
 import type {
   AggregationResponse,
+  ArticleBiasAnalysis,
+  ArticleBiasResponse,
   EventArticle,
   EventDetail,
   EventDetailMeta,
@@ -813,8 +815,61 @@ export async function invalidateLlmConfigCache(): Promise<{ message: string }> {
   return response.json();
 }
 
+// Bias Analysis API functions (Epic 10)
+
+/**
+ * Fetch bias analysis for an article.
+ * Returns null if no analysis exists (404).
+ */
+export async function getArticleBias(articleId: number): Promise<ArticleBiasAnalysis | null> {
+  try {
+    const response = await fetch(buildUrl(`/api/v1/articles/${articleId}/bias`), {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (response.status === 404) {
+      // No bias analysis available
+      return null;
+    }
+
+    if (!response.ok) {
+      throw new ApiClientError('Failed to fetch bias analysis', response.status);
+    }
+
+    const result: ArticleBiasResponse = await response.json();
+    return result.data;
+  } catch (error) {
+    if (error instanceof ApiClientError) {
+      throw error;
+    }
+    // Network errors or other issues - return null to gracefully degrade
+    console.warn(`[api] Failed to fetch bias for article ${articleId}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Fetch bias analyses for multiple articles in parallel.
+ * Returns a map of articleId -> analysis (null if not available).
+ */
+export async function getArticleBiasesForEvent(
+  articleIds: number[]
+): Promise<Map<number, ArticleBiasAnalysis | null>> {
+  const results = await Promise.all(
+    articleIds.map(async (id) => {
+      const analysis = await getArticleBias(id);
+      return [id, analysis] as const;
+    })
+  );
+
+  return new Map(results);
+}
+
 export type {
   AggregationResponse,
+  ArticleBiasAnalysis,
+  ArticleBiasResponse,
   Cluster,
   ClusterSource,
   Contradiction,
@@ -825,6 +880,7 @@ export type {
   EventListItem,
   EventSourceBreakdownEntry,
   Fallacy,
+  SentenceBias,
   SpectrumDistribution,
   TimelineEvent,
 } from "@/lib/types";

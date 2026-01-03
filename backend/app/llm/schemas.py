@@ -239,6 +239,66 @@ class TimingAnalysis(BaseModel):
         return data
 
 
+# === BIAS DETECTION SCHEMAS (Epic 10) ===
+
+BiasSource = Literal["journalist", "framing", "quote_selection", "quote"]
+
+
+class SentenceBias(BaseModel):
+    """A single sentence with detected bias."""
+
+    sentence_index: int = Field(..., ge=0, description="0-based index of the sentence in the article")
+    sentence_text: str = Field(..., min_length=1, description="The exact sentence text from the article")
+    bias_type: str = Field(..., min_length=1, description="One of the 26 bias types")
+    bias_source: BiasSource = Field(
+        ...,
+        description="journalist/framing/quote_selection count toward score; quote is informational only"
+    )
+    speaker: str | None = Field(
+        default=None,
+        description="Name of the speaker if bias_source='quote'"
+    )
+    score: float = Field(..., ge=0.0, le=1.0, description="Severity of the bias (0-1)")
+    explanation: str = Field(..., min_length=1, description="Dutch explanation of why this is biased")
+
+
+class BiasAnalysisSummary(BaseModel):
+    """Summary statistics for an article's bias analysis."""
+
+    total_sentences: int = Field(..., ge=0)
+    journalist_bias_count: int = Field(..., ge=0)
+    quote_bias_count: int = Field(..., ge=0)
+    journalist_bias_percentage: float = Field(..., ge=0.0, le=100.0)
+    most_frequent_journalist_bias: str | None = Field(default=None)
+    average_journalist_bias_strength: float = Field(default=0.0, ge=0.0, le=1.0)
+    overall_journalist_rating: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Combined rating (0-1, lower = more objective)"
+    )
+
+
+class BiasAnalysisPayload(BaseModel):
+    """Complete bias analysis result from LLM."""
+
+    total_sentences: int = Field(..., ge=0)
+    journalist_biases: list[SentenceBias] = Field(
+        default_factory=list,
+        description="Biases in journalist's own words/framing/selection (count toward score)"
+    )
+    quote_biases: list[SentenceBias] = Field(
+        default_factory=list,
+        description="Biases in quoted content (informational only, don't count)"
+    )
+
+    @field_validator("journalist_biases", "quote_biases", mode="before")
+    @classmethod
+    def coerce_biases(cls, v: list | None) -> list:
+        """Convert null to empty list."""
+        return v if v is not None else []
+
+
 class KeywordExtractionPayload(BaseModel):
     """Lightweight payload for keyword extraction phase (pre-enrichment)."""
 
@@ -339,6 +399,9 @@ class InsightsPayload(BaseModel):
 
 __all__ = [
     "AuthorityAnalysis",
+    "BiasAnalysisPayload",
+    "BiasAnalysisSummary",
+    "BiasSource",
     "ClaimPresentation",
     "CoverageGap",
     "CriticalPayload",
@@ -356,6 +419,7 @@ __all__ = [
     "KeywordExtractionPayload",
     "MediaAnalysis",
     "ScientificPlurality",
+    "SentenceBias",
     "SpectrumLabel",
     "StatisticalIssue",
     "TimingAnalysis",

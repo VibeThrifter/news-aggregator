@@ -141,6 +141,24 @@ class Settings(BaseSettings):
         description="Maximum articles to fetch per country during enrichment"
     )
 
+    # Bias Analysis Scheduler Configuration (Epic 10)
+    bias_analysis_scheduler_enabled: bool = Field(
+        default=False,
+        description="Enable scheduled bias analysis job (default disabled to save LLM costs)"
+    )
+    bias_analysis_interval_hours: int = Field(
+        default=6,
+        ge=1,
+        le=24,
+        description="Interval in hours for scheduled bias analysis"
+    )
+    bias_analysis_batch_size: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Maximum number of articles to analyze per scheduled run"
+    )
+
     # Database Configuration
     database_url: str = Field(
         default="sqlite+aiosqlite:///./data/db.sqlite",

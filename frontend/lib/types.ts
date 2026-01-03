@@ -206,3 +206,47 @@ export interface EventDetailMeta extends Record<string, unknown> {
   insights_requested_at?: string | null;
   first_seen_at?: string | null;
 }
+
+// Bias Analysis Types (Epic 10)
+export type BiasSource = "journalist" | "framing" | "quote_selection" | "quote";
+
+export interface SentenceBias {
+  sentence_index: number;
+  sentence_text: string;
+  bias_type: string;
+  bias_source: BiasSource;
+  speaker?: string | null;
+  score: number;
+  explanation: string;
+}
+
+export interface BiasAnalysisSummary {
+  total_sentences: number;
+  journalist_bias_count: number;
+  quote_bias_count: number;
+  journalist_bias_percentage: number;
+  most_frequent_journalist_bias?: string | null;
+  most_frequent_count?: number | null;
+  average_journalist_bias_strength?: number | null;
+  overall_journalist_rating: number;
+}
+
+export interface ArticleBiasAnalysis {
+  article_id: number;
+  analyzed_at: string;
+  provider: string;
+  model: string;
+  summary: BiasAnalysisSummary;
+  journalist_biases: SentenceBias[];
+  quote_biases: SentenceBias[];
+}
+
+export interface ArticleBiasResponse {
+  data: ArticleBiasAnalysis;
+  meta: {
+    article_id: number;
+    provider: string;
+    model: string;
+    analyzed_at: string;
+  };
+}
