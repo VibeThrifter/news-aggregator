@@ -162,7 +162,17 @@ class Settings(BaseSettings):
     # Database Configuration
     database_url: str = Field(
         default="sqlite+aiosqlite:///./data/db.sqlite",
-        description="SQLAlchemy database URL"
+        description="SQLAlchemy database URL (Supabase PostgreSQL in production)"
+    )
+
+    # Local SQLite Cache Configuration (Story INFRA-1: Egress Optimization)
+    backend_read_source: str = Field(
+        default="supabase",
+        description="Where backend reads data from: 'sqlite' (local cache) or 'supabase' (cloud)"
+    )
+    sqlite_cache_path: str = Field(
+        default="data/local_cache.db",
+        description="Path to local SQLite cache database for backend reads"
     )
 
     # ML and AI Configuration
@@ -481,6 +491,11 @@ class Settings(BaseSettings):
     def has_gemini_key(self) -> bool:
         """Check if Gemini API key is available."""
         return bool(self.gemini_api_key)
+
+    @property
+    def use_sqlite_cache(self) -> bool:
+        """Check if backend should read from local SQLite cache."""
+        return self.backend_read_source.lower() == "sqlite"
 
 
 def get_settings() -> Settings:

@@ -11,6 +11,7 @@ from typing import Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.logging import get_logger
+from backend.app.db.dual_write import get_read_session
 from backend.app.db.models import LlmConfig
 from backend.app.db.session import get_sessionmaker
 from backend.app.repositories.llm_config_repo import LlmConfigRepository
@@ -229,7 +230,8 @@ class LlmConfigService:
                 if age < CACHE_TTL_SECONDS:
                     return _config_cache.data
 
-            async with self.session_factory() as session:
+            # Use get_read_session() for SQLite cache support (INFRA-1)
+            async with get_read_session() as session:
                 repo = LlmConfigRepository(session)
                 config_dict = await repo.get_all_as_dict()
 
@@ -298,13 +300,15 @@ class LlmConfigService:
 
     async def list_all(self) -> List[LlmConfig]:
         """Get all config entries as model objects."""
-        async with self.session_factory() as session:
+        # Use get_read_session() for SQLite cache support (INFRA-1)
+        async with get_read_session() as session:
             repo = LlmConfigRepository(session)
             return await repo.get_all()
 
     async def list_by_type(self, config_type: str) -> List[LlmConfig]:
         """Get all config entries of a specific type."""
-        async with self.session_factory() as session:
+        # Use get_read_session() for SQLite cache support (INFRA-1)
+        async with get_read_session() as session:
             repo = LlmConfigRepository(session)
             return await repo.get_by_type(config_type)
 

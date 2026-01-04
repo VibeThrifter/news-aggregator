@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
+from backend.app.db.dual_write import sync_entities_to_cache
 from backend.app.db.models import Event, LLMInsight
 from backend.app.db.session import get_sessionmaker
 from backend.app.llm.client import (
@@ -437,6 +438,11 @@ class InsightService:
                     )
 
             await session.commit()
+
+            # Sync insight and event to SQLite cache (INFRA-1: dual-write)
+            await sync_entities_to_cache([persistence.insight], "llm_insights")
+            if event:
+                await sync_entities_to_cache([event], "events")
 
         logger.info(
             "insight_generation_completed",

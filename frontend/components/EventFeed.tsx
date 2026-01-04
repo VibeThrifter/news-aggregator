@@ -6,6 +6,7 @@ import useSWR from "swr";
 
 import { ApiClientError, EventListFilters, listEvents } from "@/lib/api";
 import { DEFAULT_CATEGORY, getCategoryLabel } from "@/lib/categories";
+import { eventListSwrOptions } from "@/lib/swr-config";
 
 import CategoryNav from "./CategoryNav";
 import DateRangeFilter from "./DateRangeFilter";
@@ -207,12 +208,11 @@ export default function EventFeed() {
   // SWR key changes when filters change, triggering a new fetch
   const swrKey = useMemo(() => buildSwrKey(filters), [filters]);
 
+  // Story 4 (INFRA): Event list cached for 5 minutes to reduce Supabase egress
   const { data, error, isLoading, isValidating, mutate } = useSWR<EventFeedResponse>(
     swrKey,
     () => listEvents(filters),
-    {
-      revalidateOnFocus: true, // Refresh when returning from admin page
-    },
+    eventListSwrOptions,
   );
 
   // Extract all unique sources from all events for the filter

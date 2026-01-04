@@ -247,17 +247,28 @@ export async function listEvents(
   // Build query with server-side filters
   // By default, only show events with LLM insights (to avoid showing article titles which is copyright)
   // Admin mode (includeWithoutInsights) shows all events
+  // INFRA Story 3: Select only needed fields to reduce Supabase egress
+  // Previously used * which fetched unused fields like centroid_embedding, centroid_tfidf, description
   let query = supabase
     .from('events')
     .select(`
-      *,
+      id,
+      slug,
+      title,
+      event_type,
+      article_count,
+      first_seen_at,
+      last_updated_at,
+      spectrum_distribution,
+      archived_at,
       llm_insights${includeWithoutInsights ? '' : '!inner'} (summary),
       event_articles (
         articles (
           source_name,
           source_metadata,
           image_url,
-          published_at
+          published_at,
+          is_international
         )
       )
     `)
@@ -435,12 +446,25 @@ export async function getEventDetail(eventId: string | number, options?: ApiFetc
   }
 
   // Fetch articles for this event
+  // INFRA Story 2: Select only needed fields to reduce Supabase egress
+  // Previously used articles (*) which fetched unused fields like content, embedding, tfidf_vector
   const { data: eventArticles, error: articlesError } = await supabase
     .from('event_articles')
     .select(`
       article_id,
       similarity_score,
-      articles (*)
+      articles (
+        id,
+        title,
+        url,
+        source_name,
+        summary,
+        published_at,
+        image_url,
+        source_metadata,
+        is_international,
+        source_country
+      )
     `)
     .eq('event_id', event.id);
 

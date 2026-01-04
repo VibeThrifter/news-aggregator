@@ -42,6 +42,8 @@ from backend.app.ingestion import (
     naive_extract_text,
     parse_article_html,
 )
+from backend.app.db.dual_write import sync_entities_to_cache
+from backend.app.db.models import Article
 from backend.app.repositories import ArticleRepository, NewsSourceRepository
 from backend.app.services.event_service import EventService
 from backend.app.services.enrich_service import ArticleEnrichmentService
@@ -393,6 +395,7 @@ class IngestService:
         async with session_maker() as session:  # type: AsyncSession
             repo = ArticleRepository(session)
             new_article_ids: List[int] = []
+            new_articles: List[Article] = []  # Collect for SQLite cache sync
             async for result in self._process_items_stream(
                 session=session,
                 repo=repo,
@@ -406,9 +409,15 @@ class IngestService:
                 article_id = result.get("article_id")
                 if status == "ingested" and article_id is not None:
                     new_article_ids.append(article_id)
+                    article = result.get("article")
+                    if article is not None:
+                        new_articles.append(article)
 
             try:
                 await session.commit()
+                # Sync newly created articles to SQLite cache (INFRA-1: dual-write)
+                if new_articles:
+                    await sync_entities_to_cache(new_articles, "articles")
             except SQLAlchemyError as exc:  # pragma: no cover - defensive
                 logger_ctx.error("article_commit_failed", error=str(exc))
                 await session.rollback()
@@ -559,9 +568,9 @@ class IngestService:
                         article_id=persistence.article.id,
                         url=item.url,
                     )
-                    yield {"status": "ingested", "article_id": persistence.article.id}
+                    yield {"status": "ingested", "article_id": persistence.article.id, "article": persistence.article}
                 else:
-                    yield {"status": "duplicates", "article_id": persistence.article.id}
+                    yield {"status": "duplicates", "article_id": persistence.article.id, "article": None}
 
     def get_reader_info(self) -> Dict[str, Any]:
         """Get information about registered feed readers."""

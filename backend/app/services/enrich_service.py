@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.logging import get_logger
+from backend.app.db.dual_write import sync_entities_to_cache
 from backend.app.db.models import Article
 from backend.app.db.session import get_sessionmaker
 from backend.app.nlp.embeddings import EmbeddingService
@@ -128,6 +129,7 @@ class ArticleEnrichmentService:
             raise RuntimeError("Embedding batch size mismatch")
         timestamp = datetime.now(timezone.utc)
 
+        enriched_articles: List[Article] = []  # Collect for SQLite cache sync
         for item, embedding in zip(prepared, embeddings):
             normalization: NormalizationResult = item["normalization"]  # type: ignore[assignment]
             tfidf_vector = self.tfidf_manager.transform(normalization.normalized_text)
@@ -142,9 +144,13 @@ class ArticleEnrichmentService:
                 event_type=item["event_type"],
                 enriched_at=timestamp,
             )
-            await repo.apply_enrichment(item["article"].id, payload)
+            enriched_article = await repo.apply_enrichment(item["article"].id, payload)
+            enriched_articles.append(enriched_article)
 
         await session.commit()
+        # Sync enriched articles to SQLite cache (INFRA-1: dual-write)
+        if enriched_articles:
+            await sync_entities_to_cache(enriched_articles, "articles")
         processed_count = len(prepared)
         self.log.info(
             "articles_enriched",

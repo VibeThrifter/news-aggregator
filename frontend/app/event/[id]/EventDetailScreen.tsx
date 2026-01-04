@@ -17,6 +17,7 @@ import {
   formatEventTimeframe,
   parseIsoDate,
 } from "@/lib/format";
+import { eventDetailSwrOptions, insightsSwrOptions } from "@/lib/swr-config";
 import { ArticleList } from "@/components/ArticleList";
 import { InternationalSources } from "@/components/InternationalSources";
 import { SpectrumBar } from "@/components/SpectrumBar";
@@ -136,14 +137,15 @@ function ErrorState({ message }: { message: string }) {
 }
 
 export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
+  // Story 4 (INFRA): Event detail cached for 1 minute to reduce Supabase egress
   const {
     data: eventResponse,
     error: eventError,
     isLoading: isEventLoading,
   } = useSWR<EventDetailResponse, unknown>(
     ["event-detail", eventId],
-    () => getEventDetail(eventId, { cache: "no-store" }),
-    { revalidateOnFocus: false },
+    () => getEventDetail(eventId),
+    eventDetailSwrOptions,
   );
 
   const event = eventResponse?.data ?? null;
@@ -154,14 +156,15 @@ export default function EventDetailScreen({ eventId }: EventDetailScreenProps) {
 
   const shouldFetchInsights = Boolean(event);
 
+  // Story 4 (INFRA): Insights cached for 5 minutes (regeneration is manual)
   const {
     data: insightsResponse,
     error: insightsError,
     isLoading: isInsightsLoading,
   } = useSWR<EventInsightsResponse, unknown>(
     shouldFetchInsights ? ["event-insights", eventId] : null,
-    () => getEventInsights(eventId, { cache: "no-store" }),
-    { revalidateOnFocus: false },
+    () => getEventInsights(eventId),
+    insightsSwrOptions,
   );
 
   const insights = insightsResponse?.data ?? null;

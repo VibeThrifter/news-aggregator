@@ -12,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.config import get_settings
 from backend.app.core.logging import get_logger
-from backend.app.db.models import Article, Event
+from backend.app.db.dual_write import sync_entities_to_cache
+from backend.app.db.models import Article, Event, EventArticle
 from backend.app.db.session import get_sessionmaker
 from backend.app.events.scoring import (
     ArticleFeatures,
@@ -284,7 +285,6 @@ class EventService:
 
             # ENTITY-BASED CANDIDATE EXPANSION for @eenblikopdenos media commentary
             # Add NOS events that share entities with the tweet (may not appear in embedding candidates)
-            from backend.app.db.models import EventArticle
             from sqlalchemy import select as sa_select
 
             if article.source_name == "Een Blik op de NOS" and article.entities:
@@ -917,7 +917,7 @@ class EventService:
         scoring_dict["date_boost"] = date_boost
         scoring_dict["boosted_final"] = boosted_score
 
-        await repo.append_article_to_event(
+        event_article_link = await repo.append_article_to_event(
             event=event,
             article=article,
             embedding=features.embedding,
@@ -928,6 +928,9 @@ class EventService:
             timestamp=timestamp,
         )
         await session.commit()
+        # Sync event and event_article to SQLite cache (INFRA-1: dual-write)
+        await sync_entities_to_cache([event], "events")
+        await sync_entities_to_cache([event_article_link], "event_articles")
         if event.centroid_embedding:
             await self.vector_index.upsert(
                 event.id,
@@ -966,7 +969,7 @@ class EventService:
         seed_breakdown = _default_seed_breakdown(bool(features.entity_texts))
         scoring_payload = seed_breakdown.as_dict()
         scoring_payload["decision"] = "seed"
-        await repo.append_article_to_event(
+        event_article_link = await repo.append_article_to_event(
             event=event,
             article=article,
             embedding=features.embedding,
@@ -977,6 +980,9 @@ class EventService:
             timestamp=timestamp,
         )
         await session.commit()
+        # Sync event and event_article to SQLite cache (INFRA-1: dual-write)
+        await sync_entities_to_cache([event], "events")
+        await sync_entities_to_cache([event_article_link], "event_articles")
         if event.centroid_embedding:
             await self.vector_index.upsert(
                 event.id,
