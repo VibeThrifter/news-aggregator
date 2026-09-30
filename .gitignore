@@ -63,8 +63,8 @@ backend/data/models/models--*/
 
 # Runtime data files
 data/app.db
-data/db.sqlite
-data/local_cache.db
+data/db.sqlite*
+data/local_cache.db*
 data/exports/
 data/cookies/
 data/vector_index.bin
