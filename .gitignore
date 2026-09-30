@@ -28,6 +28,7 @@ coverage.xml
 
 # Next.js
 .next/
+.next-test/
 out/
 build/
 dist/

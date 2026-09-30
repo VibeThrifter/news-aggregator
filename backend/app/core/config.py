@@ -9,10 +9,16 @@ and default value handling.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import Optional
 
-from pydantic import Field, ValidationError, ConfigDict
+from pydantic import Field, ValidationError, ConfigDict, field_validator
 from pydantic_settings import BaseSettings
+
+# Repository root (backend/app/core/config.py -> parents[3]).
+REPO_ROOT = Path(__file__).resolve().parents[3]
+# Story 11.17: the propaganda-model project lives next to this repository.
+DEFAULT_PROPAGANDA_DB_PATH = REPO_ROOT.parent / "propaganda-model" / "data" / "propaganda_model.db"
 
 
 class Settings(BaseSettings):
@@ -449,6 +455,199 @@ class Settings(BaseSettings):
         description="Entity overlap below this always triggers LLM verification",
     )
 
+    # Exploration / Onderzoeksmodus (Epic 11, Story 11.8)
+    exploration_enabled: bool = Field(
+        default=True,
+        description="Precompute event entities and related events for the exploration UI",
+    )
+    exploration_entities_max_per_event: int = Field(
+        default=40,
+        ge=1,
+        le=200,
+        description="Maximum number of canonical entities stored per event",
+    )
+    related_events_top_k: int = Field(
+        default=12,
+        ge=1,
+        le=50,
+        description="Maximum number of related events stored per event",
+    )
+    related_events_min_score: float = Field(
+        default=0.30,
+        ge=0.0,
+        le=1.0,
+        description="Minimum relation score for a related event to be stored",
+    )
+    related_events_weight_embedding: float = Field(
+        default=0.55,
+        ge=0.0,
+        le=1.0,
+        description="Weight of centroid cosine similarity in the relation score",
+    )
+    related_events_weight_entities: float = Field(
+        default=0.35,
+        ge=0.0,
+        le=1.0,
+        description="Weight of idf-weighted entity overlap in the relation score",
+    )
+    related_events_weight_countries: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description="Weight of detected-country Jaccard overlap in the relation score",
+    )
+    exploration_refresh_timeout_seconds: int = Field(
+        default=300,
+        ge=10,
+        le=3600,
+        description="Timeout for the exploration refresh that runs after event maintenance",
+    )
+
+    # Propagandamodel-koppeling (Epic 11, Story 11.17)
+    propaganda_db_path: str = Field(
+        default=str(DEFAULT_PROPAGANDA_DB_PATH),
+        description=(
+            "Path to the propaganda-model SQLite database (opened read-only). Relative paths "
+            "are resolved from the repository root; empty means the sibling default."
+        ),
+    )
+    propaganda_sync_enabled: bool = Field(
+        default=True,
+        description="Sync the approved propaganda-model graph to the pm_* tables",
+    )
+    propaganda_sync_interval_minutes: int = Field(
+        default=60,
+        ge=5,
+        le=1440,
+        description="Interval of the propaganda-model sync job (only syncs when the file changed)",
+    )
+
+    # Wie is dit? (Epic 12): research of named entities by the propaganda-model agents
+    entity_research_enabled: bool = Field(
+        default=True,
+        description="Triage names in the news and queue research targets in the propaganda model",
+    )
+    entity_research_interval_minutes: int = Field(
+        default=15,
+        ge=5,
+        le=1440,
+        description="Interval of the entity research job (triage, queue, status, rounds)",
+    )
+    entity_research_lookback_days: int = Field(
+        default=7,
+        ge=1,
+        le=90,
+        description="Only names of events updated within this many days are triaged automatically",
+    )
+    entity_research_min_pm_relations: int = Field(
+        default=3,
+        ge=1,
+        le=50,
+        description="Names with fewer approved propaganda-model relations are researched",
+    )
+    entity_research_auto_threshold: float = Field(
+        default=60.0,
+        ge=0.0,
+        le=200.0,
+        description="Minimum priority for automatic research (without a tap in the app)",
+    )
+    entity_research_daily_targets: int = Field(
+        default=12,
+        ge=0,
+        le=500,
+        description="Maximum automatic research targets queued per day",
+    )
+    entity_research_daily_requests: int = Field(
+        default=30,
+        ge=0,
+        le=500,
+        description="Maximum research targets per day that come from taps in the app",
+    )
+    entity_research_cooldown_days: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        description="Days after which a name with still too few relations may be researched again",
+    )
+    entity_research_max_articles: int = Field(
+        default=4,
+        ge=1,
+        le=20,
+        description="Articles read per person for role cues (only the first 6000 characters)",
+    )
+    entity_research_triage_batch: int = Field(
+        default=200,
+        ge=10,
+        le=5000,
+        description="Maximum names triaged per run",
+    )
+    pm_api_base_url: str = Field(
+        # 127.0.0.1, not localhost: on macOS "localhost" may resolve to ::1 first, where port 5000
+        # belongs to the AirPlay receiver (httpx then hangs); the pm server listens on IPv4
+        default="http://127.0.0.1:5000",
+        description="Base URL of the local propaganda-model server (REST API)",
+    )
+    pm_agent_token_path: str = Field(
+        default="",
+        description=(
+            "Token file of the propaganda-model account nieuws-agent; empty means "
+            "<propaganda-model>/data/tokens/nieuws-agent.token"
+        ),
+    )
+    nieuws_scout_enabled: bool = Field(
+        default=True,
+        description="Start research rounds of the propaganda-model agent nieuws-scout",
+    )
+    nieuws_scout_max_rounds_per_day: int = Field(
+        default=4,
+        ge=0,
+        le=48,
+        description="Maximum research rounds per day (each round is a Claude session)",
+    )
+    nieuws_scout_min_minutes_between_rounds: int = Field(
+        default=30,
+        ge=5,
+        le=1440,
+        description="Minimum minutes between two research rounds",
+    )
+    nieuws_scout_active_start_hour: int = Field(
+        default=8, ge=0, le=23, description="Research rounds only from this local hour"
+    )
+    nieuws_scout_active_end_hour: int = Field(
+        default=22, ge=1, le=24, description="Research rounds only until this local hour"
+    )
+    nieuws_scout_model: str = Field(default="opus", description="Model of the research agent")
+    nieuws_scout_effort: str = Field(default="high", description="Effort of the research agent")
+    nieuws_scout_timeout_seconds: int = Field(
+        default=2700, ge=300, le=14400, description="Hard timeout of one research round"
+    )
+    nieuws_scout_python: str = Field(
+        default="python3", description="Python used to run the propaganda-model scripts"
+    )
+    nieuws_scout_claude_bin: str = Field(
+        default="claude", description="Claude CLI used by the propaganda-model agent runner"
+    )
+    pm_autokeur_enabled: bool = Field(
+        default=True,
+        description=(
+            "Run the propaganda-model auto-approval after a research round (owner decision "
+            "2026-09-30; the propaganda model enforces its own gates and kill switch)"
+        ),
+    )
+
+    @field_validator("propaganda_db_path", mode="before")
+    @classmethod
+    def _resolve_propaganda_db_path(cls, value: object) -> str:
+        """Empty -> sibling default; relative -> resolved from the repository root."""
+
+        raw = str(value).strip() if value is not None else ""
+        if not raw:
+            return str(DEFAULT_PROPAGANDA_DB_PATH)
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            path = (REPO_ROOT / path).resolve()
+        return str(path)
+
     # CORS Configuration
     frontend_origins: str = Field(
         default="http://localhost:3000,http://127.0.0.1:3000",
@@ -466,6 +665,20 @@ class Settings(BaseSettings):
     def allowed_origins(self) -> list[str]:
         """Parse frontend_origins into a list of allowed CORS origins."""
         return [origin.strip() for origin in self.frontend_origins.split(",") if origin.strip()]
+
+    @property
+    def propaganda_project_dir(self) -> Path:
+        """Root of the propaganda-model project (<root>/data/propaganda_model.db)."""
+        return Path(self.propaganda_db_path).parent.parent
+
+    @property
+    def pm_agent_token_file(self) -> Path:
+        """Token file of the propaganda-model account nieuws-agent."""
+        raw = self.pm_agent_token_path.strip()
+        if raw:
+            path = Path(raw).expanduser()
+            return path if path.is_absolute() else (REPO_ROOT / path).resolve()
+        return self.propaganda_project_dir / "data" / "tokens" / "nieuws-agent.token"
 
     @property
     def has_mistral_key(self) -> bool:

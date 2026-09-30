@@ -512,6 +512,32 @@ Configuratie via `.env`:
 - `AUTO_GENERATE_INSIGHTS=true` (default) schakelt automatische generatie in.
 - `INSIGHT_REFRESH_TTL_MINUTES=30` bepaalt de minimale tijd tussen insight-refreshes.
 
+### Wie is dit? — namen, netwerk en onderzoek (Epic 12)
+
+Elke naam in de onderzoeksmodus is aantikbaar (`frontend/lib/explore/entity-linker.ts`,
+`EntityText`). De EntitySheet toont een mini-egonetwerk uit het propagandamodel (≥ 3 verbanden) of
+de onderzoeksstatus; `/actor/[slug]` is de deelbare pagina per naam (pm-netwerk, samen in het nieuws,
+ook in het nieuws, Wikipedia, onderzoek).
+
+Best of both worlds — de nieuws-app bepaalt *wie*, het propagandamodel doet het *onderzoek*:
+
+```
+naam aantikken ─RPC request_entity_research─► entity_research (Supabase, migratie 006)
+job "Entity Research" (15 min, backend/app/services/entity_research/)
+  status  ◄─ nieuws_doelen (pm-SQLite, alleen-lezen)
+  triage  ─ roles.py (titel/bijstelling/byline/leeftijd/LLM-autoriteiten) + priority.py
+            + pm_coverage.py (alias + graad in het pm, alleen-lezen)
+  enqueue ─► POST /api/nieuws/doelen (pm REST, account nieuws-agent; dagbudgetten)
+  ronde   ─► pm scripts/agent_runner.py --agent nieuws-scout (claude -p, LinkedIn-snelheidsrem)
+             ─► pm scripts/nieuws_autokeur_service.py (machine-account nieuws-autokeur)
+  pm-sync ─► pm_* (auto_approved, unreviewed-bronnen) ─► frontend
+```
+
+Regels: alleen namen die in het eigen nieuws voorkomen; privépersonen en buitenlandse personen
+nooit; volgorde politici, journalisten, woordvoerders, bestuurders, organisaties, experts; alles
+wat de agent indient landt `voorgesteld`, de pm-poort keurt alleen neutrale structuurrelaties met
+bron-URL automatisch goed (terug te draaien); argumenten worden nooit automatisch gemerged.
+
 ## Testing Requirements and Framework
 
 - **Unit Testing (pytest)**

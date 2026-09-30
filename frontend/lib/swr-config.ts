@@ -76,3 +76,33 @@ export const adminSwrOptions: SWRConfiguration = {
   revalidateIfStale: true,
   refreshInterval: 0,
 };
+
+/**
+ * Epic 11 (Onderzoeksmodus): one fetch per event page (core query + entities/relations/bias).
+ * 2 minutes: articles can be added while an event is running.
+ */
+export const exploreSwrOptions: SWRConfiguration = {
+  dedupingInterval: 2 * 60 * 1000,
+  revalidateOnFocus: false,
+  revalidateIfStale: true,
+  refreshInterval: 0,
+  errorRetryCount: 2,
+};
+
+/** Entity appearances and other auxiliary lookups: 10 minutes. */
+export const exploreAuxSwrOptions: SWRConfiguration = {
+  dedupingInterval: 10 * 60 * 1000,
+  revalidateOnFocus: false,
+  revalidateIfStale: false,
+  refreshInterval: 0,
+  errorRetryCount: 1,
+};
+
+/** Wikipedia summaries hardly change: 24 hours, no retries. */
+export const wikipediaSwrOptions: SWRConfiguration = {
+  dedupingInterval: 24 * 60 * 60 * 1000,
+  revalidateOnFocus: false,
+  revalidateIfStale: false,
+  refreshInterval: 0,
+  shouldRetryOnError: false,
+};

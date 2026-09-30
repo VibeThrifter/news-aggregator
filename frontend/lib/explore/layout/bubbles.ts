@@ -1,0 +1,505 @@
+/**
+ * Invalshoekenkaart: floating speech bubbles, one per (perspective, outlet), grouped per lens.
+ *
+ * Pure and deterministic: positions come from a seeded d3-force simulation that is run
+ * synchronously (no animation loop). The UI animates between results when the lens changes.
+ */
+
+import { forceSimulation, forceX, forceY, type SimulationNodeDatum } from "d3-force";
+
+import { ArticleIndex } from "../input";
+import { frameLabel } from "../labels";
+import { lcg } from "../normalize";
+import type { Clue, ExploreInput } from "../types";
+
+export type HeroLens = "invalshoek" | "spectrum" | "frame" | "tegenspraak";
+
+export interface Bubble {
+  id: string;
+  outletKey: string;
+  /** Perspective index (-1 when the event has no clusters) */
+  perspectiveIndex: number;
+  perspectiveClueId: string | null;
+  stance: string | null;
+  articleCount: number;
+  spectrum: number | null;
+  isAlternative: boolean;
+  /** Left-right position 0..10 (2D spectrum map) */
+  x: number | null;
+  /** -1 alternatief .. +1 gevestigd (2D spectrum map) */
+  establishment: number | null;
+  /** First own-framing frame type of this outlet */
+  frameType: string | null;
+  frameClueId: string | null;
+}
+
+export interface BubbleGroup {
+  key: string;
+  label: string;
+  /** Shown until the group is discovered */
+  maskedLabel: string;
+  clueId: string | null;
+}
+
+export interface ContradictionLine {
+  clueId: string;
+  topic: string;
+  from: string;
+  to: string;
+}
+
+export interface BubbleScene {
+  bubbles: Bubble[];
+  /** Groups per lens */
+  groupsByLens: Record<Exclude<HeroLens, "tegenspraak">, BubbleGroup[]>;
+  contradictions: ContradictionLine[];
+  internationalCount: number;
+}
+
+/** Build the bubbles of an event (Dutch outlets only; international outlets are summarised). */
+export function buildBubbleScene(input: ExploreInput, clues: Clue[], index = new ArticleIndex(input)): BubbleScene {
+  const perspectiveClues = clues.filter((clue) => clue.body.type === "perspective");
+  const frameClues = clues.filter((clue) => clue.body.type === "frame");
+  const outletFrame = new Map<string, { type: string; clueId: string }>();
+  for (const clue of frameClues) {
+    if (clue.body.type !== "frame" || clue.body.frame.attribution === "geciteerd") continue;
+    for (const key of clue.outletKeys) {
+      if (!outletFrame.has(key)) outletFrame.set(key, { type: clue.body.frame.frame_type, clueId: clue.id });
+    }
+  }
+
+  const bubbles: Bubble[] = [];
+  const dutch = input.outlets.filter((outlet) => !outlet.isInternational);
+  const covered = new Set<string>();
+
+  for (const clue of perspectiveClues) {
+    if (clue.body.type !== "perspective") continue;
+    for (const stance of clue.body.stances) {
+      const outlet = index.outlet(stance.outletKey);
+      if (!outlet || outlet.isInternational) continue;
+      covered.add(outlet.key);
+      bubbles.push({
+        id: `${clue.body.index}:${outlet.key}`,
+        outletKey: outlet.key,
+        perspectiveIndex: clue.body.index,
+        perspectiveClueId: clue.id,
+        stance: stance.stance,
+        articleCount: outlet.articleIds.length,
+        spectrum: outlet.spectrum,
+        isAlternative: outlet.isAlternative,
+        x: outlet.x,
+        establishment: outlet.establishment,
+        frameType: outletFrame.get(outlet.key)?.type ?? null,
+        frameClueId: outletFrame.get(outlet.key)?.clueId ?? null,
+      });
+    }
+  }
+  // Outlets without a perspective still get a bubble (group "Zonder invalshoek")
+  for (const outlet of dutch) {
+    if (covered.has(outlet.key)) continue;
+    bubbles.push({
+      id: `-1:${outlet.key}`,
+      outletKey: outlet.key,
+      perspectiveIndex: -1,
+      perspectiveClueId: null,
+      stance: null,
+      articleCount: outlet.articleIds.length,
+      spectrum: outlet.spectrum,
+      isAlternative: outlet.isAlternative,
+      x: outlet.x,
+      establishment: outlet.establishment,
+      frameType: outletFrame.get(outlet.key)?.type ?? null,
+      frameClueId: outletFrame.get(outlet.key)?.clueId ?? null,
+    });
+  }
+
+  const invalshoek: BubbleGroup[] = perspectiveClues.map((clue) => ({
+    key: `p${clue.body.type === "perspective" ? clue.body.index : 0}`,
+    label: clue.body.type === "perspective" ? clue.body.cluster.label : "",
+    maskedLabel: clue.teaser.title,
+    clueId: clue.id,
+  }));
+  if (bubbles.some((bubble) => bubble.perspectiveIndex === -1)) {
+    invalshoek.push({ key: "p-1", label: "Zonder invalshoek", maskedLabel: "Zonder invalshoek", clueId: null });
+  }
+
+  const frameGroups = new Map<string, BubbleGroup>();
+  for (const bubble of bubbles) {
+    const key = bubble.frameType ? `f:${bubble.frameType}` : "f:none";
+    if (!frameGroups.has(key)) {
+      frameGroups.set(key, {
+        key,
+        label: bubble.frameType ? frameLabel(bubble.frameType) : "Geen eigen frame",
+        maskedLabel: bubble.frameType ? "Frame ?" : "Geen eigen frame",
+        clueId: bubble.frameClueId,
+      });
+    }
+  }
+
+  const contradictions: ContradictionLine[] = [];
+  for (const clue of clues) {
+    if (clue.body.type !== "contradiction") continue;
+    const from = bubbles.find((bubble) => clue.body.type === "contradiction" && clue.body.outletsA.includes(bubble.outletKey));
+    const to = bubbles.find(
+      (bubble) =>
+        clue.body.type === "contradiction" && clue.body.outletsB.includes(bubble.outletKey) && bubble.id !== from?.id,
+    );
+    if (from && to) {
+      contradictions.push({ clueId: clue.id, topic: clue.body.contradiction.topic, from: from.id, to: to.id });
+    }
+  }
+
+  return {
+    bubbles,
+    groupsByLens: {
+      invalshoek,
+      spectrum: [{ key: "s:main", label: "Spectrum", maskedLabel: "Spectrum", clueId: null }],
+      frame: Array.from(frameGroups.values()),
+    },
+    contradictions,
+    internationalCount: input.outlets.filter((outlet) => outlet.isInternational).length,
+  };
+}
+
+export function bubbleGroupKey(bubble: Bubble, lens: HeroLens): string {
+  switch (lens) {
+    case "spectrum":
+      return "s:main";
+    case "frame":
+      return bubble.frameType ? `f:${bubble.frameType}` : "f:none";
+    default:
+      return `p${bubble.perspectiveIndex}`;
+  }
+}
+
+// --- Layout -----------------------------------------------------------------------------------
+
+export interface BubbleBox {
+  id: string;
+  group: string;
+  width: number;
+  height: number;
+  /** Optional horizontal target in [0, 1] (spectrum lens: links -> rechts) */
+  xTarget?: number;
+  /** Optional vertical target in [0, 1] (spectrum lens: gevestigd -> alternatief) */
+  yTarget?: number;
+}
+
+export interface PlacedBubble {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface PlacedGroup {
+  key: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Lines of the label (a long label wraps) */
+  lines?: 1 | 2;
+}
+
+export interface BubbleLayout {
+  width: number;
+  height: number;
+  bubbles: Map<string, PlacedBubble>;
+  groups: PlacedGroup[];
+}
+
+/** Closed: favicon + three typing dots (20 + 8 + 26 px, plus padding and border) */
+export const BUBBLE_CLOSED = { width: 80, height: 46 };
+export const BUBBLE_OPEN = { width: 168, height: 64 };
+
+const PAD = 6;
+/** Halo around a group: this much around the bubbles on the sides and at the bottom */
+const HALO_SIDE = 8;
+/** The label pill straddles the halo's top edge: 12px sticks out above it (like a legend) */
+const LABEL_ABOVE = 12;
+/** Label pill: 11px text with tight leading, 2px padding; one or two lines */
+const LABEL_LINE = 14;
+const LABEL_PAD_Y = 6;
+/** Between the label and the bubbles (they also float up 4px) */
+const LABEL_AIR = 10;
+/** The pill starts 12px in from the halo's left edge; keep 12px free on its right, plus slack for the estimate */
+const LABEL_INSET = 24;
+const LABEL_SLACK = 8;
+/** Space between groups side by side, and between rows of groups */
+const GROUP_GAP_X = 10;
+const GROUP_GAP_Y = 12;
+/** Groups keep this distance from the sides of the map */
+const EDGE = 12;
+/** Room above the bubbles of the 2D spectrum map (axis label) */
+const PLOT_TOP = 26;
+/** The map grows with its bubbles up to this height (2D spectrum map) */
+const MAX_HEIGHT = 2000;
+/** Plot margins of the 2D spectrum map (room for the axis labels) */
+const PLOT_PAD_X = 44;
+const PLOT_PAD_TOP = 40;
+const PLOT_PAD_BOTTOM = 40;
+
+interface SimNode extends SimulationNodeDatum {
+  id: string;
+  w: number;
+  h: number;
+  ax: number;
+  ay: number;
+  /** Horizontal position is data-driven (spectrum lens) */
+  pinnedX: boolean;
+  /** Vertical position is data-driven (spectrum lens) */
+  pinnedY: boolean;
+}
+
+/** How much room a group's label needs: halo padding on top, and the halo's minimum width. */
+export function groupLabelSpace(labelWidth: number, maxHaloWidth: number): { top: number; minWidth: number; lines: 1 | 2 } {
+  const wanted = labelWidth + LABEL_INSET + LABEL_SLACK;
+  const lines = wanted <= maxHaloWidth ? 1 : 2;
+  return {
+    top: lines * LABEL_LINE + LABEL_PAD_Y - LABEL_ABOVE + LABEL_AIR,
+    minWidth: Math.min(wanted, maxHaloWidth),
+    lines,
+  };
+}
+
+/** Axis-aligned rectangle collision (bubbles are wider than tall). */
+function rectCollide(padding: number, strength: number) {
+  let nodes: SimNode[] = [];
+  const force = () => {
+    for (let i = 0; i < nodes.length; i += 1) {
+      const a = nodes[i];
+      for (let j = i + 1; j < nodes.length; j += 1) {
+        const b = nodes[j];
+        const dx = (b.x ?? 0) - (a.x ?? 0);
+        const dy = (b.y ?? 0) - (a.y ?? 0);
+        const overlapX = (a.w + b.w) / 2 + padding - Math.abs(dx);
+        const overlapY = (a.h + b.h) / 2 + padding - Math.abs(dy);
+        if (overlapX <= 0 || overlapY <= 0) continue;
+        if (overlapX < overlapY) {
+          const shift = (overlapX / 2) * strength * (dx < 0 ? -1 : 1);
+          a.x = (a.x ?? 0) - shift;
+          b.x = (b.x ?? 0) + shift;
+        } else {
+          const shift = (overlapY / 2) * strength * (dy < 0 ? -1 : 1);
+          a.y = (a.y ?? 0) - shift;
+          b.y = (b.y ?? 0) + shift;
+        }
+      }
+    }
+  };
+  force.initialize = (initial: SimNode[]) => {
+    nodes = initial;
+  };
+  return force;
+}
+
+function totalOverlap(nodes: SimNode[]): number {
+  let overlap = 0;
+  for (let i = 0; i < nodes.length; i += 1) {
+    for (let j = i + 1; j < nodes.length; j += 1) {
+      const a = nodes[i];
+      const b = nodes[j];
+      const ox = (a.w + b.w) / 2 - Math.abs((b.x ?? 0) - (a.x ?? 0));
+      const oy = (a.h + b.h) / 2 - Math.abs((b.y ?? 0) - (a.y ?? 0));
+      if (ox > 0 && oy > 0) overlap += Math.min(ox, oy);
+    }
+  }
+  return overlap;
+}
+
+/** The bubbles of one group as a small floating cluster around (0, 0), at most `maxWidth` wide. */
+function clusterGroup(boxes: BubbleBox[], maxWidth: number, seed: number) {
+  const random = lcg(seed);
+  const nodes: SimNode[] = boxes.map((box) => ({
+    id: box.id,
+    w: box.width,
+    h: box.height,
+    ax: 0,
+    ay: 0,
+    pinnedX: false,
+    pinnedY: false,
+    x: (random() - 0.5) * 30,
+    y: (random() - 0.5) * 30,
+  }));
+  if (nodes.length > 1) {
+    // Pulled harder sideways than up and down: clusters grow into narrow stacks that fit a column
+    const simulation = forceSimulation<SimNode>(nodes)
+      .randomSource(random)
+      .force("x", forceX<SimNode>(0).strength(0.2))
+      .force("y", forceY<SimNode>(0).strength(0.05))
+      .force("collide", rectCollide(PAD, 0.8))
+      .stop();
+    for (let tick = 0; tick < 240; tick += 1) {
+      simulation.tick();
+      for (const node of nodes) {
+        const limit = Math.max(0, maxWidth / 2 - node.w / 2);
+        node.x = Math.min(Math.max(node.x ?? 0, -limit), limit);
+      }
+    }
+  } else if (nodes.length === 1) {
+    nodes[0].x = 0;
+    nodes[0].y = 0;
+  }
+  const minX = Math.min(...nodes.map((node) => (node.x ?? 0) - node.w / 2));
+  const maxX = Math.max(...nodes.map((node) => (node.x ?? 0) + node.w / 2));
+  const minY = Math.min(...nodes.map((node) => (node.y ?? 0) - node.h / 2));
+  const maxY = Math.max(...nodes.map((node) => (node.y ?? 0) + node.h / 2));
+  return { nodes, minX, minY, width: maxX - minX, height: maxY - minY };
+}
+
+/**
+ * Invalshoek and frame lenses: every group is a floating cluster of bubbles in a halo with its label;
+ * the groups are laid out in rows, so halos and labels never overlap.
+ */
+function layoutGrouped(boxes: BubbleBox[], groups: string[], width: number, options: LayoutOptions): BubbleLayout {
+  const columns = options.columns ?? (groups.length <= 1 ? 1 : width < 420 ? 2 : 3);
+  // A label never makes a halo wider than its column: longer labels wrap to two lines
+  const maxHaloWidth = Math.max(120, (width - 2 * EDGE) / Math.min(columns, Math.max(groups.length, 1)) - GROUP_GAP_X);
+  const blocks = groups.map((group, index) => {
+    const members = boxes.filter((box) => box.group === group);
+    const room = groupLabelSpace(options.labelWidths?.[group] ?? 0, maxHaloWidth);
+    const widest = Math.max(...members.map((box) => box.width));
+    const cluster = clusterGroup(members, Math.min(width - 2 * EDGE - 2 * HALO_SIDE, Math.max(maxHaloWidth - 2 * HALO_SIDE, widest)), options.seed + index * 101);
+    const haloWidth = Math.min(width - 2 * EDGE, Math.max(cluster.width + 2 * HALO_SIDE, room.minWidth));
+    return { group, room, cluster, width: haloWidth, height: LABEL_ABOVE + room.top + cluster.height + HALO_SIDE, x: 0, y: 0 };
+  });
+
+  // Rows of groups, spread evenly across the width
+  const rows: (typeof blocks)[] = [];
+  for (const block of blocks) {
+    const row = rows[rows.length - 1];
+    const used = row ? row.reduce((sum, item) => sum + item.width, 0) + row.length * GROUP_GAP_X : 0;
+    if (row && used + block.width <= width - 2 * EDGE) row.push(block);
+    else rows.push([block]);
+  }
+  let cursor = EDGE;
+  for (const row of rows) {
+    const free = width - 2 * EDGE - row.reduce((sum, item) => sum + item.width, 0);
+    const spacing = free / (row.length + 1);
+    let x = EDGE + spacing;
+    for (const block of row) {
+      block.x = x;
+      block.y = cursor;
+      x += block.width + spacing;
+    }
+    cursor += Math.max(...row.map((block) => block.height)) + GROUP_GAP_Y;
+  }
+  const content = cursor - GROUP_GAP_Y + EDGE;
+  const height = Math.max(options.minHeight ?? 220, content);
+  const offsetY = (height - content) / 2;
+
+  const bubbles = new Map<string, PlacedBubble>();
+  const placedGroups: PlacedGroup[] = [];
+  for (const block of blocks) {
+    const haloTop = block.y + offsetY + LABEL_ABOVE;
+    const left = block.x + (block.width - block.cluster.width) / 2;
+    const top = haloTop + block.room.top;
+    for (const node of block.cluster.nodes) {
+      bubbles.set(node.id, {
+        x: left + (node.x ?? 0) - block.cluster.minX,
+        y: top + (node.y ?? 0) - block.cluster.minY,
+        width: node.w,
+        height: node.h,
+      });
+    }
+    placedGroups.push({
+      key: block.group,
+      x: block.x,
+      y: haloTop,
+      width: block.width,
+      height: block.room.top + block.cluster.height + HALO_SIDE,
+      lines: block.room.lines,
+    });
+  }
+  return { width, height, bubbles, groups: placedGroups };
+}
+
+/** 2D spectrum map: positions come from the data (links–rechts, gevestigd–alternatief); collisions resolved. */
+function layoutPlotted(boxes: BubbleBox[], groups: string[], width: number, options: LayoutOptions): BubbleLayout {
+  const maxHeight = options.maxHeight ?? MAX_HEIGHT;
+  const area = boxes.reduce((sum, box) => sum + (box.width + PAD * 2) * (box.height + PAD * 2), 0);
+  let height = Math.min(maxHeight, Math.max(options.minHeight ?? 220, (area * 1.9) / width + PLOT_TOP + 40));
+  let nodes: SimNode[] = [];
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const random = lcg(options.seed + attempt);
+    nodes = boxes.map((box) => {
+      const ax = box.xTarget !== undefined ? PLOT_PAD_X + box.xTarget * (width - 2 * PLOT_PAD_X) : width / 2;
+      const ay = box.yTarget !== undefined ? PLOT_PAD_TOP + box.yTarget * (height - PLOT_PAD_TOP - PLOT_PAD_BOTTOM) : height / 2;
+      return {
+        id: box.id,
+        w: box.width,
+        h: box.height,
+        ax,
+        ay,
+        pinnedX: box.xTarget !== undefined,
+        pinnedY: box.yTarget !== undefined,
+        x: ax + (random() - 0.5) * 40,
+        y: ay + (random() - 0.5) * 40,
+      };
+    });
+    const simulation = forceSimulation<SimNode>(nodes)
+      .randomSource(random)
+      .force("x", forceX<SimNode>((node) => node.ax).strength((node) => (node.pinnedX ? 0.6 : 0.12)))
+      .force("y", forceY<SimNode>((node) => node.ay).strength((node) => (node.pinnedY ? 0.6 : 0.12)))
+      .force("collide", rectCollide(PAD, 0.8))
+      .stop();
+    for (let tick = 0; tick < 300; tick += 1) {
+      simulation.tick();
+      for (const node of nodes) {
+        node.x = Math.min(Math.max(node.x ?? 0, node.w / 2 + EDGE), width - node.w / 2 - EDGE);
+        node.y = Math.min(Math.max(node.y ?? 0, node.h / 2 + PLOT_TOP), height - node.h / 2 - 4);
+      }
+    }
+    if (totalOverlap(nodes) <= 2 || height >= maxHeight) break;
+    height = Math.min(maxHeight, height * 1.3);
+  }
+
+  const bubbles = new Map<string, PlacedBubble>();
+  for (const node of nodes) bubbles.set(node.id, { x: node.x ?? 0, y: node.y ?? 0, width: node.w, height: node.h });
+  const groupOf = new Map(boxes.map((box) => [box.id, box.group]));
+  const placedGroups: PlacedGroup[] = groups.map((group) => {
+    const members = nodes.filter((node) => groupOf.get(node.id) === group);
+    const minX = Math.min(...members.map((node) => (node.x ?? 0) - node.w / 2));
+    const maxX = Math.max(...members.map((node) => (node.x ?? 0) + node.w / 2));
+    const minY = Math.min(...members.map((node) => (node.y ?? 0) - node.h / 2));
+    const maxY = Math.max(...members.map((node) => (node.y ?? 0) + node.h / 2));
+    return { key: group, x: minX - HALO_SIDE, y: minY - HALO_SIDE, width: maxX - minX + 2 * HALO_SIDE, height: maxY - minY + 2 * HALO_SIDE };
+  });
+  return { width, height, bubbles, groups: placedGroups };
+}
+
+interface LayoutOptions {
+  width: number;
+  seed: number;
+  minHeight?: number;
+  maxHeight?: number;
+  columns?: number;
+  /** Width of each group's label on one line: halos get room for it (wrapping to two lines when needed) */
+  labelWidths?: Record<string, number>;
+}
+
+/**
+ * Place bubbles inside a container of the given width. Height grows with the content.
+ * Deterministic for the same input and seed.
+ */
+export function layoutBubbles(boxes: BubbleBox[], groupOrder: string[], options: LayoutOptions): BubbleLayout {
+  const width = Math.max(200, options.width);
+  const groups = groupOrder.filter((group) => boxes.some((box) => box.group === group));
+  const plotted = boxes.some((box) => box.xTarget !== undefined || box.yTarget !== undefined);
+  return plotted ? layoutPlotted(boxes, groups, width, options) : layoutGrouped(boxes, groups, width, options);
+}
+
+/** Convenience: boxes for a lens, with open (revealed) bubbles larger than closed ones. */
+export function bubbleBoxes(scene: BubbleScene, lens: HeroLens, openIds: ReadonlySet<string>): BubbleBox[] {
+  return scene.bubbles.map((bubble) => {
+    const size = openIds.has(bubble.id) ? BUBBLE_OPEN : BUBBLE_CLOSED;
+    const box: BubbleBox = { id: bubble.id, group: bubbleGroupKey(bubble, lens), width: size.width, height: size.height };
+    if (lens === "spectrum") {
+      // 2D map: links (0) -> rechts (10) and gevestigd (+1, top) -> alternatief (-1, bottom)
+      box.xTarget = bubble.x !== null ? bubble.x / 10 : 0.5;
+      box.yTarget = bubble.establishment !== null ? (1 - bubble.establishment) / 2 : 0.5;
+    }
+    return box;
+  });
+}

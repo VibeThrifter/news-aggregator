@@ -21,7 +21,13 @@ _session_factory: Optional[async_sessionmaker[AsyncSession]] = None
 def _create_engine() -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
     """Create a new engine and session factory."""
     settings = get_settings()
-    logger.info("initialising_database_engine", url=settings.database_url)
+    # Never log the password (the URL contains credentials)
+    from sqlalchemy.engine import make_url
+
+    logger.info(
+        "initialising_database_engine",
+        url=make_url(settings.database_url).render_as_string(hide_password=True),
+    )
     engine = create_async_engine(
         settings.database_url,
         echo=False,

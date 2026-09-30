@@ -23,10 +23,13 @@ export const metadata: Metadata = {
   applicationName: "Pluriformiteit",
 };
 
+// Pinch-zoom stays enabled (accessibility); inputs use >=16px text so iOS does not auto-zoom.
+// viewportFit "cover" exposes env(safe-area-inset-*) for the bottom dock and sheets.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  viewportFit: "cover",
+  themeColor: "#ffffff",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

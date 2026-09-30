@@ -27,7 +27,7 @@ export default function DateRangeFilter({
           value={startDate ?? ""}
           max={endDate ?? today}
           onChange={(e) => onStartDateChange(e.target.value || null)}
-          className="border-0 border-b border-paper-300 bg-transparent px-1 py-1 text-sm text-ink-700 transition-colors hover:border-ink-400 focus:border-accent-orange focus:outline-none"
+          className="border-0 border-b border-paper-300 bg-transparent px-1 py-1 text-base sm:text-sm text-ink-700 transition-colors hover:border-ink-400 focus:border-accent-orange focus:outline-none"
         />
       </div>
       <div className="flex items-center gap-1.5">
@@ -38,7 +38,7 @@ export default function DateRangeFilter({
           min={startDate ?? undefined}
           max={today}
           onChange={(e) => onEndDateChange(e.target.value || null)}
-          className="border-0 border-b border-paper-300 bg-transparent px-1 py-1 text-sm text-ink-700 transition-colors hover:border-ink-400 focus:border-accent-orange focus:outline-none"
+          className="border-0 border-b border-paper-300 bg-transparent px-1 py-1 text-base sm:text-sm text-ink-700 transition-colors hover:border-ink-400 focus:border-accent-orange focus:outline-none"
         />
       </div>
     </div>

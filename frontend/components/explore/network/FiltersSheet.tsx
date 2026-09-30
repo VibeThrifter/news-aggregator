@@ -1,0 +1,109 @@
+"use client";
+
+import { useMemo } from "react";
+import { SlidersHorizontal } from "lucide-react";
+
+import { FILTERS } from "@/lib/explore/labels";
+import { mergeNeighborhoods, relationsByFilter } from "@/lib/explore/pm-graph";
+import { usePmStore } from "@/lib/explore/pm-store";
+import { eventFilterSignals } from "@/lib/explore/propaganda";
+
+import { useExplore } from "../ExploreContext";
+import { Eyebrow } from "../ui/primitives";
+import { Sheet } from "../ui/Sheet";
+import { PmAttribution } from "./PmSection";
+
+/**
+ * The five filters (+ tegenmacht) for this news item: structural relations from the propaganda model
+ * around the outlets and actors, and signals from the AI analysis. Evidence, not a verdict.
+ */
+export function FiltersSheet() {
+  const { exploration, panel } = useExplore();
+  const neighborhoods = usePmStore((state) => state.neighborhoods);
+  const active = usePmStore((state) => state.active);
+  // Only what is in the graph you built (not the cache)
+  const merged = useMemo(() => mergeNeighborhoods(active.map((key) => neighborhoods[key]).filter(Boolean)), [active, neighborhoods]);
+  const structural = useMemo(() => relationsByFilter(merged), [merged]);
+  const signals = useMemo(() => eventFilterSignals(exploration.input, exploration.clues, exploration.index), [exploration]);
+
+  return (
+    <Sheet
+      open
+      onOpenChange={(open) => (!open ? panel.close() : undefined)}
+      title="De filters in dit nieuws"
+      subtitle="Aanwijzingen, geen oordeel"
+      icon={<SlidersHorizontal size={22} />}
+    >
+      <div className="space-y-5">
+        {FILTERS.map((filter) => {
+          const relations = structural.get(filter.id) ?? [];
+          const eventSignals = signals.find((entry) => entry.filter === filter.id)?.signals ?? [];
+          return (
+            <section key={filter.id} className="space-y-2 rounded-2xl border border-paper-300 bg-paper-50 p-3" style={{ borderLeftColor: filter.color, borderLeftWidth: 4 }}>
+              <div>
+                <p className="font-semibold text-ink-900">{filter.label}</p>
+                <p className="text-xs text-ink-500">{filter.question}</p>
+              </div>
+              <div className="space-y-1">
+                <Eyebrow>In het netwerk</Eyebrow>
+                {relations.length ? (
+                  <ul className="space-y-1 text-sm">
+                    {relations.slice(0, 5).map((relation) => (
+                      <li key={relation.id}>
+                        <button
+                          type="button"
+                          onClick={() => panel.open(`pm:relation:${relation.id}`)}
+                          className="min-h-[36px] w-full text-left text-ink-800 hover:underline"
+                        >
+                          {merged.entities.get(relation.source_id)?.name ?? relation.source_id}{" "}
+                          <span className="text-ink-500">{relation.relation_type}</span>{" "}
+                          {merged.entities.get(relation.target_id)?.name ?? relation.target_id}
+                        </button>
+                      </li>
+                    ))}
+                    {relations.length > 5 ? <li className="text-xs text-ink-500">+{relations.length - 5} meer in het netwerk</li> : null}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-ink-500">Geen verbanden geladen.</p>
+                )}
+              </div>
+              <div className="space-y-1">
+                <Eyebrow>In dit nieuws</Eyebrow>
+                {eventSignals.length ? (
+                  <ul className="space-y-1 text-sm">
+                    {eventSignals.map((signal, i) => {
+                      const clueId = signal.clueIds[0];
+                      const clue = clueId ? exploration.clueById.get(clueId) : undefined;
+                      return (
+                        <li key={i}>
+                          {clue ? (
+                            <button
+                              type="button"
+                              onClick={() => panel.open(`spoor:${clue.spoor}`, { c: clue.id })}
+                              className="min-h-[36px] w-full text-left text-ink-800 hover:underline"
+                            >
+                              {signal.text}
+                            </button>
+                          ) : (
+                            <span className="text-ink-800">{signal.text}</span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-ink-500">Geen signalen gevonden — dat betekent niet dat dit filter geen rol speelt.</p>
+                )}
+              </div>
+            </section>
+          );
+        })}
+        <p className="text-xs text-ink-500">
+          Structurele verbanden komen uit het propagandamodel, signalen uit de AI-analyse van dit nieuws. Samen zijn het
+          aanwijzingen om verder te onderzoeken, geen meting of beschuldiging.
+        </p>
+        <PmAttribution />
+      </div>
+    </Sheet>
+  );
+}

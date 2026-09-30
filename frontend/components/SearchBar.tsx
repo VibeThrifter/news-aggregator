@@ -86,7 +86,7 @@ export default function SearchBar({
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
         placeholder={placeholder}
-        className="w-full border-0 border-b border-paper-300 bg-transparent py-2 pl-7 pr-8 text-sm text-ink-900 placeholder-ink-400 transition-colors focus:border-accent-orange focus:outline-none"
+        className="w-full border-0 border-b border-paper-300 bg-transparent py-2 pl-7 pr-8 text-base sm:text-sm text-ink-900 placeholder-ink-400 transition-colors focus:border-accent-orange focus:outline-none"
         aria-label="Zoek events"
       />
 

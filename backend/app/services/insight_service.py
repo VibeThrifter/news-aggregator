@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import re
+import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -32,39 +33,20 @@ from backend.app.llm.schemas import (
     InsightsPayload,
     KeywordExtractionPayload,
 )
+from backend.app.llm.title import extract_title_from_summary
 from backend.app.repositories import InsightRepository
 from backend.app.services.llm_config_service import get_llm_config_service
 
 logger = get_logger(__name__).bind(component="InsightService")
 
 
-def _extract_title_from_summary(summary: str) -> str | None:
-    """Extract the title (first line) from an LLM-generated summary.
+# Backwards-compatible alias; the implementation lives in backend.app.llm.title (Story 11.8).
+_extract_title_from_summary = extract_title_from_summary
 
-    The LLM generates summaries where the first line is a short title (max 60 chars)
-    without punctuation, followed by a blank line and the actual content.
-
-    Returns None if no valid title can be extracted.
-    """
-    if not summary:
-        return None
-
-    # Try to match: title\n\n (title without punctuation, followed by blank line)
-    match = re.match(r"^([^\n.!?]+)\n\n", summary)
-    if match:
-        title = match.group(1).strip()
-        # Validate: title should be reasonably short (max 80 chars to allow some flexibility)
-        if 5 <= len(title) <= 80:
-            return title
-
-    # Fallback: try title with punctuation followed by blank line
-    match = re.match(r"^([^\n]+[.!?])\s*\n\n", summary)
-    if match:
-        title = match.group(1).strip()
-        if 5 <= len(title) <= 80:
-            return title
-
-    return None
+# Story 11.8: signature of the exploration refresh hook called after insight generation.
+ExplorationHook = Callable[..., Awaitable[Any]]
+# Maximum time the exploration refresh may add to an insight generation run.
+EXPLORATION_HOOK_TIMEOUT_SECONDS = 30
 
 
 @dataclass(slots=True)
@@ -87,11 +69,14 @@ class InsightService:
         prompt_builder: PromptBuilder | None = None,
         client: BaseLLMClient | None = None,
         settings: Settings | None = None,
+        exploration_hook: ExplorationHook | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.session_factory = session_factory or get_sessionmaker()
         self.prompt_builder = prompt_builder or PromptBuilder(settings=self.settings)
         self.client = client or self._build_client()
+        # Story 11.8: refresh precomputed entities/related events after insight generation.
+        self._exploration_hook = exploration_hook
 
     def _build_client(self, provider: str | None = None) -> BaseLLMClient:
         """Build an LLM client for the specified provider."""
@@ -444,6 +429,9 @@ class InsightService:
             if event:
                 await sync_entities_to_cache([event], "events")
 
+        # Story 11.8: precompute entities + related events (never fails insight generation)
+        await self._refresh_exploration(event_id, merged_payload.summary, correlation_id)
+
         logger.info(
             "insight_generation_completed",
             event_id=event_id,
@@ -459,6 +447,36 @@ class InsightService:
             payload=merged_payload,
             llm_result=llm_result,
         )
+
+    async def _refresh_exploration(
+        self,
+        event_id: int,
+        summary: str | None,
+        correlation_id: str | None,
+    ) -> None:
+        """Refresh exploration data (Story 11.8). Errors are logged, never raised."""
+
+        if not getattr(self.settings, "exploration_enabled", True):
+            return
+        try:
+            hook = self._exploration_hook
+            if hook is None:
+                # Lazy import avoids an import cycle (exploration -> llm -> services)
+                from backend.app.services.exploration_service import get_exploration_service
+
+                hook = get_exploration_service().refresh_for_event
+            await asyncio.wait_for(
+                hook(event_id, summary=summary, correlation_id=correlation_id),
+                timeout=EXPLORATION_HOOK_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:  # must never break insight generation
+            logger.warning(
+                "exploration_refresh_failed",
+                event_id=event_id,
+                error=str(exc) or type(exc).__name__,
+                error_type=type(exc).__name__,
+                correlation_id=correlation_id,
+            )
 
     @staticmethod
     def _build_prompt_metadata(package: PromptGenerationResult) -> dict[str, Any]:

@@ -104,7 +104,7 @@ export default function MinSourcesFilter({
           value={localValue}
           onChange={handleChange}
           onBlur={handleBlur}
-          className="w-8 border-0 border-b border-paper-300 bg-transparent py-1 text-center text-sm text-ink-700 transition-colors focus:border-accent-orange focus:outline-none"
+          className="w-8 border-0 border-b border-paper-300 bg-transparent py-1 text-center text-base sm:text-sm text-ink-700 transition-colors focus:border-accent-orange focus:outline-none"
           aria-label="Minimum aantal bronnen"
         />
         <button

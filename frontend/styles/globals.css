@@ -33,6 +33,26 @@ a:hover {
   text-decoration: underline;
 }
 
+/* Epic 11: explore UI links are cards/chips, not inline text links */
+[data-explore] a:hover {
+  text-decoration: none;
+}
+
+/* Draggables: no iOS callout or text selection on long-press */
+.no-callout {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-float,
+  .animate-float,
+  .animate-typing {
+    animation: none !important;
+  }
+}
+
 :focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: 2px;

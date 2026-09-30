@@ -7,6 +7,7 @@ and other background jobs according to Story 1.1 requirements.
 
 import asyncio
 import uuid
+from datetime import datetime, timezone
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -16,12 +17,15 @@ from ..db.session import ensure_healthy_connection, get_sessionmaker
 from ..events.maintenance import get_event_maintenance_service
 from ..repositories.event_repo import EventRepository
 from ..services.bias_service import BiasDetectionService, get_bias_detection_service
+from ..services.exploration_service import get_exploration_service
 from ..services.ingest_service import IngestService
 from ..services.insight_service import InsightService
 from ..services.international_enrichment import (
     InternationalEnrichmentService,
     get_international_enrichment_service,
 )
+from ..services.entity_research.service import get_entity_research_service
+from ..services.propaganda_model_sync import get_propaganda_sync_service
 from .config import get_settings
 
 # Maximum time allowed for a single poll cycle (5 minutes)
@@ -34,6 +38,11 @@ MAINTENANCE_TIMEOUT_SECONDS = 600
 INTERNATIONAL_ENRICHMENT_TIMEOUT_SECONDS = 900
 # Maximum time allowed for bias analysis (30 minutes - many LLM calls)
 BIAS_ANALYSIS_TIMEOUT_SECONDS = 1800
+# Maximum time allowed for the propaganda-model sync (Story 11.17)
+PROPAGANDA_SYNC_TIMEOUT_SECONDS = 600
+# Maximum time allowed for one entity research cycle (Epic 12; research rounds run in the
+# background and are not part of this timeout)
+ENTITY_RESEARCH_TIMEOUT_SECONDS = 600
 
 logger = structlog.get_logger()
 
@@ -51,6 +60,12 @@ class NewsAggregatorScheduler:
         self._insight_service: InsightService | None = None
         self._international_enrichment_service: InternationalEnrichmentService | None = None
         self._bias_detection_service: BiasDetectionService | None = None
+        # Story 11.8: outcome of the exploration refresh that follows event maintenance
+        self._exploration_last_run: dict | None = None
+        # Story 11.17: outcome of the last propaganda-model sync job
+        self._propaganda_sync_last_run: dict | None = None
+        # Epic 12: outcome of the last entity research cycle
+        self._entity_research_last_run: dict | None = None
         self._is_running = False
 
     def _get_ingest_service(self) -> IngestService:
@@ -101,7 +116,7 @@ class NewsAggregatorScheduler:
             id="poll_rss_feeds",
             name="RSS Feed Polling",
             replace_existing=True,
-            max_instances=1  # Prevent overlapping executions
+            max_instances=1,  # Prevent overlapping executions
         )
 
         # Insight backfill job - catches up on events missing LLM insights
@@ -144,12 +159,14 @@ class NewsAggregatorScheduler:
                 "Bias analysis job disabled (set BIAS_ANALYSIS_SCHEDULER_ENABLED=true to enable)"
             )
 
-        logger.info("Scheduled jobs configured",
-                   rss_interval_minutes=self.settings.scheduler_interval_minutes,
-                   insight_backfill_interval_minutes=self.settings.insight_backfill_interval_minutes,
-                   international_enrichment_interval_hours=self.settings.international_enrichment_interval_hours,
-                   maintenance_interval_hours=self.settings.event_maintenance_interval_hours,
-                   bias_analysis_enabled=self.settings.bias_analysis_scheduler_enabled)
+        logger.info(
+            "Scheduled jobs configured",
+            rss_interval_minutes=self.settings.scheduler_interval_minutes,
+            insight_backfill_interval_minutes=self.settings.insight_backfill_interval_minutes,
+            international_enrichment_interval_hours=self.settings.international_enrichment_interval_hours,
+            maintenance_interval_hours=self.settings.event_maintenance_interval_hours,
+            bias_analysis_enabled=self.settings.bias_analysis_scheduler_enabled,
+        )
 
         self.scheduler.add_job(
             func=self._event_maintenance_job,
@@ -160,13 +177,54 @@ class NewsAggregatorScheduler:
             max_instances=1,
         )
 
+        # Propaganda-model sync (Story 11.17) - only writes when the pm database changed
+        if self.settings.propaganda_sync_enabled:
+            self.scheduler.add_job(
+                func=self._propaganda_sync_job,
+                trigger=IntervalTrigger(minutes=self.settings.propaganda_sync_interval_minutes),
+                id="propagandamodel_sync",
+                name="Propagandamodel Sync",
+                replace_existing=True,
+                max_instances=1,
+            )
+            logger.info(
+                "Propaganda-model sync job enabled",
+                interval_minutes=self.settings.propaganda_sync_interval_minutes,
+                db_path=self.settings.propaganda_db_path,
+            )
+        else:
+            logger.info(
+                "Propaganda-model sync job disabled (set PROPAGANDA_SYNC_ENABLED=true to enable)"
+            )
+
+        # Wie is dit? (Epic 12) - triage names, queue research in the propaganda model, start
+        # rounds of its nieuws-scout agent and pull the results
+        if self.settings.entity_research_enabled:
+            self.scheduler.add_job(
+                func=self._entity_research_job,
+                trigger=IntervalTrigger(minutes=self.settings.entity_research_interval_minutes),
+                id="entity_research",
+                name="Entity Research",
+                replace_existing=True,
+                max_instances=1,
+            )
+            logger.info(
+                "Entity research job enabled",
+                interval_minutes=self.settings.entity_research_interval_minutes,
+                rounds_enabled=self.settings.nieuws_scout_enabled,
+            )
+        else:
+            logger.info("Entity research job disabled (set ENTITY_RESEARCH_ENABLED=true to enable)")
+
     async def _poll_feeds_job(self) -> None:
         """Job function for RSS feed polling with correlation ID and global timeout."""
         correlation_id = str(uuid.uuid4())
         job_logger = logger.bind(correlation_id=correlation_id, job="poll_rss_feeds")
 
         try:
-            job_logger.info("Starting RSS feed polling job", timeout_seconds=POLL_CYCLE_TIMEOUT_SECONDS)
+            job_logger.info(
+                "Starting RSS feed polling job", timeout_seconds=POLL_CYCLE_TIMEOUT_SECONDS
+            )
 
             # Ensure database connection is healthy before proceeding
             if not await ensure_healthy_connection():
@@ -179,7 +237,7 @@ class NewsAggregatorScheduler:
             try:
                 results = await asyncio.wait_for(
                     ingest_service.poll_feeds(correlation_id=correlation_id),
-                    timeout=POLL_CYCLE_TIMEOUT_SECONDS
+                    timeout=POLL_CYCLE_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:
                 job_logger.error(
@@ -190,13 +248,17 @@ class NewsAggregatorScheduler:
                 return
 
             if results["success"]:
-                job_logger.info("RSS feed polling job completed successfully",
-                              total_items=results["total_items"],
-                              successful_readers=results["successful_readers"])
+                job_logger.info(
+                    "RSS feed polling job completed successfully",
+                    total_items=results["total_items"],
+                    successful_readers=results["successful_readers"],
+                )
             else:
-                job_logger.warning("RSS feed polling job completed with errors",
-                                 failed_readers=results["failed_readers"],
-                                 errors=results["errors"])
+                job_logger.warning(
+                    "RSS feed polling job completed with errors",
+                    failed_readers=results["failed_readers"],
+                    errors=results["errors"],
+                )
 
         except Exception as e:
             job_logger.error("RSS feed polling job failed", error=str(e))
@@ -211,7 +273,9 @@ class NewsAggregatorScheduler:
         job_logger = logger.bind(correlation_id=correlation_id, job="insight_backfill")
 
         try:
-            job_logger.info("Starting insight backfill job", timeout_seconds=INSIGHT_BACKFILL_TIMEOUT_SECONDS)
+            job_logger.info(
+                "Starting insight backfill job", timeout_seconds=INSIGHT_BACKFILL_TIMEOUT_SECONDS
+            )
 
             # Ensure database connection is healthy before proceeding
             if not await ensure_healthy_connection():
@@ -226,7 +290,7 @@ class NewsAggregatorScheduler:
                         limit=self.settings.insight_backfill_batch_size,
                         correlation_id=correlation_id,
                     ),
-                    timeout=INSIGHT_BACKFILL_TIMEOUT_SECONDS
+                    timeout=INSIGHT_BACKFILL_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:
                 job_logger.error(
@@ -248,7 +312,9 @@ class NewsAggregatorScheduler:
         job_logger = logger.bind(correlation_id=correlation_id, job="event_maintenance")
 
         try:
-            job_logger.info("Starting event maintenance job", timeout_seconds=MAINTENANCE_TIMEOUT_SECONDS)
+            job_logger.info(
+                "Starting event maintenance job", timeout_seconds=MAINTENANCE_TIMEOUT_SECONDS
+            )
 
             # Ensure database connection is healthy before proceeding
             if not await ensure_healthy_connection():
@@ -260,7 +326,7 @@ class NewsAggregatorScheduler:
             try:
                 stats = await asyncio.wait_for(
                     maintenance_service.run(correlation_id=correlation_id),
-                    timeout=MAINTENANCE_TIMEOUT_SECONDS
+                    timeout=MAINTENANCE_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:
                 job_logger.error(
@@ -274,6 +340,99 @@ class NewsAggregatorScheduler:
         except Exception as exc:  # pragma: no cover - defensive logging
             job_logger.error("Event maintenance job failed", error=str(exc))
             self._reset_services()
+            return
+
+        # Story 11.8: refresh exploration data (own timeout, outside the maintenance timeout)
+        await self._run_exploration_refresh(correlation_id)
+
+    async def _run_exploration_refresh(self, correlation_id: str) -> None:
+        """Refresh event entities + related events after maintenance. Never raises."""
+
+        if not self.settings.exploration_enabled:
+            return
+        job_logger = logger.bind(correlation_id=correlation_id, job="exploration_refresh")
+        timeout = self.settings.exploration_refresh_timeout_seconds
+        started_at = datetime.now(timezone.utc)
+        run: dict = {"started_at": started_at.isoformat(), "success": False}
+        try:
+            job_logger.info("Starting exploration refresh", timeout_seconds=timeout)
+            stats = await asyncio.wait_for(
+                get_exploration_service().refresh_active(correlation_id=correlation_id),
+                timeout=timeout,
+            )
+            run.update(success=True, stats=stats)
+            job_logger.info("Exploration refresh completed", **stats)
+        except asyncio.TimeoutError:
+            run["error"] = f"timed out after {timeout} seconds"
+            job_logger.error("Exploration refresh timed out", timeout_seconds=timeout)
+        except Exception as exc:
+            run["error"] = str(exc) or type(exc).__name__
+            job_logger.error("Exploration refresh failed", error=run["error"])
+        run["finished_at"] = datetime.now(timezone.utc).isoformat()
+        self._exploration_last_run = run
+
+    async def _propaganda_sync_job(self) -> None:
+        """Sync the approved propaganda-model graph when its database changed. Never raises."""
+
+        correlation_id = str(uuid.uuid4())
+        job_logger = logger.bind(correlation_id=correlation_id, job="propagandamodel_sync")
+        started_at = datetime.now(timezone.utc)
+        run: dict = {"started_at": started_at.isoformat(), "success": False}
+        try:
+            job_logger.info(
+                "Starting propaganda-model sync job",
+                timeout_seconds=PROPAGANDA_SYNC_TIMEOUT_SECONDS,
+            )
+            if not await ensure_healthy_connection():
+                run["error"] = "database connection unhealthy"
+                job_logger.error("Database connection unhealthy, skipping propaganda-model sync")
+                self._reset_services()
+            else:
+                result = await asyncio.wait_for(
+                    get_propaganda_sync_service().sync(correlation_id=correlation_id),
+                    timeout=PROPAGANDA_SYNC_TIMEOUT_SECONDS,
+                )
+                run.update(success=True, result=result)
+                job_logger.info("Propaganda-model sync job completed", **result)
+        except asyncio.TimeoutError:
+            run["error"] = f"timed out after {PROPAGANDA_SYNC_TIMEOUT_SECONDS} seconds"
+            job_logger.error(
+                "Propaganda-model sync job timed out",
+                timeout_seconds=PROPAGANDA_SYNC_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            run["error"] = str(exc) or type(exc).__name__
+            job_logger.error("Propaganda-model sync job failed", error=run["error"])
+        run["finished_at"] = datetime.now(timezone.utc).isoformat()
+        self._propaganda_sync_last_run = run
+
+    async def _entity_research_job(self) -> None:
+        """One entity research cycle (Epic 12). Never raises."""
+
+        correlation_id = str(uuid.uuid4())
+        job_logger = logger.bind(correlation_id=correlation_id, job="entity_research")
+        started_at = datetime.now(timezone.utc)
+        run: dict = {"started_at": started_at.isoformat(), "success": False}
+        try:
+            if not await ensure_healthy_connection():
+                run["error"] = "database connection unhealthy"
+                job_logger.error("Database connection unhealthy, skipping entity research")
+                self._reset_services()
+            else:
+                result = await asyncio.wait_for(
+                    get_entity_research_service().run_cycle(correlation_id=correlation_id),
+                    timeout=ENTITY_RESEARCH_TIMEOUT_SECONDS,
+                )
+                run.update(success=True, result=result)
+                job_logger.info("Entity research cycle completed")
+        except asyncio.TimeoutError:
+            run["error"] = f"timed out after {ENTITY_RESEARCH_TIMEOUT_SECONDS} seconds"
+            job_logger.error("Entity research cycle timed out")
+        except Exception as exc:
+            run["error"] = str(exc) or type(exc).__name__
+            job_logger.error("Entity research cycle failed", error=run["error"])
+        run["finished_at"] = datetime.now(timezone.utc).isoformat()
+        self._entity_research_last_run = run
 
     async def _international_enrichment_job(self) -> None:
         """Enrich events with international news perspectives via Google News."""
@@ -334,7 +493,9 @@ class NewsAggregatorScheduler:
                         job_logger.warning("Event enrichment timed out", event_id=event.id)
                         failed += 1
                     except Exception as e:
-                        job_logger.warning("Event enrichment failed", event_id=event.id, error=str(e))
+                        job_logger.warning(
+                            "Event enrichment failed", event_id=event.id, error=str(e)
+                        )
                         failed += 1
 
                     # Rate limiting between events
@@ -419,20 +580,31 @@ class NewsAggregatorScheduler:
     def get_job_status(self) -> dict:
         """Get status of scheduled jobs."""
         if not self._is_running:
-            return {"status": "stopped", "jobs": []}
+            return {
+                "status": "stopped",
+                "jobs": [],
+                "exploration_last_run": self._exploration_last_run,
+                "propagandamodel_last_run": self._propaganda_sync_last_run,
+                "entity_research_last_run": self._entity_research_last_run,
+            }
 
         jobs = []
         for job in self.scheduler.get_jobs():
-            jobs.append({
-                "id": job.id,
-                "name": job.name,
-                "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
-                "trigger": str(job.trigger)
-            })
+            jobs.append(
+                {
+                    "id": job.id,
+                    "name": job.name,
+                    "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
+                    "trigger": str(job.trigger),
+                }
+            )
 
         return {
             "status": "running",
-            "jobs": jobs
+            "jobs": jobs,
+            "exploration_last_run": self._exploration_last_run,
+            "propagandamodel_last_run": self._propaganda_sync_last_run,
+            "entity_research_last_run": self._entity_research_last_run,
         }
 
     async def run_poll_feeds_now(self) -> dict:
@@ -447,20 +619,18 @@ class NewsAggregatorScheduler:
                 return {
                     "success": False,
                     "error": "Database connection unhealthy after reset attempt",
-                    "correlation_id": correlation_id
+                    "correlation_id": correlation_id,
                 }
 
             ingest_service = self._get_ingest_service()
             results = await ingest_service.poll_feeds(correlation_id=correlation_id)
             return results
         except Exception as e:
-            logger.error("Manual RSS feed polling failed", error=str(e), correlation_id=correlation_id)
+            logger.error(
+                "Manual RSS feed polling failed", error=str(e), correlation_id=correlation_id
+            )
             self._reset_services()
-            return {
-                "success": False,
-                "error": str(e),
-                "correlation_id": correlation_id
-            }
+            return {"success": False, "error": str(e), "correlation_id": correlation_id}
 
     async def run_event_maintenance_now(self) -> dict:
         """Manually trigger event maintenance (for testing/admin)."""
@@ -474,30 +644,26 @@ class NewsAggregatorScheduler:
                 return {
                     "success": False,
                     "error": "Database connection unhealthy after reset attempt",
-                    "correlation_id": correlation_id
+                    "correlation_id": correlation_id,
                 }
 
             maintenance_service = self._get_maintenance_service()
             stats = await maintenance_service.run(correlation_id=correlation_id)
-            return {
-                "success": True,
-                "correlation_id": correlation_id,
-                **stats.as_dict()
-            }
+            return {"success": True, "correlation_id": correlation_id, **stats.as_dict()}
         except Exception as e:
-            logger.error("Manual event maintenance failed", error=str(e), correlation_id=correlation_id)
+            logger.error(
+                "Manual event maintenance failed", error=str(e), correlation_id=correlation_id
+            )
             self._reset_services()
-            return {
-                "success": False,
-                "error": str(e),
-                "correlation_id": correlation_id
-            }
+            return {"success": False, "error": str(e), "correlation_id": correlation_id}
 
     async def run_insight_backfill_now(self, limit: int | None = None) -> dict:
         """Manually trigger insight backfill (for testing/admin)."""
         correlation_id = str(uuid.uuid4())
         batch_size = limit or self.settings.insight_backfill_batch_size
-        logger.info("Manual insight backfill triggered", correlation_id=correlation_id, limit=batch_size)
+        logger.info(
+            "Manual insight backfill triggered", correlation_id=correlation_id, limit=batch_size
+        )
 
         try:
             # Ensure database connection is healthy before proceeding
@@ -506,7 +672,7 @@ class NewsAggregatorScheduler:
                 return {
                     "success": False,
                     "error": "Database connection unhealthy after reset attempt",
-                    "correlation_id": correlation_id
+                    "correlation_id": correlation_id,
                 }
 
             insight_service = self._get_insight_service()
@@ -514,19 +680,13 @@ class NewsAggregatorScheduler:
                 limit=batch_size,
                 correlation_id=correlation_id,
             )
-            return {
-                "success": True,
-                "correlation_id": correlation_id,
-                **stats
-            }
+            return {"success": True, "correlation_id": correlation_id, **stats}
         except Exception as e:
-            logger.error("Manual insight backfill failed", error=str(e), correlation_id=correlation_id)
+            logger.error(
+                "Manual insight backfill failed", error=str(e), correlation_id=correlation_id
+            )
             self._reset_services()
-            return {
-                "success": False,
-                "error": str(e),
-                "correlation_id": correlation_id
-            }
+            return {"success": False, "error": str(e), "correlation_id": correlation_id}
 
     async def run_international_enrichment_now(self, limit: int | None = None) -> dict:
         """Manually trigger international enrichment (for testing/admin)."""
@@ -578,17 +738,21 @@ class NewsAggregatorScheduler:
                     )
                     total_added += result.articles_added
                     successful += 1
-                    results.append({
-                        "event_id": event.id,
-                        "articles_added": result.articles_added,
-                        "countries_fetched": result.countries_fetched,
-                    })
+                    results.append(
+                        {
+                            "event_id": event.id,
+                            "articles_added": result.articles_added,
+                            "countries_fetched": result.countries_fetched,
+                        }
+                    )
                 except Exception as e:
                     failed += 1
-                    results.append({
-                        "event_id": event.id,
-                        "error": str(e),
-                    })
+                    results.append(
+                        {
+                            "event_id": event.id,
+                            "error": str(e),
+                        }
+                    )
 
                 # Rate limiting between events
                 await asyncio.sleep(2)

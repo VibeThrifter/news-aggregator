@@ -229,7 +229,24 @@ export function getCountryFlag(isoCode: string | null | undefined): string {
  * Get Dutch country name from ISO code.
  * Falls back to the ISO code itself if not found.
  */
+let regionNames: Intl.DisplayNames | null | undefined;
+
 export function getCountryName(isoCode: string | null | undefined): string {
   if (!isoCode) return "Onbekend";
-  return COUNTRY_NAMES[isoCode.toUpperCase()] || isoCode.toUpperCase();
+  const code = isoCode.toUpperCase();
+  if (COUNTRY_NAMES[code]) {
+    return COUNTRY_NAMES[code];
+  }
+  if (regionNames === undefined) {
+    try {
+      regionNames = new Intl.DisplayNames(["nl"], { type: "region" });
+    } catch {
+      regionNames = null;
+    }
+  }
+  try {
+    return regionNames?.of(code) ?? code;
+  } catch {
+    return code;
+  }
 }

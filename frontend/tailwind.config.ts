@@ -60,7 +60,32 @@ const config: Config = {
       },
       boxShadow: {
         card: "0 10px 30px -18px rgba(15, 23, 42, 0.25)",
-        "card-light": "0 1px 3px rgba(0, 0, 0, 0.08)"
+        "card-light": "0 1px 3px rgba(0, 0, 0, 0.08)",
+        balloon: "0 12px 32px -12px rgba(15, 23, 42, 0.35)",
+        bubble: "0 4px 14px -6px rgba(15, 23, 42, 0.35)"
+      },
+      // Epic 11: explicit stacking order for dock, balloons, sheets and drag overlays
+      zIndex: {
+        dock: "30",
+        balloon: "45",
+        sheet: "50",
+        "sheet-balloon": "55",
+        toast: "58",
+        drag: "60"
+      },
+      keyframes: {
+        float: {
+          "0%, 100%": { transform: "translateY(0)" },
+          "50%": { transform: "translateY(-4px)" }
+        },
+        typing: {
+          "0%, 80%, 100%": { opacity: "0.25" },
+          "40%": { opacity: "1" }
+        }
+      },
+      animation: {
+        float: "float 4.5s ease-in-out infinite",
+        typing: "typing 1.4s ease-in-out infinite"
       }
     }
   },

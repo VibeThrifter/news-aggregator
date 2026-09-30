@@ -9,13 +9,22 @@ from pydantic import BaseModel
 
 from backend.app.core.scheduler import get_scheduler
 from backend.app.services.enrich_service import ArticleEnrichmentService
+from backend.app.services.entity_research.service import get_entity_research_service
 from backend.app.services.event_service import EventService
 from backend.app.services.insight_service import InsightGenerationOutcome, InsightService
 from backend.app.services.international_enrichment import (
     get_international_enrichment_service,
 )
 from backend.app.services.bias_service import BiasAnalysisOutcome, get_bias_detection_service
+from backend.app.services.exploration_service import (
+    EventNotFoundError,
+    get_exploration_service,
+)
 from backend.app.services.llm_config_service import get_llm_config_service
+from backend.app.services.propaganda_model_sync import (
+    UnsecuredTargetError,
+    get_propaganda_sync_service,
+)
 from backend.app.services.source_service import get_source_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -209,7 +218,9 @@ def _build_meta(result: InsightGenerationOutcome) -> dict[str, Any]:
     return meta
 
 
-def _json_api_error(status_code: int, *, code: str, message: str, details: Any | None = None) -> JSONResponse:
+def _json_api_error(
+    status_code: int, *, code: str, message: str, details: Any | None = None
+) -> JSONResponse:
     content: dict[str, Any] = {"error": {"code": code, "message": message}}
     if details is not None:
         content["error"]["details"] = details
@@ -585,3 +596,264 @@ async def trigger_batch_bias_analysis(limit: int = 10):
         articles_failed=result["articles_failed"],
         failed_article_ids=result.get("failed_article_ids"),
     )
+
+
+# Exploration endpoints (Epic 11, Story 11.8)
+class ExplorationEventResponse(BaseModel):
+    """Response for a single-event exploration refresh."""
+
+    event_id: int
+    skipped: bool
+    reason: str | None = None
+    entities_written: int = 0
+    relations_written: int = 0
+    relations_deleted: int = 0
+
+
+class ExplorationBackfillResponse(BaseModel):
+    """Response for one page of the exploration backfill."""
+
+    processed: int
+    entities_written: int
+    relations_written: int
+    next_offset: int
+    done: bool
+    skipped: bool = False
+    reason: str | None = None
+    total_events: int | None = None
+    entity_events_refreshed: int | None = None
+    skipped_no_title: int | None = None
+
+
+class ExplorationRefreshResponse(BaseModel):
+    """Response for the exploration refresh of all active events."""
+
+    skipped: bool = False
+    reason: str | None = None
+    active_events: int = 0
+    entity_events_refreshed: int = 0
+    entities_written: int = 0
+    relations_written: int = 0
+    relations_deleted: int = 0
+
+
+class ExplorationStatusResponse(BaseModel):
+    """Exploration table counts, last runs and cache statistics."""
+
+    enabled: bool
+    event_entities_rows: int
+    events_with_entities: int
+    entities_last_computed_at: str | None
+    event_relations_rows: int
+    events_with_relations: int
+    relations_last_computed_at: str | None
+    last_runs: dict[str, Any]
+    cache: dict[str, Any]
+
+
+@router.post(
+    "/trigger/exploration/{event_id}",
+    response_model=ExplorationEventResponse,
+)
+async def trigger_exploration_event(event_id: int):
+    """Recompute entities and related events for one event."""
+
+    service = get_exploration_service()
+    try:
+        result = await service.refresh_for_event(event_id)
+    except EventNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Exploration refresh failed: {exc}") from exc
+    return ExplorationEventResponse(**{"event_id": event_id, **result})
+
+
+@router.post(
+    "/trigger/exploration-backfill",
+    response_model=ExplorationBackfillResponse,
+)
+async def trigger_exploration_backfill(
+    limit: int = 100,
+    offset: int = 0,
+    include_archived: bool = True,
+    force: bool = False,
+):
+    """Backfill entities + relations for one page of events (ordered by id).
+
+    Repeat with ``offset=next_offset`` until ``done`` is true.
+
+    Args:
+        limit: Events per page (1-500)
+        offset: Page offset (>= 0)
+        include_archived: Also process archived events (default true)
+        force: Recompute entities even when they are up to date (needed once to fill
+            ``event_entities.article_ids`` of rows written before migration 004 added it)
+    """
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="offset must be >= 0")
+
+    service = get_exploration_service()
+    result = await service.backfill(
+        limit=limit,
+        offset=offset,
+        include_archived=include_archived,
+        force=force,
+    )
+    return ExplorationBackfillResponse(**result)
+
+
+@router.post(
+    "/trigger/exploration-refresh",
+    response_model=ExplorationRefreshResponse,
+)
+async def trigger_exploration_refresh():
+    """Recompute stale entities and related events for all active events."""
+
+    service = get_exploration_service()
+    result = await service.refresh_active()
+    return ExplorationRefreshResponse(**result)
+
+
+@router.get("/exploration/status", response_model=ExplorationStatusResponse)
+async def exploration_status():
+    """Row counts of event_entities/event_relations, last runs and cache statistics."""
+
+    service = get_exploration_service()
+    return ExplorationStatusResponse(**await service.status())
+
+
+# Propagandamodel-koppeling (Epic 11, Story 11.17)
+class PropagandaSyncResponse(BaseModel):
+    """Response for a propaganda-model sync run."""
+
+    skipped: bool
+    reason: str | None = None
+    forced: bool = False
+    db_path: str | None = None
+    db_mtime: str | None = None
+    version: str | None = None
+    entities: int = 0
+    relations: int = 0
+    sources: int = 0
+    aliases: int = 0
+
+
+class PropagandaStatusResponse(BaseModel):
+    """Propaganda-model sync configuration, file state, last sync and table counts."""
+
+    enabled: bool
+    db_path: str
+    db_exists: bool
+    db_mtime: str | None
+    interval_minutes: int
+    synced: dict[str, str]
+    up_to_date: bool
+    counts: dict[str, int]
+    last_run: dict[str, Any] | None
+
+
+@router.post("/trigger/propagandamodel-sync", response_model=PropagandaSyncResponse)
+async def trigger_propagandamodel_sync(force: bool = False):
+    """Sync the approved propaganda-model graph to the pm_* tables.
+
+    Skips when the database file did not change since the last sync, unless ``force=true``.
+    Returns 409 when the pm_* tables are not secured yet (run migration 005 first).
+    """
+
+    service = get_propaganda_sync_service()
+    try:
+        result = await service.sync(force=force)
+    except UnsecuredTargetError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Propaganda-model sync failed: {exc}") from exc
+    return PropagandaSyncResponse(**result)
+
+
+@router.get("/propagandamodel/status", response_model=PropagandaStatusResponse)
+async def propagandamodel_status():
+    """Configuration, database file state, last sync metadata, row counts and last run."""
+
+    service = get_propaganda_sync_service()
+    return PropagandaStatusResponse(**await service.status())
+
+
+# Wie is dit? (Epic 12): research of named entities by the propaganda-model agents
+class EntityResearchCycleResponse(BaseModel):
+    """Outcome of one entity research cycle (status, triage, queue, round)."""
+
+    skipped: bool
+    reason: str | None = None
+    status: dict[str, Any] | None = None
+    triage: dict[str, Any] | None = None
+    enqueue: dict[str, Any] | None = None
+    round_started: bool = False
+
+
+class EntityResearchKeyResponse(BaseModel):
+    """Outcome of researching one name now."""
+
+    key: str
+    found: bool
+    status: str | None = None
+    status_reason: str | None = None
+    role_category: str | None = None
+    priority: float | None = None
+    reason: str | None = None
+    triage: dict[str, Any] | None = None
+    enqueue: dict[str, Any] | None = None
+    round_started: bool = False
+
+
+class EntityResearchStatusResponse(BaseModel):
+    """Queue counts, daily budgets, the research agent, LinkedIn brake and last runs."""
+
+    enabled: bool
+    pm_db: str
+    pm_db_exists: bool
+    pm_server: bool
+    pm_token_present: bool
+    counts: dict[str, int]
+    budget: dict[str, int]
+    runner: dict[str, Any]
+    linkedin: dict[str, Any] | None = None
+    last_runs: dict[str, Any]
+    watermark: str | None = None
+
+
+@router.post("/trigger/entity-research", response_model=EntityResearchCycleResponse)
+async def trigger_entity_research():
+    """Run one cycle now: pull the research status, triage names, queue targets, start a round."""
+
+    try:
+        result = await get_entity_research_service().run_cycle()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Entity research failed: {exc}") from exc
+    return EntityResearchCycleResponse(**result)
+
+
+@router.post("/trigger/entity-research/{key}", response_model=EntityResearchKeyResponse)
+async def trigger_entity_research_key(key: str):
+    """Assess one name now (e.g. ``person:dilan-yesilgoz``) and queue it, ignoring budgets and
+    cooldown. Private persons and names that are not in the news are still never researched."""
+
+    if ":" not in key or key.partition(":")[0] not in ("person", "org", "actor"):
+        raise HTTPException(
+            status_code=400, detail="Key must be person:<slug>, org:<slug> or actor:<slug>"
+        )
+    try:
+        result = await get_entity_research_service().research_key(key)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Entity research failed: {exc}") from exc
+    if not result.get("found"):
+        raise HTTPException(status_code=404, detail=result.get("reason") or "Name not found")
+    return EntityResearchKeyResponse(**result)
+
+
+@router.get("/entity-research/status", response_model=EntityResearchStatusResponse)
+async def entity_research_status():
+    """Queue counts, budgets, the nieuws-scout runner, LinkedIn brake and the last runs."""
+
+    return EntityResearchStatusResponse(**await get_entity_research_service().status())
