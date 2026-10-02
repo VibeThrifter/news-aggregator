@@ -1,0 +1,51 @@
+"use client";
+
+import { useMemo } from "react";
+import useSWR from "swr";
+
+import { pmMatch, pmPaths } from "@/lib/api";
+import { eventActorAliases, eventOutletSeeds, followedOutletIds, matchActorIds } from "@/lib/explore/pm-seeds";
+import { exploreAuxSwrOptions } from "@/lib/swr-config";
+
+import { useExplore } from "../ExploreContext";
+
+/**
+ * Epic 13: routes (at most two steps) from every followed outlet — also those that did not bring this
+ * news — to the parties of this news. One request per news item, shared by every outlet balloon and
+ * the filters sheet.
+ */
+export function useWhyRoutes(enabled = true) {
+  const { exploration } = useExplore();
+  const { input } = exploration;
+  const demo = input.event.isDemo;
+  const newsOutletIds = useMemo(() => eventOutletSeeds(input).map((seed) => seed.id), [input]);
+  const from = useMemo(() => Array.from(new Set([...newsOutletIds, ...followedOutletIds()])).slice(0, 12), [newsOutletIds]);
+  const actors = useMemo(() => eventActorAliases(input), [input]);
+
+  const matches = useSWR(
+    enabled && actors.length ? ["pm-news-actors", input.event.id, demo] : null,
+    () => pmMatch(actors.flatMap((actor) => actor.aliases), { demo }),
+    exploreAuxSwrOptions,
+  );
+  const actorIds = useMemo(
+    () => (matches.data ? matchActorIds(actors, matches.data, new Set(from)).slice(0, 40) : null),
+    [actors, matches.data, from],
+  );
+  const routes = useSWR(
+    enabled && actorIds && actorIds.length ? ["why-routes", input.event.id, demo, from.join(","), actorIds.join(",")] : null,
+    () => pmPaths(from, actorIds as number[], { demo, maxHops: 2, limit: 2 }),
+    exploreAuxSwrOptions,
+  );
+
+  const settled = !matches.isLoading && !routes.isLoading;
+  return {
+    newsOutletIds,
+    actorIds,
+    paths: routes.data ?? null,
+    loading: enabled && (matches.isLoading || routes.isLoading),
+    /** No party of this news is in the model */
+    noActors: settled && (actors.length === 0 || (actorIds !== null && actorIds.length === 0)),
+    /** The routes could not be looked up (the database function is missing or the call failed) */
+    unavailable: settled && Boolean(actorIds?.length) && (Boolean(routes.error) || routes.data === null),
+  };
+}

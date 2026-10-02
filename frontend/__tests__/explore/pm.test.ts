@@ -18,6 +18,9 @@ import {
   relationFilters,
   relationsByFilter,
   relationsOf,
+  bySpecificity,
+  routeParts,
+  specificityOf,
   PM_EVENT_NODE,
 } from "@/lib/explore/pm-graph";
 
@@ -239,7 +242,7 @@ describe("undo and redo while building the graph", () => {
   });
 });
 
-describe("bundles: a few neighbours per filter, the rest as one +N", () => {
+describe("bundles: a few neighbours per question, the rest as one +N", () => {
   const TYPES = ["overheidsinstelling", "persoon", "denktank"];
   const hub: PmSlice = {
     meta: { version: "test", synced_at: "2026-09-30", entity_count: 15, relation_count: 14 },
@@ -247,7 +250,7 @@ describe("bundles: a few neighbours per filter, the rest as one +N", () => {
       { id: 200, name: "NOS", type: "omroep", primary_filter: "sourcing", degree: 40 },
       { id: 201, name: "De Telegraaf", type: "mediaorganisatie", primary_filter: "eigendom", degree: 20 },
       { id: 202, name: "NPO", type: "omroep", primary_filter: "eigendom", degree: 10 },
-      // Twelve sources of NOS: the lower the number, the more connected in the model
+      // Twelve sources of NOS: the lower the number, the more connected in the model (the less specific)
       ...Array.from({ length: 12 }, (_, i) => ({ id: 301 + i, name: `Bron ${i + 1}`, type: TYPES[i % 3], primary_filter: "sourcing", degree: 30 - i })),
     ],
     relations: [
@@ -289,43 +292,69 @@ describe("bundles: a few neighbours per filter, the rest as one +N", () => {
     expect(countBreakdown(hub.relations, 202, () => undefined).eigendom.types).toEqual({ onbekend: 1 });
   });
 
-  it("draws the top five of an expanded filter, shared sources always, and bundles the rest", () => {
+  it("draws the three most specific parties of an asked filter, shared sources always, and bundles the rest", () => {
     const scene = pmScene(merged, seeds, new Set([200]), { hiddenFilters: hidden, expandedFilters, latest: { id: 200, filters: ["sourcing"] } });
-    // Bron 1 links NOS and De Telegraaf; Bron 2-6 are the best connected of the rest
-    expect(ids(scene).sort((a, b) => a - b)).toEqual([200, 201, 202, 301, 302, 303, 304, 305, 306]);
+    // Bron 1 links NOS and De Telegraaf; Bron 6-8 are the least connected (most specific) of the rest.
+    // Nothing is drawn along Eigendom: NOS was not asked about it (no NPO)
+    expect(ids(scene).sort((a, b) => a - b)).toEqual([200, 201, 301, 306, 307, 308]);
     expect(scene.bundles).toHaveLength(1);
     const [bundle] = scene.bundles;
-    expect(bundle).toMatchObject({ anchorId: 200, filter: "sourcing", count: 6 }); // 12 in the model, 6 drawn
-    expect(bundle.members.map((relation) => relation.source_id)).toEqual([307, 308]); // loaded, most connected first
+    expect(bundle).toMatchObject({ anchorId: 200, filter: "sourcing", count: 8 }); // 12 in the model, 4 drawn
+    expect(bundle.members.map((relation) => relation.source_id)).toEqual([305, 304, 303, 302]); // loaded, most specific first
     const node = scene.nodes.find((item) => item.id === bundleNodeId(200, "sourcing"));
-    expect(node?.label).toBe("+6");
+    expect(node?.label).toBe("+8");
     expect(scene.edges.find((edge) => edge.target === bundleNodeId(200, "sourcing"))).toMatchObject({ kind: "bundle", source: "pm:200", directed: false });
     // The view glides to the expansion including its bundle; not expanded along Eigendom: no bundle there
     expect(scene.latestIds).toContain(bundleNodeId(200, "sourcing"));
     expect(scene.bundles.some((item) => item.filter === "eigendom")).toBe(false);
   });
 
-  it("shows one neighbour per filter around a node that is not expanded", () => {
+  it("draws nothing around a node you did not ask about", () => {
     const scene = pmScene(mergeNeighborhoods([local.neighborhood(200, 6)!]), [seeds[0]], new Set(), { hiddenFilters: hidden });
-    expect(ids(scene).sort((a, b) => a - b)).toEqual([200, 202, 301]);
+    expect(ids(scene)).toEqual([200]);
     expect(scene.bundles).toEqual([]);
   });
 
   it("draws small leftovers instead of bundling them", () => {
     const small = mergeNeighborhoods([local.neighborhood(200, 7, ["sourcing"])!]);
-    // 7 of 12 loaded: 5 drawn, 2 loaded + 5 not loaded left: still a bundle
-    expect(pmScene(small, [seeds[0]], new Set([200]), { hiddenFilters: hidden }).bundles[0].count).toBe(7);
-    // Everything loaded and only two left over: drawn
-    const complete = { ...local.neighborhood(200, 60, ["sourcing"])!, relations: local.neighborhood(200, 60, ["sourcing"])!.relations.slice(0, 7), truncated: false };
-    const scene = pmScene(mergeNeighborhoods([{ ...complete, filter_counts: { sourcing: 7 } }]), [seeds[0]], new Set([200]), { hiddenFilters: hidden });
-    expect(scene.bundles).toEqual([]);
-    expect(ids(scene)).toHaveLength(8);
+    // 7 of 12 loaded: 3 drawn, 4 loaded + 5 not loaded left: still a bundle
+    expect(pmScene(small, [seeds[0]], new Set([200]), { hiddenFilters: hidden }).bundles[0].count).toBe(9);
+    // Everything loaded and only one left over: drawn; two left over: a "+2" bundle
+    const sources = local.neighborhood(200, 60, ["sourcing"])!;
+    const complete = (n: number) => mergeNeighborhoods([{ ...sources, relations: sources.relations.slice(0, n), truncated: false, filter_counts: { sourcing: n } }]);
+    const four = pmScene(complete(4), [seeds[0]], new Set([200]), { hiddenFilters: hidden });
+    expect(four.bundles).toEqual([]);
+    expect(ids(four)).toHaveLength(5);
+    const five = pmScene(complete(5), [seeds[0]], new Set([200]), { hiddenFilters: hidden });
+    expect(five.bundles.map((bundle) => bundle.count)).toEqual([2]);
+    expect(ids(five)).toHaveLength(4);
   });
 
   it("always draws nodes taken out of a bundle", () => {
-    const scene = pmScene(merged, seeds, new Set([200]), { hiddenFilters: hidden, expandedFilters, revealed: new Set([308]) });
-    expect(ids(scene)).toContain(308);
-    expect(scene.bundles[0].count).toBe(5);
+    const scene = pmScene(merged, seeds, new Set([200]), { hiddenFilters: hidden, expandedFilters, revealed: new Set([302]) });
+    expect(ids(scene)).toContain(302);
+    expect(scene.bundles[0].count).toBe(7);
+  });
+
+  it("always draws the routes you asked for, also through filters that are switched off", () => {
+    // NOS - NPO (eigendom, not asked) - NOS ... a route from De Telegraaf to NPO via Bron 1 and NOS
+    const route = { from: 201, to: 202, rank: 1, hops: 3, nodes: [201, 301, 200, 202], relations: [1100, 1000, 900], historic: false, shared_with: [] };
+    const paths = {
+      routes: [route],
+      entities: hub.entities.filter((entity) => route.nodes.includes(entity.id)),
+      relations: hub.relations.filter((relation) => route.relations.includes(relation.id)),
+      truncated: false,
+      max_hops: 3,
+      at: "2026-10-01",
+    };
+    const graph = mergeNeighborhoods([local.neighborhood(201, 6)!], [paths]);
+    const offEigendom = new Set([...Array.from(hidden), "eigendom"]);
+    const scene = pmScene(graph, [seeds[1]], new Set(), { hiddenFilters: offEigendom, routeNodes: new Set(route.nodes), routeRelations: new Set(route.relations) });
+    expect(ids(scene).sort((a, b) => a - b)).toEqual([200, 201, 202, 301]);
+    expect(scene.edges.filter((edge) => edge.kind === "relation").map((edge) => edge.relationId as number).sort((a, b) => a - b)).toEqual([900, 1000, 1100]);
+    // Without the route the NPO relation is hidden with its filter
+    const plain = pmScene(graph, [seeds[1]], new Set(), { hiddenFilters: offEigendom });
+    expect(ids(plain)).not.toContain(202);
   });
 
   it("reuses and restricts neighbourhoods by their store key", () => {
@@ -365,5 +394,51 @@ describe("bundles: a few neighbours per filter, the rest as one +N", () => {
     const past = store().past.length;
     store().reveal([311], {});
     expect(store().past).toHaveLength(past);
+  });
+});
+
+describe("Epic 13: specific before connected, routes as undoable steps", () => {
+  it("ranks a strong tie with a small party before a weak tie with a hub", () => {
+    const hub = specificityOf({ id: 1, name: "ANP", degree: 60 }, 1, [{ relation_type: "beinvloeding", source_count: 5 }], "2026-10-01");
+    const specific = specificityOf({ id: 2, name: "Teldersstichting", degree: 4 }, 2, [{ relation_type: "financiering", certainty_label: "aannemelijk", source_count: 1 }], "2026-10-01");
+    expect([hub, specific].sort(bySpecificity).map((item) => item.name)).toEqual(["Teldersstichting", "ANP"]);
+    // Not yet existing at the date: last
+    const future = specificityOf({ id: 3, name: "Later", degree: 1 }, 3, [{ relation_type: "eigendom", active_from: "2030", source_count: 9 }], "2026-10-01");
+    expect(future.score).toBe(0);
+  });
+
+  it("adds routes as one undoable step and glides to them", () => {
+    const store = () => usePmStore.getState();
+    store().reset(-4);
+    const route = { from: 7, to: 3, rank: 1, hops: 2, nodes: [7, 1, 3], relations: [101, 100], historic: false, shared_with: [] };
+    const paths = {
+      routes: [route],
+      entities: slice.entities.filter((entity) => route.nodes.includes(entity.id)),
+      relations: slice.relations.filter((relation) => route.relations.includes(relation.id)),
+      truncated: false,
+      max_hops: 3,
+      at: "2026-10-01",
+    };
+    store().putRoutes("start", paths, { glide: false });
+    expect(store().activeRoutes).toEqual(["start"]);
+    expect(store().latestRoutes).toBeNull();
+    store().setLatest({ id: 7, filters: ["eigendom"] });
+
+    store().record();
+    store().putRoutes("pair:7:3", paths);
+    expect(store().activeRoutes).toEqual(["start", "pair:7:3"]);
+    expect(store().latestRoutes).toBe("pair:7:3");
+    expect(store().latest).toBeNull();
+    const parts = routeParts(store().activeRoutes.map((key) => store().routeSets[key]));
+    expect(Array.from(parts.nodes).sort((a, b) => a - b)).toEqual([1, 3, 7]);
+    expect(mergeNeighborhoods([], [paths]).relations.size).toBe(2);
+
+    store().undo();
+    expect(store().activeRoutes).toEqual(["start"]);
+    expect(store().latest).toEqual({ id: 7, filters: ["eigendom"] });
+    store().redo();
+    expect(store().activeRoutes).toEqual(["start", "pair:7:3"]);
+    // The fetched routes stay cached after undo, so redo needs no new request
+    expect(Object.keys(store().routeSets).sort()).toEqual(["pair:7:3", "start"]);
   });
 });

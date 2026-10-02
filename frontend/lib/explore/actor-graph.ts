@@ -1,13 +1,30 @@
 /**
- * Epic 12: the explorable ego-network on /actor/[slug]. A deliberately small scene builder next to
- * the event network's `pmScene`: the actor in the middle, the neighbours of every expanded node
- * (most connected first, up to a cap) and the relations between what is drawn. Pure and
- * deterministic.
+ * Epic 12/13: the explorable ego-network on /actor/[slug]. A deliberately small scene builder next to
+ * the event network's `pmScene`: the actor in the middle with, per filter, only its most *specific*
+ * neighbours (Epic 13: not the hubs with the most relations), the parties you asked about with the
+ * three most specific per question, the routes you asked for, and the relations between what is
+ * drawn. Pure and deterministic.
  */
 
 import type { PmEntity, PmRelation } from "@/lib/types";
 
-import { displayFilter, isDirected, isHistoric, isRelationVisible, otherEnd, pmNodeId, relationFilters, type PmMerged } from "./pm-graph";
+import {
+  bySpecificity,
+  displayFilter,
+  isDirected,
+  isHistoric,
+  isRelationVisible,
+  otherEnd,
+  pmNodeId,
+  relationFilterKeys,
+  relationFilters,
+  specificityOf,
+  type PmMerged,
+} from "./pm-graph";
+import { referenceDate } from "./pm-paths";
+
+/** Neighbours drawn per filter around the actor and per question around a party you asked about */
+export const ACTOR_SHOWN_PER_FILTER = 3;
 
 export interface ActorSceneNode {
   id: string;
@@ -19,7 +36,7 @@ export interface ActorSceneNode {
   expanded: boolean;
   isCenter: boolean;
   autoApproved: boolean;
-  /** Node it was expanded from (layout starts it nearby) */
+  /** Node it hangs from (layout starts it nearby) */
   parent?: string;
 }
 
@@ -39,44 +56,84 @@ export interface ActorSceneEdge {
 export interface ActorScene {
   nodes: ActorSceneNode[];
   edges: ActorSceneEdge[];
-  /** Neighbours that did not fit under the cap */
+  /** Neighbours of the actor that are not drawn (they are in the list below the network) */
   hidden: number;
 }
 
 export function actorScene(
   merged: PmMerged,
   centerId: number,
-  expanded: ReadonlySet<number>,
-  options: { hiddenFilters?: ReadonlySet<string>; maxNodes?: number; now?: Date } = {},
+  asked: ReadonlyMap<number, ReadonlySet<string>>,
+  options: {
+    hiddenFilters?: ReadonlySet<string>;
+    /** On routes you asked for: always drawn, relations always visible */
+    routeNodes?: ReadonlySet<number>;
+    routeRelations?: ReadonlySet<number>;
+    maxNodes?: number;
+    now?: Date;
+  } = {},
 ): ActorScene {
   const hidden = options.hiddenFilters ?? new Set<string>();
+  const routeNodes = options.routeNodes ?? new Set<number>();
+  const routeRelations = options.routeRelations ?? new Set<number>();
   const maxNodes = options.maxNodes ?? 60;
+  const at = referenceDate(null, options.now);
   if (!merged.entities.has(centerId)) return { nodes: [], edges: [], hidden: 0 };
 
   const relations = Array.from(merged.relations.values())
-    .filter((relation) => isRelationVisible(relation, hidden))
+    .filter((relation) => isRelationVisible(relation, hidden) || routeRelations.has(relation.id))
     .sort((a, b) => a.id - b.id);
-  const anchors = [centerId, ...Array.from(expanded).filter((id) => id !== centerId && merged.entities.has(id)).sort((a, b) => a - b)];
+  const anchors = [centerId, ...Array.from(asked.keys()).filter((id) => id !== centerId && merged.entities.has(id)).sort((a, b) => a - b)];
   const anchorSet = new Set(anchors);
 
-  // Candidates: neighbours of anchors, with the anchor they hang from (first anchor wins: the centre)
+  // Per anchor and filter the most specific neighbours: every filter around the actor, only the asked
+  // ones around other parties
+  const kept = new Set<number>(anchors);
   const parentOf = new Map<number, number>();
+  const centerNeighbours = new Set<number>();
   for (const anchor of anchors) {
+    const groups = new Map<string, Map<number, PmRelation[]>>();
     for (const relation of relations) {
       if (relation.source_id !== anchor && relation.target_id !== anchor) continue;
       const other = otherEnd(relation, anchor);
-      if (anchorSet.has(other) || !merged.entities.has(other) || parentOf.has(other)) continue;
-      parentOf.set(other, anchor);
+      if (!merged.entities.has(other)) continue;
+      if (anchor === centerId) centerNeighbours.add(other);
+      for (const filter of relationFilterKeys(relation)) {
+        if (hidden.has(filter)) continue;
+        if (anchor !== centerId && !asked.get(anchor)?.has(filter)) continue;
+        const group = groups.get(filter) ?? new Map<number, PmRelation[]>();
+        group.set(other, [...(group.get(other) ?? []), relation]);
+        groups.set(filter, group);
+      }
     }
+    Array.from(groups.keys())
+      .sort()
+      .forEach((filter) => {
+        Array.from((groups.get(filter) as Map<number, PmRelation[]>).entries())
+          .map(([id, list]) => specificityOf(merged.entities.get(id), id, list, at))
+          .sort(bySpecificity)
+          .slice(0, ACTOR_SHOWN_PER_FILTER)
+          .forEach(({ id }) => {
+            kept.add(id);
+            if (!parentOf.has(id) && !anchorSet.has(id)) parentOf.set(id, anchor);
+          });
+      });
   }
-  const degree = (id: number) => merged.entities.get(id)?.degree ?? 0;
-  const name = (id: number) => merged.entities.get(id)?.name ?? "";
-  const candidates = Array.from(parentOf.keys()).sort(
-    (a, b) =>
-      Number(parentOf.get(b) === centerId) - Number(parentOf.get(a) === centerId) || degree(b) - degree(a) || name(a).localeCompare(name(b), "nl") || a - b,
-  );
-  const room = Math.max(0, maxNodes - anchors.length);
-  const kept = new Set<number>([...anchors, ...candidates.slice(0, room)]);
+  routeNodes.forEach((id) => {
+    if (merged.entities.has(id)) kept.add(id);
+  });
+
+  // Safety cap: drop the least specific optional nodes (never anchors or route nodes)
+  const optional = Array.from(kept).filter((id) => !anchorSet.has(id) && !routeNodes.has(id));
+  const excess = kept.size - maxNodes;
+  if (excess > 0) {
+    optional
+      .map((id) => specificityOf(merged.entities.get(id), id, relations.filter((relation) => relation.source_id === id || relation.target_id === id), at))
+      .sort(bySpecificity)
+      .reverse()
+      .slice(0, excess)
+      .forEach(({ id }) => kept.delete(id));
+  }
 
   const nodes: ActorSceneNode[] = Array.from(kept).map((id) => {
     const entity = merged.entities.get(id) as PmEntity;
@@ -110,5 +167,6 @@ export function actorScene(
       autoApproved: Boolean(relation.auto_approved),
     }));
 
-  return { nodes, edges, hidden: Math.max(0, candidates.length - room) };
+  const drawnNeighbours = Array.from(centerNeighbours).filter((id) => kept.has(id)).length;
+  return { nodes, edges, hidden: Math.max(0, centerNeighbours.size - drawnNeighbours) };
 }

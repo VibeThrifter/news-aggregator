@@ -14,7 +14,7 @@ import {
   frameLabel,
   toneLabel,
 } from "@/lib/explore/labels";
-import { actorKeys, slugify } from "@/lib/explore/normalize";
+import { actorKeys } from "@/lib/explore/normalize";
 import { formatLag } from "@/lib/explore/timeline";
 import type { Clue } from "@/lib/explore/types";
 import { getCountryName } from "@/lib/format";
@@ -22,7 +22,7 @@ import { getCountryName } from "@/lib/format";
 import { useExplore } from "../ExploreContext";
 import { EntityText, OutletInline } from "../entity/EntityText";
 import { OutletChip } from "../outlet/OutletCard";
-import { Chip, Eyebrow, Favicon, Tag } from "../ui/primitives";
+import { Chip, Eyebrow, Tag } from "../ui/primitives";
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   if (children === null || children === undefined || children === "" || children === false) return null;
@@ -393,26 +393,6 @@ export function ClueBody({ clue }: { clue: Clue }) {
         </p>
       );
 
-    case "silent":
-      return (
-        <div className="space-y-2">
-          <p className="text-sm text-ink-800">Deze grote bronnen publiceerden (nog) niets dat bij dit event hoort:</p>
-          <div className="flex flex-wrap gap-1.5">
-            {body.outletNames.map((name) => (
-              <button
-                key={name}
-                type="button"
-                onClick={() => panel.open(`entiteit:${slugify(name) || name}`, { n: name, k: "org" })}
-                className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-paper-300 px-2.5 py-1 text-xs hover:bg-paper-100"
-              >
-                <Favicon name={name} size={14} /> {name}
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-ink-500">Voor zover in onze bronnen: misschien viel hun artikel in een ander event.</p>
-        </div>
-      );
-
     case "first":
       return (
         <ol className="space-y-2">
@@ -438,35 +418,6 @@ export function ClueBody({ clue }: { clue: Clue }) {
           </p>
           <Outlets keys={clue.outletKeys} />
         </div>
-      );
-
-    case "international":
-      return (
-        <ul className="space-y-2">
-          {body.articleIds.map((id) => {
-            const article = index.article(id);
-            const outlet = article ? index.outlet(article.outletKey) : null;
-            if (!article || !outlet) return null;
-            const type = outlet.profile?.ownershipType;
-            return (
-              <li key={id} className="space-y-1 rounded-xl bg-paper-100 p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <OutletChip outletKey={outlet.key} />
-                  {type && type !== "unknown" ? (
-                    <Tag tone={type === "state" ? "red" : "neutral"}>{OWNERSHIP_TYPE_LABELS[type]}</Tag>
-                  ) : null}
-                </div>
-                {exploration.input.event.isDemo ? (
-                  <p className="text-sm text-ink-800">{article.title}</p>
-                ) : (
-                  <a href={article.url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-accent-blue">
-                    {article.title}
-                  </a>
-                )}
-              </li>
-            );
-          })}
-        </ul>
       );
 
     case "country":

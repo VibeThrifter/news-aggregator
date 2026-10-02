@@ -49,7 +49,7 @@ export interface BalloonProps {
  * Speech-balloon popover with an arrow ("tekstballon"). Tap/click toggles; on desktop it can also
  * preview on hover. Stays inside the viewport and scrolls internally when long.
  */
-export function Balloon({ label, content, children, placement = "top", hover = false, open: controlledOpen, onOpenChange, width = 300 }: BalloonProps) {
+export function Balloon({ label, content, children, placement = "top", hover = false, open: controlledOpen, onOpenChange, width = 340 }: BalloonProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const open = controlledOpen ?? uncontrolledOpen;
   const setOpen = (next: boolean) => {

@@ -115,8 +115,21 @@ export const DEMO_EVENT: RawExploration = {
     art(-109, "NOS", U.nos2, "Onderzoek naar laagfrequent geluid nog niet klaar", "2026-09-29T07:45:00Z", 4),
     art(-110, "NU.nl", U.nu2, "Omwonenden Dijkerhoven stappen naar de rechter", "2026-09-29T10:10:00Z", 6),
     art(-111, "De Telegraaf", U.tel2, "Wethouder Verbeek kiest voor de toekomst", "2026-09-29T13:30:00Z", 7),
-    art(-112, "DW", U.dw1, "German wind developer NordVind expands in the Netherlands", "2026-09-29T16:05:00Z", null, true, "DE"),
-    art(-113, "VRT NWS", U.vrt1, "Nederlands windpark van NordVind ook in Vlaanderen omstreden", "2026-09-29T19:40:00Z", null, true, "BE"),
+    // Foreign articles: the Dutch gist the backend job "Article Digest" stores in source_metadata.digest
+    {
+      ...art(-112, "DW", U.dw1, "German wind developer NordVind expands in the Netherlands", "2026-09-29T16:05:00Z", null, true, "DE"),
+      digest: {
+        nl: "NordVind breidt uit naar Nederland: na parken in Duitsland en Vlaanderen is Dijkerhoven het eerste Nederlandse project. Het bedrijf rekent op meer opdrachten dankzij Nederlandse subsidies.",
+        basis: "text",
+      },
+    },
+    {
+      ...art(-113, "VRT NWS", U.vrt1, "Nederlands windpark van NordVind ook in Vlaanderen omstreden", "2026-09-29T19:40:00Z", null, true, "BE"),
+      digest: {
+        nl: "Ook in Vlaanderen stuit NordVind op verzet. Omwonenden van een gepland windpark vechten de vergunning aan, net als in Dijkerhoven.",
+        basis: "text",
+      },
+    },
   ],
   insight: {
     query: "",
@@ -312,23 +325,8 @@ Terwijl Nederlandse media zich richten op de lokale strijd, plaatst de Duitse om
     { entity_key: "person:henk-de-boer", name: "Henk de Boer", kind: "person", iso_code: null, aliases: ["henk-de-boer", "boer"], mention_count: 3, article_count: 2, article_ids: [-104, -110], outlet_counts: { AD: 2, "NU.nl": 1 }, salience: 0.04 },
     { entity_key: "country:de", name: "Duitsland", kind: "country", iso_code: "DE", aliases: ["de", "duitsland"], mention_count: 5, article_count: 4, article_ids: [-103, -105, -107, -112], outlet_counts: { "De Telegraaf": 2, "de Volkskrant": 1, NOS: 1, GeenStijl: 1 }, salience: 0.05 },
   ],
-  relations: [
-    {
-      related_event_id: -2,
-      score: 0.62,
-      reasons: [
-        { type: "entity", key: "org:nordvind", name: "NordVind", kind: "org" },
-        { type: "country", iso: "DE" },
-        { type: "topic", similarity: 0.58 },
-      ],
-      related_slug: "demo-2",
-      related_title: "Protest tegen windpark op zee bij Den Helder",
-      related_event_type: "politics",
-      related_article_count: 6,
-      related_first_seen_at: "2026-09-20T08:00:00Z",
-      related_last_updated_at: "2026-09-22T17:00:00Z",
-    },
-  ],
+  // One demo: no related demo event to follow ("Volg het spoor" shows its empty state)
+  relations: [],
   bias: [
     bias(-103, 18, 0.62, [
       sentence(0, "Dijkerhoven kan zich rijk rekenen: het windpark brengt het dorp jaarlijks miljoenen op.", "Opinionated Bias", "journalist", 0.78, "Een verwachting wordt als vaststaand feit gebracht."),
@@ -355,116 +353,11 @@ Terwijl Nederlandse media zich richten op de lokale strijd, plaatst de Duitse om
   availability: { entities: true, relations: true, bias: true },
 };
 
-/** Second, smaller demo event so related news and cross-event dossier suggestions can be tried. */
-export const DEMO_EVENT_2: RawExploration = {
-  event: {
-    id: -2,
-    slug: "demo-2",
-    event_type: "politics",
-    article_count: 6,
-    first_seen_at: "2026-09-20T08:00:00Z",
-    last_updated_at: "2026-09-22T17:00:00Z",
-    archived_at: null,
-  },
-  articles: [
-    art(-201, "NOS", "https://nos.nl/artikel/2600420-protest-tegen-windpark-op-zee", "Protest tegen windpark op zee", "2026-09-20T08:00:00Z", 4),
-    art(-202, "De Telegraaf", "https://www.telegraaf.nl/nieuws/1283100/vissers-varen-uit-tegen-windpark", "Vissers varen uit tegen windpark", "2026-09-20T10:30:00Z", 7),
-    art(-203, "de Volkskrant", "https://www.volkskrant.nl/nieuws-achtergrond/windpark-op-zee~c1d2e3f4/", "Windpark op zee: vissers tegen", "2026-09-21T09:15:00Z", 2),
-    art(-204, "NU.nl", "https://www.nu.nl/binnenland/6359000/vissers-protesteren-bij-den-helder.html", "Vissers protesteren bij Den Helder", "2026-09-21T12:00:00Z", 6),
-    art(-205, "GeenStijl", "https://www.geenstijl.nl/5241500/vissers-tegen-de-windmolenmaffia/", "Vissers tegen de windmolenmaffia", "2026-09-22T09:00:00Z", 8),
-    art(-206, "DW", "https://www.dw.com/en/dutch-fishermen-protest-nordvind-offshore-park/a-70100001", "Dutch fishermen protest NordVind offshore park", "2026-09-22T17:00:00Z", null, true, "DE"),
-  ],
-  insight: {
-    query: "",
-    generated_at: "2026-09-22T18:00:00Z",
-    llm_provider: "demo",
-    model: "demo",
-    summary: `Protest tegen windpark op zee bij Den Helder
-
-Tientallen vissersboten voeren uit uit protest tegen een windpark op zee van NordVind, meldt NOS. Volgens De Telegraaf vrezen vissers voor hun visgronden.
-
-**Vissers en natuur**
-
-De Volkskrant wijst erop dat natuurorganisaties het park juist steunen vanwege de rustgebieden tussen de turbines. GeenStijl spreekt van een "windmolenmaffia".`,
-    timeline: [
-      { time: "2026-09-20T07:00:00Z", headline: "Vissers varen uit bij Den Helder", sources: [], spectrum: "mainstream" },
-    ],
-    clusters: [
-      {
-        label: "Vissers in het nauw",
-        spectrum: "mainstream",
-        source_types: ["dagblad"],
-        summary: "Het park bedreigt het inkomen van vissers.",
-        characteristics: [],
-        sources: [
-          { title: "Vissers varen uit tegen windpark", url: "https://www.telegraaf.nl/nieuws/1283100/vissers-varen-uit-tegen-windpark", spectrum: "rechts", stance: "Vissers zijn de dupe" },
-          { title: "Protest tegen windpark op zee", url: "https://nos.nl/artikel/2600420-protest-tegen-windpark-op-zee", spectrum: "mainstream", stance: "Vissers laten van zich horen" },
-        ],
-      },
-      {
-        label: "Natuurwinst op zee",
-        spectrum: "links",
-        source_types: ["kwaliteitskrant"],
-        summary: "Rustgebieden tussen turbines zijn goed voor de natuur.",
-        characteristics: [],
-        sources: [
-          { title: "Windpark op zee: vissers tegen", url: "https://www.volkskrant.nl/nieuws-achtergrond/windpark-op-zee~c1d2e3f4/", spectrum: "links", stance: "Natuurorganisaties zien juist kansen" },
-        ],
-      },
-    ],
-    contradictions: [],
-    fallacies: [],
-    frames: [
-      { frame_type: "conflict", technique: "Vissers tegen ontwikkelaar", description: "Het verhaal draait om de strijd tussen vissers en NordVind.", sources: ["https://nos.nl/artikel/2600420-protest-tegen-windpark-op-zee"], spectrum: "mainstream", attribution: "eigen_framing" },
-    ],
-    coverage_gaps: [],
-    unsubstantiated_claims: [],
-    authority_analysis: [
-      {
-        authority: "NordVind",
-        authority_type: "bedrijf",
-        article_url: "https://www.telegraaf.nl/nieuws/1283100/vissers-varen-uit-tegen-windpark",
-        claimed_expertise: "Windparken op zee",
-        actual_role: "Ontwikkelaar",
-        potential_interests: ["Opbrengst"],
-        critical_questions: ["Welke afspraken zijn er met vissers gemaakt?"],
-      },
-    ],
-    media_analysis: [],
-    statistical_issues: [],
-    timing_analysis: null,
-    scientific_plurality: null,
-    involved_countries: [{ iso_code: "DE", name: "Germany", relevance: "NordVind is een Duits bedrijf." }],
-  },
-  entities: [
-    { entity_key: "org:nordvind", name: "NordVind", kind: "org", iso_code: null, aliases: ["nordvind"], mention_count: 9, article_count: 5, article_ids: [-201, -202, -203, -205, -206], outlet_counts: { NOS: 2, "De Telegraaf": 3, "de Volkskrant": 2, "NU.nl": 1, GeenStijl: 1 }, salience: 0.3 },
-    { entity_key: "place:den-helder", name: "Den Helder", kind: "place", iso_code: null, aliases: ["den-helder"], mention_count: 7, article_count: 5, article_ids: [-201, -202, -203, -204, -206], outlet_counts: { NOS: 2, "De Telegraaf": 2, "NU.nl": 2, "de Volkskrant": 1 }, salience: 0.24 },
-  ],
-  relations: [
-    {
-      related_event_id: -1,
-      score: 0.62,
-      reasons: [
-        { type: "entity", key: "org:nordvind", name: "NordVind", kind: "org" },
-        { type: "country", iso: "DE" },
-      ],
-      related_slug: "demo",
-      related_title: "Windpark Dijkerhoven splijt dorp en Den Haag",
-      related_event_type: "politics",
-      related_article_count: 13,
-      related_first_seen_at: "2026-09-28T06:12:00Z",
-      related_last_updated_at: "2026-09-29T19:40:00Z",
-    },
-  ],
-  bias: [],
-  availability: { entities: true, relations: true, bias: true },
-};
-
+/** There is exactly one demo: /event/demo. */
 export const DEMO_EVENTS: Record<string, RawExploration> = {
   demo: DEMO_EVENT,
-  "demo-2": DEMO_EVENT_2,
 };
 
 export function isDemoIdentifier(identifier: string | number): boolean {
-  return typeof identifier === "string" ? /^demo(-\d+)?$/.test(identifier) : identifier < 0;
+  return typeof identifier === "string" ? identifier === "demo" : identifier === DEMO_EVENT.event.id;
 }

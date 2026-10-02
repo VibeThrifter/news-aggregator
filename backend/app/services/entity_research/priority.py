@@ -99,6 +99,7 @@ def decide(
     pm_degree: int | None,
     is_foreign: bool = False,
     single_name: bool = False,
+    non_actor: bool = False,
     requested: bool = False,
     min_relations: int = 3,
     auto_threshold: float = 60.0,
@@ -112,6 +113,8 @@ def decide(
         )
     if category == PRIVE:
         return Decision(SKIP, 0.0, "Privépersoon — wordt niet uitgezocht")
+    if non_actor:
+        return Decision(SKIP, 0.0, "Geen actor (fotocredit of naslagwerk) — wordt niet uitgezocht")
     if kind == "person" and single_name:
         return Decision(
             SKIP, 0.0, "Alleen een voor- of achternaam — te onduidelijk om uit te zoeken"

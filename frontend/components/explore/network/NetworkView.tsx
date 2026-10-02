@@ -12,6 +12,7 @@ import { revealedTitle } from "@/lib/explore/clues";
 import { nameAliases } from "@/lib/explore/coverage";
 import {
   FILTERS,
+  filterAsk,
   filterColor,
   filterLabel,
   frameLabel,
@@ -23,12 +24,10 @@ import {
 import { layoutNetwork, type Positions } from "@/lib/explore/layout/network";
 import { eventLensScene, type EventLens, type SceneEdge, type SceneNode } from "@/lib/explore/network-scene";
 import {
-  ALL_FILTER_KEYS,
   bundleNodeId,
-  byProminence,
+  bySpecificity,
   countBreakdown,
   displayFilter,
-  hoodKey,
   isHistoric,
   isRelationVisible,
   otherEnd,
@@ -37,10 +36,10 @@ import {
   pmScene,
   PM_EVENT_NODE,
   PM_OTHER,
-  prominenceOf,
   relationFilterKeys,
   relationFilters,
   relationsOf,
+  specificityOf,
   type PmBundle,
   type PmSceneNode,
 } from "@/lib/explore/pm-graph";
@@ -52,10 +51,12 @@ import { exploreAuxSwrOptions } from "@/lib/swr-config";
 import { SPOOR_COLORS, dossierIds, useExplore } from "../ExploreContext";
 import { OutletCard } from "../outlet/OutletCard";
 import { Chip, Eyebrow, Tag } from "../ui/primitives";
+import { useToast } from "../ui/Toast";
 import type { CanvasEdge, CanvasNode } from "./NetworkCanvas";
 import { CoverageTeaser } from "../entity/ArticleMentions";
 import { WikiDescription } from "../entity/Wikipedia";
 import { AutoApprovedTag } from "./MiniEgoNetwork";
+import { PartySearch } from "./PartySearch";
 import { PmAttribution } from "./PmSection";
 import { bundleHoodKey, usePmExplorer } from "./usePmExplorer";
 
@@ -178,9 +179,12 @@ export function NetworkView() {
         hiddenFilters: pmx.hiddenFilters,
         expandedFilters: pmx.expandedFilters,
         revealed: pmx.revealed,
+        routeNodes: pmx.routeNodes,
+        routeRelations: pmx.routeRelations,
         eventLabel: "Dit nieuws",
         latest: pmx.latest,
       });
+      const drawnIds = new Set(pm.nodes.map((node) => node.id));
       const outletBySeed = new Map(pmx.seeds.filter((seed) => seed.outletKey).map((seed) => [pmNodeId(seed.id), seed.outletKey as string]));
       const parentOf = (node: PmSceneNode): string | undefined => {
         if (node.bundle) return pmNodeId(node.bundle.anchorId);
@@ -197,8 +201,13 @@ export function NetworkView() {
         ),
         eventEdges: null,
         bundles: pm.bundles,
-        // After an expansion the view glides to that node, its new neighbours and bundles
-        fitIds: pmx.latest ? pm.latestIds : null,
+        // After a question the view glides to that node, its new neighbours and bundles; after a
+        // route search to the route
+        fitIds: pmx.latestRouteNodes
+          ? pmx.latestRouteNodes.map(pmNodeId).filter((id) => drawnIds.has(id))
+          : pmx.latest
+            ? pm.latestIds
+            : null,
         nodes: pm.nodes.map((node) => {
           if (node.bundle) {
             return {
@@ -275,7 +284,24 @@ export function NetworkView() {
         arrow: DIRECTED_KINDS.has(edge.kind) && !edge.source.startsWith("ghost") && !edge.target.startsWith("ghost") ? ("end" as const) : null,
       })),
     };
-  }, [lens, pmx.merged, pmx.seeds, pmx.expanded, pmx.expandedFilters, pmx.revealed, pmx.hiddenFilters, pmx.latest, graph, clues, revealed, revealAll, index]);
+  }, [
+    lens,
+    pmx.merged,
+    pmx.seeds,
+    pmx.expanded,
+    pmx.expandedFilters,
+    pmx.revealed,
+    pmx.routeNodes,
+    pmx.routeRelations,
+    pmx.hiddenFilters,
+    pmx.latest,
+    pmx.latestRouteNodes,
+    graph,
+    clues,
+    revealed,
+    revealAll,
+    index,
+  ]);
 
   const canvasNodes = useMemo<CanvasNode[]>(() => {
     const previous = positionsRef.current[lens];
@@ -294,6 +320,23 @@ export function NetworkView() {
 
   const canvasEdges: CanvasEdge[] = scene.edges;
   const sceneIds = useMemo(() => new Set(scene.nodes.map((node) => node.id)), [scene]);
+  const toast = useToast();
+  /** Propaganda-model ids on screen, the news' own outlets and actors first (targets for routes) */
+  const screenIds = useMemo(() => {
+    const onScreen = scene.nodes.map((node) => node.id).filter((id) => id.startsWith("pm:")).map((id) => Number(id.slice(3)));
+    const seeds = pmx.seeds.map((seed) => seed.id).filter((id) => onScreen.includes(id));
+    return Array.from(new Set([...seeds, ...onScreen]));
+  }, [scene, pmx.seeds]);
+
+  /** A party from the search bar: in the graph with only its routes to what is on screen */
+  const addFromSearch = (id: number, name: string) => {
+    void pmx.addAndConnect(id, screenIds).then((found) => {
+      // With routes the view glides to them; without, open the party so you can ask about it
+      if (found) return;
+      goTo(pmNodeId(id));
+      toast(`${shortName(name)} staat erin, maar zonder route binnen drie stappen naar wat in beeld staat. Stel er een vraag over.`);
+    });
+  };
 
   /** Select a node and pan to it (from lists and the path) */
   const goTo = (nodeId: string) => {
@@ -305,7 +348,13 @@ export function NetworkView() {
     const label = scene.labels.get(nodeId) ?? "Knoop";
     if (lens === "propaganda") {
       if (nodeId === PM_EVENT_NODE) {
-        return [label, <p key="event" className="text-sm text-ink-700">Dit nieuws. Van hieruit lopen lijnen naar de bronnen en actoren die in het propagandamodel staan.</p>];
+        return [
+          label,
+          <p key="event" className="text-sm text-ink-700">
+            Dit nieuws, met de bronnen en actoren die in het propagandamodel staan, en alleen wat hen verbindt. Tik op een knoop om een vraag te
+            stellen of een verband te zoeken.
+          </p>,
+        ];
       }
       if (nodeId.startsWith("bundle:")) {
         const bundle = scene.bundles.find((item) => bundleNodeId(item.anchorId, item.filter) === nodeId);
@@ -315,7 +364,7 @@ export function NetworkView() {
       const pmId = Number(nodeId.slice(3));
       if (!pmx.merged.entities.has(pmId)) return null;
       const bundles = scene.bundles.filter((item) => item.anchorId === pmId);
-      return [label, <PmNodeTip key={nodeId} pmId={pmId} pmx={pmx} sceneIds={sceneIds} bundles={bundles} goTo={goTo} close={close} />];
+      return [label, <PmNodeTip key={nodeId} pmId={pmId} pmx={pmx} sceneIds={sceneIds} screenIds={screenIds} bundles={bundles} goTo={goTo} close={close} />];
     }
     const content = <EventNodeTip nodeId={nodeId} close={close} />;
     return [label, content];
@@ -360,7 +409,7 @@ export function NetworkView() {
 
   return (
     <div data-explore className="fixed inset-0 z-40 flex flex-col bg-paper-100">
-      <NetworkHeader lens={lens} onLens={(id) => { setPref("networkLens", id); select(null); }} onPick={(id) => void pmx.addAndExpand(id).then(() => goTo(pmNodeId(id)))} />
+      <NetworkHeader lens={lens} onLens={(id) => { setPref("networkLens", id); select(null); }} onPick={addFromSearch} />
 
       <div className="relative min-h-0 flex-1">
         {lens === "propaganda" ? <HistoryControls pmx={pmx} /> : null}
@@ -389,7 +438,8 @@ export function NetworkView() {
       </div>
 
       {lens === "propaganda" ? (
-        <div className="border-t border-paper-300 bg-paper-50 px-4 pb-[calc(env(safe-area-inset-bottom)+8px)] pt-2">
+        <div className="space-y-1 border-t border-paper-300 bg-paper-50 px-4 pb-[calc(env(safe-area-inset-bottom)+8px)] pt-2">
+          <p className="text-xs text-ink-600">Tik op een knoop: stel een vraag, verbind met wat je ziet of zoek een verband.</p>
           <PmAttribution />
         </div>
       ) : null}
@@ -397,7 +447,7 @@ export function NetworkView() {
   );
 }
 
-function NetworkHeader({ lens, onLens, onPick }: { lens: NetworkLens; onLens: (lens: NetworkLens) => void; onPick: (id: number) => void }) {
+function NetworkHeader({ lens, onLens, onPick }: { lens: NetworkLens; onLens: (lens: NetworkLens) => void; onPick: (id: number, name: string) => void }) {
   const { exploration, panel } = useExplore();
   const { input } = exploration;
   return (
@@ -527,7 +577,7 @@ function HistoryControls({ pmx }: { pmx: Pmx }) {
   );
 }
 
-function PmSearchBar({ onPick }: { onPick: (id: number) => void }) {
+function PmSearchBar({ onPick }: { onPick: (id: number, name: string) => void }) {
   const { exploration } = useExplore();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -543,7 +593,7 @@ function PmSearchBar({ onPick }: { onPick: (id: number) => void }) {
             setQuery(event.target.value);
             setOpen(true);
           }}
-          placeholder="Zoek een persoon, bedrijf of medium…"
+          placeholder="Zoek iemand en zie hoe die verbonden is…"
           className="min-h-[40px] w-full bg-transparent text-base outline-none sm:text-sm"
           aria-label="Zoek in het propagandamodel"
         />
@@ -561,7 +611,7 @@ function PmSearchBar({ onPick }: { onPick: (id: number) => void }) {
               <button
                 type="button"
                 onClick={() => {
-                  onPick(entity.id);
+                  onPick(entity.id, entity.name);
                   setOpen(false);
                   setQuery("");
                 }}
@@ -581,14 +631,16 @@ function PmSearchBar({ onPick }: { onPick: (id: number) => void }) {
 }
 
 /**
- * Tooltip of a propaganda-model node. One tap on "Breid uit" loads its neighbours via the filters that
- * are switched on in the legend; ▾ offers "alleen via …" for any other filter. The graph just grows:
- * a few neighbours per filter, the rest in a bundle ("+84").
+ * Tooltip of a propaganda-model node (Epic 13). Instead of unfolding everything around it you ask a
+ * question ("Wie betaalt?": the three most specific parties, the rest in a "+N" bundle), connect it
+ * to what is already on screen, or look for a route to another party. The graph only grows; every
+ * step can be undone.
  */
 function PmNodeTip({
   pmId,
   pmx,
   sceneIds,
+  screenIds,
   bundles,
   goTo,
   close,
@@ -596,42 +648,56 @@ function PmNodeTip({
   pmId: number;
   pmx: Pmx;
   sceneIds: ReadonlySet<string>;
+  /** Propaganda-model ids on screen, seeds first (targets for "Verbind met beeld") */
+  screenIds: number[];
   bundles: PmBundle[];
   goTo: (nodeId: string) => void;
   close: () => void;
 }) {
-  const { panel, pin } = useExplore();
-  const [menuOpen, setMenuOpen] = useState(false);
+  const { exploration, panel, pin } = useExplore();
+  const toast = useToast();
   const [listOpen, setListOpen] = useState(false);
+  const [finding, setFinding] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const entity = pmx.merged.entities.get(pmId) as PmEntity;
-  const { peek, visibleFilters } = pmx;
-  const setKey = hoodKey(pmId, visibleFilters);
+  const { peek } = pmx;
 
-  // How many neighbours "Breid uit" would show, and the counts per filter for the ▾ menu
+  // Counts per filter for the questions (one cheap call, cached)
   useEffect(() => {
-    void peek(pmId, visibleFilters);
-  }, [peek, pmId, visibleFilters, setKey]);
+    void peek(pmId, null);
+  }, [peek, pmId]);
 
-  const setHood = pmx.neighborhoods[setKey];
-  const allHood = pmx.neighborhoods[hoodKey(pmId, null)];
-  const known = relationsOf(pmx.merged, pmId, visibleFilters).filter((relation) => isRelationVisible(relation, pmx.hiddenFilters));
-  const total = setHood?.total ?? (allHood && !allHood.truncated ? known.length : undefined);
   const counts = Object.values(pmx.neighborhoods).find((hood) => hood.center.id === pmId && hood.filter_counts)?.filter_counts ?? {};
-  // Done when expanded along every filter that is switched on and has relations
-  const via = pmx.expandedFilters.get(pmId);
-  const wanted = visibleFilters ?? ALL_FILTER_KEYS.filter((key) => !pmx.hiddenFilters.has(key));
-  const done = pmx.expanded.has(pmId) && wanted.every((filter) => via?.has(filter) || !((counts[filter] ?? 0) > 0));
-  const options = [...FILTERS.map((filter) => ({ id: filter.id, label: filter.label, color: filter.color })), { id: PM_OTHER, label: "Overig", color: "#94a3b8" }].filter(
-    (filter) => (counts[filter.id] ?? 0) > 0,
-  );
+  const asked = pmx.expandedFilters.get(pmId);
+  const questions = [...FILTERS.map((filter) => ({ id: filter.id as string, color: filter.color })), { id: PM_OTHER, color: "#94a3b8" }]
+    .map((filter) => ({ ...filter, count: counts[filter.id] ?? 0, done: pmx.expanded.has(pmId) && Boolean(asked?.has(filter.id)) }))
+    .filter((filter) => filter.count > 0);
   const loading = pmx.isLoading(pmId);
-  const nothingVisible = total === 0;
-  const inView = known.filter((relation) => sceneIds.has(pmNodeId(otherEnd(relation, pmId))));
+  const inView = relationsOf(pmx.merged, pmId).filter(
+    (relation) =>
+      sceneIds.has(pmNodeId(otherEnd(relation, pmId))) && (isRelationVisible(relation, pmx.hiddenFilters) || pmx.routeRelations.has(relation.id)),
+  );
   const bundled = bundles.reduce((sum, bundle) => sum + bundle.count, 0);
+  const others = screenIds.filter((id) => id !== pmId);
 
-  const expand = (only?: string) => {
+  const connect = async () => {
+    setConnecting(true);
+    setMessage(null);
+    const found = await pmx.connect(pmId, others).catch(() => 0);
+    setConnecting(false);
+    if (found > 0) close();
+    else setMessage("Geen verband binnen drie stappen met wat in beeld staat. Stel een vraag of zoek een verband met iemand anders.");
+  };
+
+  const connectTo = (target: PmEntity) => {
     close();
-    void pmx.expand(pmId, only);
+    void pmx.connectTo(pmId, target.id).then((found) => {
+      // With routes the view glides to them; without, show the other party so you can ask about it
+      if (found) return;
+      goTo(pmNodeId(target.id));
+      toast(`Geen route binnen drie stappen tussen ${shortName(entity.name)} en ${shortName(target.name)}.`);
+    });
   };
 
   return (
@@ -665,53 +731,47 @@ function PmNodeTip({
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex overflow-hidden rounded-full bg-ink-900 text-white">
-          <button
-            type="button"
-            onClick={() => expand()}
-            disabled={done || nothingVisible || loading}
-            className="inline-flex min-h-[40px] items-center gap-1.5 pl-4 pr-3 text-sm font-semibold disabled:opacity-60"
-          >
-            {loading ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : done ? <Check size={14} aria-hidden="true" /> : null}
-            {done ? "Uitgebreid" : `Breid uit${total !== undefined ? ` · ${total}` : ""}`}
-          </button>
-          <button
-            type="button"
-            aria-expanded={menuOpen || nothingVisible}
-            aria-label="Uitbreiden via één filter"
-            onClick={() => setMenuOpen((open) => !open)}
-            className="flex min-h-[40px] w-11 items-center justify-center border-l border-white/20 hover:bg-white/10"
-          >
-            <ChevronDown size={16} className={`transition-transform ${menuOpen ? "rotate-180" : ""}`} aria-hidden="true" />
-          </button>
-        </div>
+      <div className="flex flex-wrap gap-2">
+        <Chip
+          tone="blue"
+          onClick={() => void connect()}
+          disabled={connecting || others.length === 0}
+          icon={connecting ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : undefined}
+        >
+          Verbind met beeld
+        </Chip>
+        <Chip onClick={() => setFinding((open) => !open)} aria-expanded={finding}>
+          Zoek verband met…
+        </Chip>
         <Chip onClick={() => panel.open(`pm:entity:${pmId}`)}>Meer weten</Chip>
       </div>
-
-      {nothingVisible ? <p className="text-xs text-ink-500">Geen verbanden via de filters die aan staan. Kies er een:</p> : null}
-      {done && bundles.length ? (
-        <p className="text-xs text-ink-500">De belangrijkste staan erin; de rest zit in {bundles.length === 1 ? "de bundel" : "de bundels"} met een +.</p>
+      {message ? <p className="text-xs text-ink-500">{message}</p> : null}
+      {finding ? (
+        <PartySearch exclude={pmId} onPick={connectTo} label={`Verband tussen ${shortName(entity.name)} en…`} demo={exploration.input.event.isDemo} />
       ) : null}
 
-      {menuOpen || nothingVisible ? (
-        <div role="group" aria-label="Alleen via" className="flex flex-wrap gap-1.5">
-          {options.length === 0 ? <p className="text-xs text-ink-500">Tellen…</p> : null}
-          {options.map((filter) => (
+      <div className="space-y-1.5">
+        <Eyebrow>Of stel een vraag</Eyebrow>
+        <div role="group" aria-label="Vragen" className="flex flex-wrap gap-1.5">
+          {questions.length === 0 ? <p className="text-xs text-ink-500">{loading ? "Tellen…" : "Geen verbanden in het model."}</p> : null}
+          {questions.map((question) => (
             <button
-              key={filter.id}
+              key={question.id}
               type="button"
-              onClick={() => expand(filter.id)}
-              className={`inline-flex min-h-[36px] items-center gap-1.5 rounded-full border px-3 text-xs font-semibold hover:bg-paper-100 ${
-                pmx.hiddenFilters.has(filter.id) ? "border-dashed border-paper-300 text-ink-500" : "border-paper-300 text-ink-800"
-              }`}
+              disabled={question.done}
+              onClick={() => {
+                close();
+                void pmx.ask(pmId, question.id);
+              }}
+              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-paper-300 px-2.5 text-xs font-semibold text-ink-800 hover:bg-paper-100 disabled:border-transparent disabled:bg-paper-100 disabled:text-ink-500"
             >
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: filter.color }} aria-hidden="true" />
-              {filter.label} · {counts[filter.id]}
+              {question.done ? <Check size={12} aria-hidden="true" /> : <span className="h-2 w-2 rounded-full" style={{ backgroundColor: question.color }} aria-hidden="true" />}
+              {filterAsk(question.id)} · {question.count}
             </button>
           ))}
         </div>
-      ) : null}
+        <p className="text-[11px] text-ink-400">Per vraag de drie meest specifieke; de rest in een bundel.</p>
+      </div>
 
       <CoverageTeaser aliases={nameAliases(entity.name)} onOpen={() => panel.open(`pm:entity:${pmId}`)} />
 
@@ -832,7 +892,7 @@ function PmBundleTip({
   }
   const viaFilter = Array.from(relations.values()).filter((relation) => relationFilterKeys(relation).includes(filter));
 
-  // Not drawn: per party with its relations, the hubs of the model first
+  // Not drawn: per party with its relations, the most specific first
   const byParty = new Map<number, PmRelation[]>();
   for (const relation of viaFilter) {
     const other = otherEnd(relation, anchorId);
@@ -840,8 +900,8 @@ function PmBundleTip({
     byParty.set(other, [...(byParty.get(other) ?? []), relation]);
   }
   const rows = Array.from(byParty.entries())
-    .map(([id, list]) => ({ entity: entities.get(id) as PmEntity, relations: list, rank: prominenceOf(entities.get(id), id, list) }))
-    .sort((x, y) => byProminence(x.rank, y.rank));
+    .map(([id, list]) => ({ entity: entities.get(id) as PmEntity, relations: list, rank: specificityOf(entities.get(id), id, list) }))
+    .sort((x, y) => bySpecificity(x.rank, y.rank));
 
   // With whom and how, over all relations via this filter in the model (or what is loaded, on an older database)
   const breakdown =

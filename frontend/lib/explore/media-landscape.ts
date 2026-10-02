@@ -198,7 +198,7 @@ export const DUTCH_OUTLETS: OutletProfile[] = [
 export const INTERNATIONAL_OUTLETS: OutletProfile[] = [
   intl("bbc", "BBC", ["bbc.com", "bbc.co.uk"], "GB", "public", "BBC"),
   intl("reuters", "Reuters", ["reuters.com"], "GB", "corporate", "Reuters"),
-  intl("ap", "Associated Press", ["apnews.com"], "US", "cooperative", "Associated Press"),
+  intl("ap", "Associated Press", ["apnews.com"], "US", "cooperative", "Associated Press", ["AP News"]),
   intl("cnn", "CNN", ["cnn.com"], "US", "corporate", "CNN"),
   intl("nytimes", "The New York Times", ["nytimes.com"], "US", "corporate", "The New York Times"),
   intl("washington-post", "The Washington Post", ["washingtonpost.com"], "US", "corporate", "The Washington Post"),
@@ -207,12 +207,12 @@ export const INTERNATIONAL_OUTLETS: OutletProfile[] = [
   intl("fox-news", "Fox News", ["foxnews.com"], "US", "corporate", "Fox News"),
   intl("politico", "Politico", ["politico.com", "politico.eu"], "US", "corporate", "Politico"),
   intl("guardian", "The Guardian", ["theguardian.com"], "GB", "trust", "The Guardian"),
-  intl("dw", "Deutsche Welle", ["dw.com"], "DE", "public", "Deutsche Welle"),
+  intl("dw", "Deutsche Welle", ["dw.com"], "DE", "public", "Deutsche Welle", ["DW"]),
   intl("spiegel", "Der Spiegel", ["spiegel.de"], "DE", "corporate", "Der Spiegel"),
   intl("france24", "France 24", ["france24.com"], "FR", "public", "France 24"),
   intl("le-monde", "Le Monde", ["lemonde.fr"], "FR", "corporate", "Le Monde"),
   intl("euronews", "Euronews", ["euronews.com"], "FR", "corporate", "Euronews"),
-  intl("vrt", "VRT NWS", ["vrt.be", "vrtnws.be"], "BE", "public", "VRT NWS"),
+  intl("vrt", "VRT NWS", ["vrt.be", "vrtnws.be"], "BE", "public", "VRT NWS", ["VRT"]),
   intl("standaard", "De Standaard", ["standaard.be"], "BE", "corporate", "De Standaard"),
   intl("nieuwsblad", "Het Nieuwsblad", ["nieuwsblad.be"], "BE", "corporate", "Het Nieuwsblad"),
   intl("hln", "HLN", ["hln.be"], "BE", "corporate", "Het Laatste Nieuws"),
@@ -237,8 +237,10 @@ function intl(
   country: string,
   ownershipType: OutletProfile["ownershipType"],
   wikipediaTitle: string,
+  /** Other names in feeds and in the analysis ("DW") */
+  aliases: string[] = [],
 ): OutletProfile {
-  return { key, name, aliases: [name], domains, country, ownershipType, wikipediaTitle, monitored: false };
+  return { key, name, aliases: [name, ...aliases], domains, country, ownershipType, wikipediaTitle, monitored: false };
 }
 
 export const ALL_OUTLETS: OutletProfile[] = [...DUTCH_OUTLETS, ...INTERNATIONAL_OUTLETS];

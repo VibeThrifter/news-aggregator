@@ -3,23 +3,29 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 
-import { pmMatch, pmNeighborhood } from "@/lib/api";
+import { pmMatch, pmNeighborhood, pmPaths } from "@/lib/api";
 import type { Exploration } from "@/lib/explore/exploration";
-import { actorKeys } from "@/lib/explore/normalize";
 import {
   expansionFilters,
   filterNeighborhood,
   hoodKey,
   hoodKeyFilters,
   mergeNeighborhoods,
-  visibleFilterKeys,
+  routeParts,
   type PmSeed,
 } from "@/lib/explore/pm-graph";
+import { pickRoutes } from "@/lib/explore/pm-paths";
+import { eventActorAliases, eventOutletSeeds, matchActorIds } from "@/lib/explore/pm-seeds";
 import { usePmStore } from "@/lib/explore/pm-store";
 
-import { compatibleMatches } from "./PmSection";
-
 const SEED_LIMIT = 6;
+/** Epic 13: the start shows only what connects the outlets and actors of the news (routes of <= 2 steps) */
+export const START_ROUTES = 10;
+/** "Verbind met beeld": the best few routes (<= 3 steps) to what is on screen */
+export const CONNECT_ROUTES = 5;
+/** "Zoek verband met …": routes between two chosen parties */
+export const PAIR_ROUTES = 3;
+
 /** Neighbours per filter when expanding (the most informative first): a few are drawn, the rest becomes a bundle */
 export const EXPAND_LIMIT = 12;
 /** What a bundle lists (the RPC caps at 60) */
@@ -44,6 +50,9 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
       hiddenFilters: store.hiddenFilters,
       latest: store.latest,
       revealed: store.revealed,
+      routeSets: store.routeSets,
+      activeRoutes: store.activeRoutes,
+      latestRoutes: store.latestRoutes,
       canUndo: store.past.length > 0,
       canRedo: store.future.length > 0,
     })),
@@ -59,6 +68,7 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
       setLoading: store.setLoading,
       showFilter: store.showFilter,
       setLatest: store.setLatest,
+      putRoutes: store.putRoutes,
       record: store.record,
       undo: store.undo,
       redo: store.redo,
@@ -93,33 +103,26 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
     if (usePmStore.getState().eventId === eventId) return;
     actions.reset(eventId);
     (async () => {
-      const seeds: PmSeed[] = [];
-      for (const outlet of input.outlets) {
-        if (!outlet.isInternational && outlet.profile?.pmEntityId) {
-          seeds.push({ id: outlet.profile.pmEntityId, outletKey: outlet.key, reason: "outlet" });
-        }
-      }
+      const seeds: PmSeed[] = eventOutletSeeds(input).map((seed) => ({ ...seed, reason: "outlet" as const }));
       // Actors: NER entities (people/organisations) and authorities from the analysis — exact aliases only
-      const actorAliases: { aliases: string[]; kind: "person" | "org" | null }[] = [
-        ...input.entities
-          .filter((entity) => entity.kind === "person" || entity.kind === "org")
-          .map((entity) => ({ aliases: entity.aliases, kind: entity.kind as "person" | "org" })),
-        ...(input.insight?.authority_analysis ?? []).map((authority) => ({ aliases: actorKeys(authority.authority).aliases, kind: null })),
-      ];
-      const matches = await pmMatch(actorAliases.flatMap((item) => item.aliases), { demo }).catch(() => []);
-      for (const item of actorAliases) {
-        const own = compatibleMatches(
-          matches.filter((match) => item.aliases.includes(match.alias)),
-          item.kind,
-        );
-        for (const match of own) {
-          if (!seeds.some((seed) => seed.id === match.entity_id)) seeds.push({ id: match.entity_id, reason: "actor" });
-        }
+      const actors = eventActorAliases(input);
+      const matches = await pmMatch(actors.flatMap((item) => item.aliases), { demo }).catch(() => []);
+      for (const id of matchActorIds(actors, matches, new Set(seeds.map((seed) => seed.id)))) {
+        seeds.push({ id, reason: "actor" });
       }
       if (usePmStore.getState().eventId !== eventId) return;
       const chosen = seeds.slice(0, 12);
       actions.setSeeds(chosen);
-      await Promise.all(chosen.map((seed) => load(seed.id, SEED_LIMIT, "seed")));
+      const ids = chosen.map((seed) => seed.id);
+      // The seeds themselves (counts, the node itself) and only what connects them: no fan of
+      // neighbours around every outlet (Epic 13: the network between things, not around one)
+      const [routes] = await Promise.all([
+        ids.length > 1 ? pmPaths(ids, ids, { demo, maxHops: 2, limit: 1 }).catch(() => null) : Promise.resolve(null),
+        ...chosen.map((seed) => load(seed.id, SEED_LIMIT, "seed")),
+      ]);
+      if (routes?.routes.length && usePmStore.getState().eventId === eventId) {
+        actions.putRoutes("start", pickRoutes(routes, START_ROUTES), { glide: false });
+      }
     })();
   }, [actions, demo, input, load]);
 
@@ -140,36 +143,94 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
   );
 
   /**
-   * Expand a node: its neighbours via the filters switched on in the legend, or via one chosen filter
-   * (which is then switched on). One request per filter, so every filter brings its own most important
-   * links; the graph draws a few per filter and bundles the rest ("+84").
+   * Ask a question about a node (Epic 13): its neighbours via one filter ("Wie betaalt?"), which is
+   * switched on in the legend. The graph draws the three most specific and bundles the rest ("+84").
+   * One undoable step.
    */
-  const expandNode = useCallback(
-    async (id: number, only?: string) => {
-      const store = usePmStore.getState();
-      if (only) actions.showFilter(only);
-      const filters = only ? [only] : expansionFilters(store.hiddenFilters);
-      actions.setLatest({ id, filters });
-      await Promise.all((filters ?? visibleFilterKeys(store.hiddenFilters)).map((filter) => expandVia(id, filter)));
+  const ask = useCallback(
+    async (id: number, filter: string) => {
+      actions.record();
+      actions.showFilter(filter);
+      actions.setLatest({ id, filters: [filter] });
+      await expandVia(id, filter);
     },
     [actions, expandVia],
   );
 
-  /** A user action: can be undone */
-  const expand = useCallback(
-    (id: number, only?: string) => {
-      actions.record();
-      return expandNode(id, only);
+  /**
+   * Routes from one node to others, added to the graph (and glided to). Returns how many were found;
+   * nothing changes when there are none (with `record`, the undo step is only made when something is
+   * added). A load that finishes after an undo/redo is dropped.
+   */
+  const addRoutes = useCallback(
+    async (key: string, from: number, to: number[], options: { maxHops: number; limit: number; max: number; record?: boolean }) => {
+      const targets = Array.from(new Set(to.filter((id) => id !== from))).slice(0, 40);
+      if (targets.length === 0) return 0;
+      const epoch = usePmStore.getState().epoch;
+      actions.setLoading(key, true);
+      try {
+        const result = await pmPaths([from], targets, { demo, maxHops: options.maxHops, limit: options.limit });
+        if (!result?.routes.length || usePmStore.getState().epoch !== epoch) return 0;
+        const picked = pickRoutes(result, options.max);
+        if (options.record) actions.record();
+        actions.putRoutes(key, picked);
+        return picked.routes.length;
+      } finally {
+        actions.setLoading(key, false);
+      }
     },
-    [actions, expandNode],
+    [actions, demo],
   );
 
-  // A focus from the URL (?focus=pm:<id>) becomes a seed and is expanded (part of the starting point)
+  /** "Verbind met beeld": only the best routes (<= 3 steps) from a node to what is already on screen. One undoable step. */
+  const connect = useCallback(
+    (id: number, onScreen: number[]) =>
+      addRoutes(`connect:${id}:${onScreen.slice().sort((a, b) => a - b).join(",")}`, id, onScreen, {
+        maxHops: 3,
+        limit: 1,
+        max: CONNECT_ROUTES,
+        record: true,
+      }),
+    [addRoutes],
+  );
+
+  /** "Zoek verband met …": the other party joins the graph with only the routes in between. One undoable step. */
+  const connectTo = useCallback(
+    async (id: number, targetId: number) => {
+      actions.record();
+      actions.addSeed({ id: targetId, reason: "focus" });
+      const [found] = await Promise.all([
+        addRoutes(`pair:${id}:${targetId}`, id, [targetId], { maxHops: 3, limit: PAIR_ROUTES, max: PAIR_ROUTES }),
+        load(targetId, SEED_LIMIT, "seed"),
+      ]);
+      return found;
+    },
+    [actions, addRoutes, load],
+  );
+
+  /** A party from the search bar: it joins the graph with only its routes to what is on screen. One undoable step. */
+  const addAndConnect = useCallback(
+    async (id: number, onScreen: number[]) => {
+      actions.record();
+      actions.addSeed({ id, reason: "focus" });
+      const [found] = await Promise.all([
+        addRoutes(`connect:${id}:${onScreen.slice().sort((a, b) => a - b).join(",")}`, id, onScreen, { maxHops: 3, limit: 1, max: CONNECT_ROUTES }),
+        load(id, SEED_LIMIT, "seed"),
+      ]);
+      return found;
+    },
+    [actions, addRoutes, load],
+  );
+
+  // A focus from the URL (?focus=pm:<id>) becomes a seed with its routes to this news (part of the
+  // starting point, added once the event's own seeds are known)
   useEffect(() => {
-    if (!focusPmId) return;
+    if (!focusPmId || !state.seeded) return;
     actions.addSeed({ id: focusPmId, reason: "focus" });
-    void expandNode(focusPmId);
-  }, [actions, focusPmId, expandNode]);
+    void load(focusPmId, SEED_LIMIT, "seed");
+    const others = usePmStore.getState().seeds.filter((seed) => seed.id !== focusPmId && seed.reason !== "focus").map((seed) => seed.id);
+    void addRoutes(`focus:${focusPmId}`, focusPmId, others, { maxHops: 3, limit: 1, max: CONNECT_ROUTES });
+  }, [actions, addRoutes, focusPmId, load, state.seeded]);
 
   /** The full list behind a bundle (cache only: opening a bundle does not change the graph). */
   const loadBundle = useCallback(
@@ -196,20 +257,20 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
     [load],
   );
 
+  const routeResults = useMemo(
+    () => state.activeRoutes.map((key) => state.routeSets[key]).filter(Boolean),
+    [state.activeRoutes, state.routeSets],
+  );
   const merged = useMemo(
-    () => mergeNeighborhoods(state.active.map((key) => state.neighborhoods[key]).filter(Boolean)),
-    [state.active, state.neighborhoods],
+    () => mergeNeighborhoods(state.active.map((key) => state.neighborhoods[key]).filter(Boolean), routeResults),
+    [state.active, state.neighborhoods, routeResults],
   );
-
-  /** Search result: add it to the graph and expand it (one undo step) */
-  const addAndExpand = useCallback(
-    (id: number) => {
-      actions.record();
-      actions.addSeed({ id, reason: "focus" });
-      return expandNode(id);
-    },
-    [actions, expandNode],
-  );
+  const routes = useMemo(() => routeParts(routeResults), [routeResults]);
+  /** Nodes of the routes added last: the view glides to them */
+  const latestRouteNodes = useMemo(() => {
+    const result = state.latestRoutes ? state.routeSets[state.latestRoutes] : null;
+    return result ? Array.from(new Set(result.routes.flatMap((route) => route.nodes))) : null;
+  }, [state.latestRoutes, state.routeSets]);
 
   /** Per expanded node the filters it was expanded along (from the neighbourhoods in the graph) */
   const expandedFilters = useMemo(() => {
@@ -242,11 +303,17 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
     /** Filters an expansion uses by default (null = all) */
     visibleFilters,
     latest: state.latest,
-    expand,
+    /** Epic 13: nodes and relations on the routes in the graph (always drawn) */
+    routeNodes: routes.nodes,
+    routeRelations: routes.relations,
+    latestRouteNodes,
+    ask,
+    connect,
+    connectTo,
+    addAndConnect,
     peek,
     loadBundle,
     reveal: actions.reveal,
-    addAndExpand,
     canUndo: state.canUndo,
     canRedo: state.canRedo,
     undo: actions.undo,

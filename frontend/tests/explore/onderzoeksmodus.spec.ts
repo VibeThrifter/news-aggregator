@@ -24,12 +24,15 @@ test.describe("Onderzoeksmodus (demo)", () => {
     });
   });
 
-  test("shows the LLM title, the demo banner and closed speech bubbles", async ({ page }) => {
+  test("shows the LLM title, the demo banner and every outlet's perspective right away", async ({ page }) => {
     await openDemo(page);
     await expect(page.getByText("Verzonnen voorbeeld.")).toBeVisible();
     await expect(page.getByText("Begin je onderzoek")).toBeVisible();
-    const closed = bubbles(page).getByRole("button", { name: /tik om te onthullen/ });
-    expect(await closed.count()).toBeGreaterThanOrEqual(8);
+    // No typing dots to tap away: each bubble says what the outlet says, under its perspective
+    const withPerspective = bubbles(page).getByRole("button", { name: /^[^,]+: / });
+    expect(await withPerspective.count()).toBeGreaterThanOrEqual(8);
+    await expect(bubbles(page).getByText("Economische kans voor het dorp")).toBeVisible();
+    await expect(bubbles(page).getByRole("button", { name: /tik om te onthullen/ })).toHaveCount(0);
   });
 
   test("switches lenses", async ({ page }) => {
@@ -42,17 +45,18 @@ test.describe("Onderzoeksmodus (demo)", () => {
     await expect(bubbles(page).getByRole("button", { name: /Tegenspraak/ }).first()).toBeVisible();
   });
 
-  test("tapping a bubble reveals its perspective, a second tap opens the balloon", async ({ page }) => {
+  test("one tap on a bubble opens its balloon and counts the perspective as found", async ({ page }) => {
     await openDemo(page);
-    const telegraaf = bubbles(page).getByRole("button", { name: "De Telegraaf, tik om te onthullen" });
-    await telegraaf.click();
-    await expect(bubbles(page).getByText("Economische kans voor het dorp")).toBeVisible();
-    await expect(page.getByText("1 van 59 aanwijzingen")).toBeVisible();
-
     await bubbles(page).getByRole("button", { name: /^De Telegraaf: / }).click();
+    await expect(page.getByText(/^1 van \d+ aanwijzingen$/)).toBeVisible();
     const balloon = page.getByRole("dialog", { name: "Over De Telegraaf" });
     await expect(balloon).toBeVisible();
     await expect(balloon.getByText("Aanwijzingen bij De Telegraaf")).toBeVisible();
+    // What it wrote: one sentence of the analysis, the rest on request
+    await expect(balloon.getByText(/De Telegraaf benadrukt de opbrengst/)).toBeVisible();
+    await expect(balloon.getByText(/niet kan achterblijven/)).toHaveCount(0);
+    await balloon.getByRole("button", { name: "Nog 1 zin" }).click();
+    await expect(balloon.getByText(/niet kan achterblijven/)).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(balloon).toBeHidden();
   });
@@ -147,25 +151,75 @@ test.describe("Onderzoeksmodus (demo)", () => {
     await expect(telegraaf).toHaveAttribute("aria-expanded", "true");
     await expect(here.getByText("Wethouder Verbeek kiest voor de toekomst")).toBeVisible();
 
-    // Other news: per outlet (who wrote what) or per news item
-    const elsewhere = sheet.getByRole("region", { name: "Ook in ander nieuws" });
-    await expect(elsewhere.getByRole("radio", { name: "Per medium" })).toHaveAttribute("aria-checked", "true");
-    await elsewhere.getByRole("button", { name: /^DW/ }).click();
-    await expect(elsewhere.getByText("Dutch fishermen protest NordVind offshore park")).toBeVisible();
-    await expect(elsewhere.getByRole("link", { name: /in: Protest tegen windpark op zee/ })).toBeVisible();
-    await elsewhere.getByRole("radio", { name: "Per nieuwsitem" }).click();
-    await expect(elsewhere.getByRole("link", { name: /^Protest tegen windpark op zee/ })).toBeVisible();
-
     // Search all articles
     await expect(sheet.getByRole("searchbox", { name: "Zoekterm voor alle artikelen" })).toHaveValue("NordVind");
     await sheet.getByRole("button", { name: "Zoek", exact: true }).click();
-    await expect(sheet.getByText(/3 artikelen met “NordVind”/)).toBeVisible();
+    await expect(sheet.getByText(/2 artikelen met “NordVind”/)).toBeVisible();
   });
 
-  test("follows the trail to a related event", async ({ page }) => {
+  test("chooses which Dutch and foreign outlets are in the map", async ({ page }) => {
     await openDemo(page);
-    await page.getByRole("link", { name: /Protest tegen windpark op zee bij Den Helder/ }).click();
-    await expect(page.getByRole("heading", { level: 1, name: "Protest tegen windpark op zee bij Den Helder" })).toBeVisible();
+    const picker = page.getByRole("group", { name: "Bronnen in de kaart" });
+    const dw = picker.getByRole("button", { name: "Deutsche Welle", exact: true });
+    await expect(dw).toHaveAttribute("aria-pressed", "false");
+    await expect(bubbles(page).getByRole("button", { name: /^Deutsche Welle[,:] / })).toHaveCount(0);
+    await dw.click();
+    await expect(dw).toHaveAttribute("aria-pressed", "true");
+    await expect(bubbles(page).getByRole("button", { name: /^Deutsche Welle[,:] / }).first()).toBeVisible();
+
+    // A Dutch outlet can be left out
+    await picker.getByRole("button", { name: "NOS", exact: true }).click();
+    await expect(bubbles(page).getByRole("button", { name: /^NOS, / })).toHaveCount(0);
+
+    // No separate page for foreign outlets any more; the choice is remembered
+    await expect(page.getByRole("button", { name: /buitenlandse bron/ })).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole("group", { name: "Bronnen in de kaart" }).getByRole("button", { name: "Deutsche Welle", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(bubbles(page).getByRole("button", { name: /^NOS, / })).toHaveCount(0);
+  });
+
+  test("an outlet the analysis did not classify goes with the perspective its headline leans to", async ({ page }) => {
+    await openDemo(page);
+    const picker = page.getByRole("group", { name: "Bronnen in de kaart" });
+    // VRT NWS ("Nederlands windpark van NordVind ook in Vlaanderen omstreden") leans to a perspective: estimated
+    await picker.getByRole("button", { name: "VRT NWS", exact: true }).click();
+    const vrt = bubbles(page).getByRole("button", { name: "VRT NWS, geschatte invalshoek" });
+    await expect(vrt).toContainText("geschatte invalshoek");
+    await vrt.click();
+    const balloon = page.getByRole("dialog", { name: "Over VRT NWS" });
+    await expect(balloon.getByText(/Geschatte invalshoek/)).toContainText("Economische kans voor het dorp");
+    await expect(balloon.getByText("Wat schreef VRT NWS?")).toBeVisible();
+    // A foreign outlet: what its article reports in Dutch (backend digest), no guesses of the summary,
+    // no foreign "aanwijzing"
+    await expect(balloon.getByText(/^Ook in Vlaanderen stuit NordVind op verzet/)).toBeVisible();
+    await expect(balloon.getByText(/De Vlaamse VRT meldt/)).toHaveCount(0);
+    await expect(balloon.getByText("Aanwijzingen bij VRT NWS")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
+    // An English headline has no clear lean: honestly "nog niet ingedeeld"
+    await picker.getByRole("button", { name: "Deutsche Welle", exact: true }).click();
+    const dw = bubbles(page).getByRole("button", { name: "Deutsche Welle, nog niet ingedeeld" });
+    await expect(dw).toBeVisible();
+    await expect(bubbles(page).getByText("Nog niet ingedeeld", { exact: true })).toBeVisible();
+    // ... and its balloon says what it wrote, in Dutch, without explanations or clues
+    await dw.click();
+    const dwBalloon = page.getByRole("dialog", { name: "Over Deutsche Welle" });
+    const gist = dwBalloon.getByRole("button", { name: /^NordVind breidt uit naar Nederland/ });
+    await expect(gist).toBeVisible();
+    await expect(dwBalloon.getByText(/invalshoek ingedeeld|Hieronder staat|Aanwijzingen bij|alleen de kop/)).toHaveCount(0);
+
+    // Tap the article: a bigger panel with the gist and the original headline
+    await gist.click();
+    const sheet = page.getByRole("dialog", { name: /^Deutsche Welle/ });
+    await expect(sheet.getByText("Wat staat erin?")).toBeVisible();
+    await expect(sheet.getByText(/Dijkerhoven het eerste Nederlandse project/)).toBeVisible();
+    await expect(sheet.getByText("In eigen woorden samengevat door de analyse.")).toBeVisible();
+    await expect(sheet.getByText("German wind developer NordVind expands in the Netherlands")).toBeVisible();
+    await page.goBack();
+    await expect(sheet).toBeHidden();
   });
 
   test("has no horizontal overflow and big enough tap targets", async ({ page }, testInfo) => {
@@ -184,7 +238,7 @@ test.describe("Onderzoeksmodus (demo)", () => {
   test("drags a bubble into the dossier", async ({ page, browserName }, testInfo) => {
     test.skip(browserName === "webkit", "CDP touch events are Chromium-only; covered by pixel-7");
     await openDemo(page);
-    const bubble = bubbles(page).getByRole("button", { name: "AD, tik om te onthullen" });
+    const bubble = bubbles(page).getByRole("button", { name: /^AD: / });
     // To the middle of the screen: the fixed dossier dock covers the bottom edge
     await bubble.evaluate((element) => element.scrollIntoView({ block: "center" }));
     const from = await bubble.boundingBox();

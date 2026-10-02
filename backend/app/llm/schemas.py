@@ -299,6 +299,23 @@ class BiasAnalysisPayload(BaseModel):
         return v if v is not None else []
 
 
+class ArticleDigestPayload(BaseModel):
+    """Dutch gist of one foreign article, in the model's own words ("Wat schreef …?")."""
+
+    kern: str = Field(
+        ...,
+        min_length=1,
+        max_length=600,
+        description="Hoogstens twee Nederlandse zinnen: wat het artikel meldt",
+    )
+
+    @field_validator("kern", mode="before")
+    @classmethod
+    def collapse_whitespace(cls, value: object) -> str:
+        """Single spaces, no surrounding whitespace."""
+        return " ".join(str(value or "").split())
+
+
 class KeywordExtractionPayload(BaseModel):
     """Lightweight payload for keyword extraction phase (pre-enrichment)."""
 
@@ -398,6 +415,7 @@ class InsightsPayload(BaseModel):
 
 
 __all__ = [
+    "ArticleDigestPayload",
     "AuthorityAnalysis",
     "BiasAnalysisPayload",
     "BiasAnalysisSummary",

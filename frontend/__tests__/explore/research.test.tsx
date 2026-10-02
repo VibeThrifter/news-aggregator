@@ -165,22 +165,33 @@ describe("mini ego-network", () => {
 });
 
 describe("actor page network scene", () => {
-  it("draws the actor, its neighbours and what expanded nodes add, with a cap", () => {
+  it("draws the actor with its most specific neighbours per filter, routes you asked for, and a cap", () => {
     const merged = mergeNeighborhoods([hood]);
-    const scene = actorScene(merged, 1, new Set([1]));
+    const scene = actorScene(merged, 1, new Map());
     expect(scene.nodes.find((node) => node.isCenter)?.label).toBe("DPG Media");
-    expect(scene.nodes).toHaveLength(13);
+    // Per filter the three least connected (most specific): eigendom 10, 12, 14; bronnen 11, 13, 15
+    expect(scene.nodes.filter((node) => !node.isCenter).map((node) => node.pmId).sort((a, b) => a - b)).toEqual([10, 11, 12, 13, 14, 15]);
+    expect(scene.hidden).toBe(6);
     expect(scene.edges.every((edge) => edge.source.startsWith("pm:") && edge.target.startsWith("pm:"))).toBe(true);
     expect(scene.edges.find((edge) => edge.relationId === 200)?.autoApproved).toBe(true);
 
-    const capped = actorScene(merged, 1, new Set([1]), { maxNodes: 5 });
+    const capped = actorScene(merged, 1, new Map(), { maxNodes: 5 });
     expect(capped.nodes).toHaveLength(5);
     expect(capped.hidden).toBe(8);
-    // Most connected neighbours first
-    expect(capped.nodes.filter((node) => !node.isCenter).map((node) => node.pmId)).toEqual([21, 20, 19, 18]);
+    // The least specific are dropped first
+    expect(capped.nodes.filter((node) => !node.isCenter).map((node) => node.pmId)).toEqual([10, 12, 14, 11]);
 
-    const hiddenEigendom = actorScene(merged, 1, new Set([1]), { hiddenFilters: new Set(["eigendom"]) });
+    // A route you asked for is drawn in full, also through a filter that is switched off
+    const withRoute = actorScene(merged, 1, new Map(), {
+      hiddenFilters: new Set(["sourcing"]),
+      routeNodes: new Set([1, 21]),
+      routeRelations: new Set([111]),
+    });
+    expect(withRoute.nodes.some((node) => node.pmId === 21)).toBe(true);
+    expect(withRoute.edges.some((edge) => edge.relationId === 111)).toBe(true);
+
+    const hiddenEigendom = actorScene(merged, 1, new Map(), { hiddenFilters: new Set(["eigendom"]) });
     expect(hiddenEigendom.edges.some((edge) => edge.filter === "eigendom")).toBe(false);
-    expect(actorScene(merged, 999, new Set())).toEqual({ nodes: [], edges: [], hidden: 0 });
+    expect(actorScene(merged, 999, new Map())).toEqual({ nodes: [], edges: [], hidden: 0 });
   });
 });

@@ -18,6 +18,7 @@ import type {
   PmMatch,
   PmMeta,
   PmNeighborhood,
+  PmPaths,
   EventDetailMeta,
   EventFeedMeta,
   EventListItem,
@@ -1031,7 +1032,7 @@ export async function getExploration(identifier: string | number): Promise<RawEx
       id, slug, event_type, article_count, first_seen_at, last_updated_at, archived_at,
       event_articles (
         articles ( id, title, url, source_name, published_at, is_international, source_country,
-                   spectrum:source_metadata->spectrum )
+                   spectrum:source_metadata->spectrum, digest:source_metadata->digest )
       ),
       llm_insights ( ${INSIGHT_COLUMNS} )
     `)
@@ -1060,6 +1061,7 @@ export async function getExploration(identifier: string | number): Promise<RawEx
       is_international: article.is_international ?? false,
       source_country: article.source_country ?? null,
       spectrum: article.spectrum ?? null,
+      digest: article.digest ?? null,
     }));
   const insightRow = Array.isArray(row.llm_insights) ? row.llm_insights[0] : row.llm_insights;
 
@@ -1348,6 +1350,24 @@ export async function pmNeighborhood(
 export async function pmDetails(kind: 'entity' | 'relation', id: number, options: { demo?: boolean } = {}): Promise<PmDetails | null> {
   if (isDemoPm(options.demo)) return (await localPm()).details(kind, id);
   return pmRpc<PmDetails>('pm_details', { p_kind: kind, p_id: id });
+}
+
+/**
+ * Epic 13: the best routes between two sets of entities (pm_paths, migration 007): the network
+ * between things instead of around one node. Null when the function does not exist yet.
+ */
+export async function pmPaths(
+  from: number[],
+  to: number[],
+  options: { demo?: boolean; maxHops?: number; limit?: number; at?: string | null } = {},
+): Promise<PmPaths | null> {
+  const fromIds = Array.from(new Set(from)).slice(0, 12);
+  const toIds = Array.from(new Set(to)).slice(0, 40);
+  if (fromIds.length === 0 || toIds.length === 0) return null;
+  if (isDemoPm(options.demo)) return (await localPm()).paths(fromIds, toIds, { maxHops: options.maxHops, limit: options.limit, at: options.at });
+  const args: Record<string, unknown> = { p_from: fromIds, p_to: toIds, p_max_hops: options.maxHops ?? 3, p_limit: options.limit ?? 2 };
+  if (options.at) args.p_at = options.at;
+  return pmRpc<PmPaths>('pm_paths', args);
 }
 
 // ---------------------------------------------------------------------------------------------

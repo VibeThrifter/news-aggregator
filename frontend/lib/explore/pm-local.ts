@@ -2,13 +2,14 @@
  * In-memory implementation of the propaganda-model RPC contract (migration 005), used for the demo
  * (demo-pm.json, a small slice of the real graph) and in tests. Mirrors pm_match / pm_search /
  * pm_neighborhood / pm_details / pm_meta_info, including the Epic 12 fields (pm_match.degree,
- * auto_approved on entities/relations, unreviewed on sources).
+ * auto_approved on entities/relations, unreviewed on sources), and pm_paths (Epic 13, migration 007).
  */
 
-import type { PmDetails, PmEntity, PmMatch, PmMeta, PmNeighborhood, PmRelation, PmSource } from "@/lib/types";
+import type { PmDetails, PmEntity, PmMatch, PmMeta, PmNeighborhood, PmPaths, PmRelation, PmSource } from "@/lib/types";
 
 import { slugify } from "./normalize";
 import { countBreakdown, countFilters, matchesFilters, relationFilters } from "./pm-graph";
+import { findPaths, type PathOptions } from "./pm-paths";
 
 export interface PmSlice {
   meta: PmMeta;
@@ -68,6 +69,8 @@ function stripRelation(relation: PmSlice["relations"][number]): PmRelation {
 
 export function createLocalPm(slice: PmSlice) {
   const entityById = new Map(slice.entities.map((entity) => [entity.id, entity]));
+  let stripped: { entities: PmEntity[]; relations: PmRelation[] } | null = null;
+  const graph = () => (stripped ??= { entities: slice.entities.map(strip), relations: slice.relations.map(stripRelation) });
 
   return {
     meta(): PmMeta {
@@ -128,6 +131,11 @@ export function createLocalPm(slice: PmSlice) {
         breakdown: countBreakdown(touching, entityId, (id) => entityById.get(id)?.type),
         filters: filters?.length ? filters : null,
       };
+    },
+
+    paths(from: number[], to: number[], options: PathOptions = {}): PmPaths {
+      const { entities, relations } = graph();
+      return findPaths(entities, relations, from, to, options);
     },
 
     details(kind: "entity" | "relation", id: number): PmDetails | null {

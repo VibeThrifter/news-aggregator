@@ -188,14 +188,6 @@ export function buildGraph(input: ExploreInput, clues: Clue[]): ExploreGraph {
         g.edge(event, id, "involves", reveal);
         break;
       }
-      case "international": {
-        if (body.country) {
-          const id = countryNode(body.country);
-          g.node(id, "country", getCountryName(body.country), { ...reveal, iso: body.country });
-          for (const key of clue.outletKeys) g.edge(outletNode(key), id, "involves", reveal);
-        }
-        break;
-      }
       default:
         break;
     }

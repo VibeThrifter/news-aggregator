@@ -2,20 +2,24 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Globe2, List, Zap } from "lucide-react";
+import { List, Zap } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 
 import {
   bubbleBoxes,
   bubbleGroupKey,
   buildBubbleScene,
+  isOutletShown,
   layoutBubbles,
+  selectBubbles,
   type Bubble,
   type BubbleGroup,
   type HeroLens,
 } from "@/lib/explore/layout/bubbles";
 import { truncate } from "@/lib/explore/summary";
 import { useExploreStore } from "@/lib/explore/store";
+import type { ExploreOutlet } from "@/lib/explore/types";
+import { getCountryFlag } from "@/lib/format";
 
 import { useExplore } from "../ExploreContext";
 import { OutletCard } from "../outlet/OutletCard";
@@ -67,8 +71,15 @@ export function BubbleMap() {
   );
   const { ref, width } = useContainerWidth();
   const [openBalloon, setOpenBalloon] = useState<string | null>(null);
+  const sources = useExploreStore((state) => state.events[String(eventId)]?.sources);
+  const setOutletShown = useExploreStore((state) => state.setOutletShown);
 
-  const scene = useMemo(() => buildBubbleScene(input, clues, index), [input, clues, index]);
+  const fullScene = useMemo(() => buildBubbleScene(input, clues, index), [input, clues, index]);
+  // Only the outlets the reader chose: Dutch ones by default, foreign ones when added
+  const scene = useMemo(
+    () => selectBubbles(fullScene, (bubble) => isOutletShown({ key: bubble.outletKey, isInternational: bubble.isInternational }, sources)),
+    [fullScene, sources],
+  );
   const groups: BubbleGroup[] = lens === "tegenspraak" ? scene.groupsByLens.invalshoek : scene.groupsByLens[lens];
   const colorByGroup = useMemo(() => {
     const map = new Map<string, string>();
@@ -77,44 +88,36 @@ export function BubbleMap() {
     return map;
   }, [scene]);
 
-  const openIds = useMemo(
-    () => new Set(scene.bubbles.filter((bubble) => bubble.perspectiveClueId && isRevealed(bubble.perspectiveClueId)).map((b) => b.id)),
-    [scene.bubbles, isRevealed],
-  );
   const layoutLens: HeroLens = lens === "tegenspraak" ? "invalshoek" : lens;
+  // The spectrum map only places outlets with a known position (never "in the middle" by default)
+  const unplaced = layoutLens === "spectrum" ? scene.bubbles.filter((bubble) => bubble.x === null && bubble.establishment === null) : [];
   const layout = useMemo(() => {
-    if (width === 0 || scene.bubbles.length === 0) return null;
+    const placeable = layoutLens === "spectrum" ? { ...scene, bubbles: scene.bubbles.filter((bubble) => bubble.x !== null || bubble.establishment !== null) } : scene;
+    if (width === 0 || placeable.bubbles.length === 0) return null;
     return layoutBubbles(
-      bubbleBoxes(scene, layoutLens, openIds),
+      bubbleBoxes(placeable, layoutLens),
       groups.map((group) => group.key),
       {
         width,
         seed: Math.abs(eventId) + 17,
         minHeight: layoutLens === "spectrum" ? 400 : undefined,
-        // Room for the label that is shown (hidden or discovered), so it is readable in full
-        labelWidths:
-          layoutLens === "spectrum"
-            ? undefined
-            : Object.fromEntries(
-                groups.map((group) => [group.key, labelWidth(!group.clueId || isRevealed(group.clueId) ? group.label : group.maskedLabel)]),
-              ),
+        // Room for the whole label, so it is readable in full
+        labelWidths: layoutLens === "spectrum" ? undefined : Object.fromEntries(groups.map((group) => [group.key, labelWidth(group.label)])),
       },
     );
-  }, [width, scene, layoutLens, openIds, groups, eventId, isRevealed]);
+  }, [width, scene, layoutLens, groups, eventId]);
 
+  /** One tap opens the balloon with details; what the bubble shows counts as found. */
   const onBubbleTap = (bubble: Bubble) => {
     if (!seenHints.includes("bubbles")) markHintSeen("bubbles");
-    if (bubble.perspectiveClueId && !isRevealed(bubble.perspectiveClueId)) {
-      reveal([bubble.perspectiveClueId]);
-      return false;
-    }
-    if (lens === "frame" && bubble.frameClueId && !isRevealed(bubble.frameClueId)) {
-      reveal([bubble.frameClueId]);
-    }
+    const found = [bubble.perspectiveClueId, lens === "frame" ? bubble.frameClueId : null].filter(
+      (id): id is string => Boolean(id) && !isRevealed(id as string),
+    );
+    if (found.length) reveal(found);
     return true;
   };
 
-  if (scene.bubbles.length === 0) {
+  if (fullScene.bubbles.length === 0) {
     return null;
   }
   // Until the first tap a hint sits at the bottom of the map: give it its own room
@@ -128,7 +131,7 @@ export function BubbleMap() {
           <h2 id="bubbles-title" className="font-serif text-xl font-bold text-ink-900">
             Wie zegt wat?
           </h2>
-          <p className="text-sm text-ink-500">Elke ballon is een bron. Tik om te horen wat ze zegt.</p>
+          <p className="text-sm text-ink-500">Elke ballon is een bron met haar invalshoek. Tik voor meer.</p>
         </div>
         <button
           type="button"
@@ -158,7 +161,21 @@ export function BubbleMap() {
         ))}
       </div>
 
-      {listMode ? (
+      <SourcePicker
+        outlets={input.outlets}
+        isShown={(outlet) => isOutletShown(outlet, sources)}
+        onToggle={(outlet) => setOutletShown(eventId, outlet, !isOutletShown(outlet, sources))}
+      />
+
+      {scene.bubbles.length === 0 ? (
+        <p className="rounded-2xl border border-dashed border-paper-300 p-4 text-sm text-ink-500">Kies hierboven een of meer bronnen.</p>
+      ) : null}
+
+      {lens === "tegenspraak" && scene.contradictions.length === 0 && scene.bubbles.length > 0 ? (
+        <p className="text-sm font-semibold text-ink-500">Geen tegenspraak gevonden — ook een bevinding.</p>
+      ) : null}
+
+      {scene.bubbles.length === 0 ? null : listMode ? (
         <BubbleList scene={scene} lens={layoutLens} onTap={onBubbleTap} />
       ) : (
         <div
@@ -172,7 +189,7 @@ export function BubbleMap() {
                 layoutLens === "spectrum" ? "bottom-3 right-3" : "bottom-3 left-1/2 -translate-x-1/2"
               }`}
             >
-              Tik op een ballon
+              Tik op een ballon voor meer
             </div>
           ) : null}
 
@@ -182,7 +199,6 @@ export function BubbleMap() {
             ? layout.groups.map((placed) => {
                 const group = groups.find((candidate) => candidate.key === placed.key);
                 if (!group) return null;
-                const discovered = group.clueId ? isRevealed(group.clueId) : true;
                 const color = colorByGroup.get(group.key) ?? "#94a3b8";
                 return (
                   <motion.div
@@ -197,7 +213,7 @@ export function BubbleMap() {
                       className="absolute -top-3 left-3 line-clamp-2 max-w-[calc(100%-24px)] rounded-[10px] px-2 py-0.5 text-[11px] font-semibold leading-tight text-white shadow"
                       style={{ backgroundColor: color }}
                     >
-                      {discovered ? group.label : group.maskedLabel}
+                      {group.label}
                     </span>
                   </motion.div>
                 );
@@ -213,7 +229,8 @@ export function BubbleMap() {
                 const placed = layout.bubbles.get(bubble.id);
                 const outlet = index.outlet(bubble.outletKey);
                 if (!placed || !outlet) return null;
-                const open = openIds.has(bubble.id);
+                // Not (yet) put in a perspective by the analysis: name and "nog niet ingedeeld"
+                const plain = !bubble.perspectiveClueId;
                 const color = colorByGroup.get(bubbleGroupKey(bubble, layoutLens === "spectrum" ? "invalshoek" : layoutLens)) ?? "#94a3b8";
                 return (
                   <motion.div
@@ -226,7 +243,7 @@ export function BubbleMap() {
                   >
                     <Balloon
                       label={`Over ${outlet.name}`}
-                      hover={open}
+                      hover
                       open={openBalloon === bubble.id}
                       onOpenChange={(next) => {
                         if (next) {
@@ -243,27 +260,28 @@ export function BubbleMap() {
                             ref={triggerRef}
                             {...props}
                             type="button"
-                            aria-label={open ? `${outlet.name}: ${bubble.stance ?? "standpunt"}` : `${outlet.name}, tik om te onthullen`}
+                            aria-label={
+                              plain
+                                ? `${outlet.name}, ${bubble.estimated ? "geschatte invalshoek" : "nog niet ingedeeld"}`
+                                : `${outlet.name}: ${bubble.stance ?? "standpunt"}`
+                            }
                             className="group relative block h-full w-full text-left"
                           >
                             <span
-                              className="animate-float relative flex h-full w-full items-center gap-2 rounded-[22px] border-2 bg-white px-2.5 shadow-bubble transition-colors"
+                              className={`animate-float relative flex h-full w-full items-center gap-2 rounded-[22px] border-2 bg-white px-2.5 shadow-bubble transition-colors ${
+                                bubble.estimated ? "border-dashed" : ""
+                              }`}
                               style={{ borderColor: color, animationDelay: `${(i % 7) * -0.6}s` }}
                             >
                               <Favicon name={outlet.name} domain={outlet.domain} size={20} />
-                              {open ? (
-                                <span className="line-clamp-2 text-[12px] font-medium leading-tight text-ink-800">
-                                  {truncate(bubble.stance ?? outlet.name, 70)}
+                              {plain ? (
+                                <span className="min-w-0 leading-tight">
+                                  <span className="block truncate text-[12px] font-semibold text-ink-800">{outlet.name}</span>
+                                  <span className="block truncate text-[11px] text-ink-500">{bubble.estimated ? "geschatte invalshoek" : "nog niet ingedeeld"}</span>
                                 </span>
                               ) : (
-                                <span className="flex items-center gap-1" aria-hidden="true">
-                                  {[0, 1, 2].map((dot) => (
-                                    <span
-                                      key={dot}
-                                      className="animate-typing h-1.5 w-1.5 rounded-full bg-ink-400"
-                                      style={{ animationDelay: `${dot * 0.18}s` }}
-                                    />
-                                  ))}
+                                <span className="line-clamp-3 text-[12px] font-medium leading-tight text-ink-800">
+                                  {truncate(bubble.stance ?? outlet.name, 90)}
                                 </span>
                               )}
                               {bubble.articleCount > 1 ? (
@@ -292,20 +310,57 @@ export function BubbleMap() {
       {layoutLens === "spectrum" && !listMode ? (
         <p className="text-xs text-ink-500">
           Posities zijn een redactionele inschatting: links–rechts en hoe gevestigd of alternatief een bron is.
+          {unplaced.length ? ` Zonder bekende positie: ${unplaced.map((bubble) => index.outlet(bubble.outletKey)?.name ?? bubble.outletKey).join(", ")}.` : ""}
         </p>
       ) : null}
-
-      {scene.internationalCount > 0 ? (
-        <button
-          type="button"
-          onClick={() => panel.open("spoor:buitenland")}
-          className="inline-flex min-h-[44px] items-center gap-2 rounded-full border border-paper-300 bg-paper-50 px-4 text-sm font-semibold text-ink-700 hover:bg-paper-100"
-        >
-          <Globe2 size={16} className="text-accent-blue" /> +{scene.internationalCount} buitenlandse{" "}
-          {scene.internationalCount === 1 ? "bron" : "bronnen"}
-        </button>
-      ) : null}
     </section>
+  );
+}
+
+/**
+ * Which outlets are in the map: the Dutch ones by default; foreign ones can be added (instead of a
+ * separate page), Dutch ones left out. Remembered per news item.
+ */
+function SourcePicker({
+  outlets,
+  isShown,
+  onToggle,
+}: {
+  outlets: ExploreOutlet[];
+  isShown: (outlet: ExploreOutlet) => boolean;
+  onToggle: (outlet: ExploreOutlet) => void;
+}) {
+  const dutch = outlets.filter((outlet) => !outlet.isInternational);
+  const foreign = outlets.filter((outlet) => outlet.isInternational);
+  const chip = (outlet: ExploreOutlet) => {
+    const on = isShown(outlet);
+    return (
+      <button
+        key={outlet.key}
+        type="button"
+        aria-pressed={on}
+        onClick={() => onToggle(outlet)}
+        className={`flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-semibold transition-colors ${
+          on ? "border-paper-300 bg-paper-50 text-ink-800 hover:bg-paper-100" : "border-dashed border-paper-300 text-ink-400 hover:text-ink-600"
+        }`}
+      >
+        <span className={on ? "" : "opacity-40 grayscale"}>
+          <Favicon name={outlet.name} domain={outlet.domain} size={16} />
+        </span>
+        {outlet.name}
+        {outlet.isInternational && outlet.country ? <span aria-hidden="true">{getCountryFlag(outlet.country)}</span> : null}
+      </button>
+    );
+  };
+  return (
+    <div role="group" aria-label="Bronnen in de kaart" className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-1">
+      <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Bronnen</span>
+      {dutch.map(chip)}
+      {foreign.length ? (
+        <span className="shrink-0 border-l border-paper-300 pl-2 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Buitenland</span>
+      ) : null}
+      {foreign.map(chip)}
+    </div>
   );
 }
 
@@ -319,13 +374,8 @@ function ContradictionLayer({
   onOpen: (clueId: string) => void;
 }) {
   const { isRevealed, reveal } = useExplore();
-  if (scene.contradictions.length === 0) {
-    return (
-      <p className="absolute inset-x-0 bottom-3 text-center text-xs font-semibold text-ink-500">
-        Geen tegenspraak gevonden — ook een bevinding.
-      </p>
-    );
-  }
+  // "Geen tegenspraak gevonden" is shown above the map, where it cannot cover a bubble
+  if (scene.contradictions.length === 0) return null;
   return (
     <>
       <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">

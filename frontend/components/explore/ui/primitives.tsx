@@ -28,7 +28,9 @@ export function Favicon({ name, domain, size = 20, className = "" }: { name: str
       height={size}
       loading="lazy"
       onError={() => setFailed(true)}
-      className={`shrink-0 rounded-sm ${className}`}
+      className={`shrink-0 rounded-sm object-contain ${className}`}
+      // Fixed size: Tailwind's `img { height: auto }` would let a flex row stretch the icon
+      style={{ width: size, height: size }}
       draggable={false}
     />
   );

@@ -57,7 +57,9 @@ from backend.app.services.entity_research.roles import (
     assess_organisation,
     assess_person,
     classify_word,
+    clean_person_name,
     infer_kind,
+    is_non_actor,
 )
 from backend.app.services.entity_research.runner import (
     NieuwsScoutRunner,
@@ -601,7 +603,9 @@ class EntityResearchService:
                     prominence=candidate.prominence,
                     pm_degree=info.degree if info else None,
                     is_foreign=assessment.is_foreign,
-                    single_name=kind == "person" and len(candidate.name.split()) < 2,
+                    single_name=kind == "person"
+                    and len(clean_person_name(candidate.name).split()) < 2,
+                    non_actor=is_non_actor(candidate.name),
                     requested=requested,
                     min_relations=self.settings.entity_research_min_pm_relations,
                     auto_threshold=self.settings.entity_research_auto_threshold,

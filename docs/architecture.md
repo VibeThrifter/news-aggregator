@@ -538,6 +538,25 @@ nooit; volgorde politici, journalisten, woordvoerders, bestuurders, organisaties
 wat de agent indient landt `voorgesteld`, de pm-poort keurt alleen neutrale structuurrelaties met
 bron-URL automatisch goed (terug te draaien); argumenten worden nooit automatisch gemerged.
 
+### Waarom zo? — verbanden tussen dingen, niet rond één ding (Epic 13)
+
+Het propagandanetwerk tekent niet meer alles rond een knoop, maar routes *tussen* dingen:
+
+```
+pm_paths(from[], to[], max_hops ≤ 3, limit, at)   (Supabase RPC, migratie 007)
+  = frontend/lib/explore/pm-paths.ts               (zelfde regels; demo + tests; SQL daartegen gevalideerd)
+      volgorde: sterkte soort verband × zekerheid × ½ als historisch × 1/√(1+graad) per tussenstation
+      shared_with: welke andere bronnen dezelfde uitleg hebben (onderscheidend vs gedeeld)
+eventnetwerk: start = dit nieuws + bronnen + actoren + routes ertussen (≤ 2 stappen)
+              knoop = "Verbind met beeld" · "Zoek verband met…" · vragen per filter (3 meest specifieke + bundel)
+actorpagina:  per filter de 3 meest specifieke, vragen, routes naar wie samen in het nieuws staat
+```
+
+Binnen een filter wint het meest *specifieke* verband (sterk, onderbouwd, actueel, met een partij die
+niet aan alles hangt), niet de partij met de meeste verbanden. Routes en vragen zijn stappen die je
+ongedaan kunt maken; routes blijven zichtbaar ook als hun filter in de legenda uit staat. Spec:
+`docs/stories/active/epic-13-waarom-zo.md`.
+
 ## Testing Requirements and Framework
 
 - **Unit Testing (pytest)**

@@ -2,7 +2,11 @@ import { buildExploration } from "@/lib/explore/exploration";
 import { DEMO_EVENT } from "@/lib/explore/fixtures/demo-event";
 import { eventLensScene } from "@/lib/explore/network-scene";
 
+import { SECOND_EVENT } from "./fixtures/second-event";
+
 const exploration = buildExploration(JSON.parse(JSON.stringify(DEMO_EVENT)));
+// The one demo has no related event; the test fixture does
+const withRelated = buildExploration(JSON.parse(JSON.stringify(SECOND_EVENT)));
 
 describe("event lens scenes", () => {
   it("hides findings behind ghosts until clues are revealed", () => {
@@ -23,7 +27,7 @@ describe("event lens scenes", () => {
     expect(actors.nodes.some((node) => node.kind === "entity" && node.label === "NordVind")).toBe(true);
     expect(actors.nodes.some((node) => node.id === "outlet:dw")).toBe(false);
 
-    const related = eventLensScene(exploration.graph, exploration.clues, new Set(), "gerelateerd", { revealAll: true });
+    const related = eventLensScene(withRelated.graph, withRelated.clues, new Set(), "gerelateerd", { revealAll: true });
     expect(related.nodes.some((node) => node.kind === "related")).toBe(true);
     expect(related.edges.every((edge) => related.nodes.some((node) => node.id === edge.source))).toBe(true);
   });

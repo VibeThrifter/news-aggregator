@@ -52,7 +52,7 @@ export const SPOREN: SpoorDefinition[] = [
   {
     id: "buitenland",
     question: "En het buitenland?",
-    intro: "Hoe brengen buitenlandse media dit verhaal, en welke landen spelen een rol?",
+    intro: "Welke landen spelen een rol in dit verhaal, en waarom?",
     icon: "Globe2",
   },
 ];
@@ -201,18 +201,25 @@ export interface FilterDefinition {
   id: FilterId;
   label: string;
   question: string;
+  /** Short question to explore one node along this filter (Epic 13: "Wie betaalt?") */
+  ask: string;
   /** Colour from propaganda-model web/huisstijl.css */
   color: string;
 }
 
 export const FILTERS: FilterDefinition[] = [
-  { id: "eigendom", label: "Eigendom", question: "Wie is de eigenaar?", color: "#e74c3c" },
-  { id: "advertentie", label: "Advertenties", question: "Wie betaalt de rekening?", color: "#f0a030" },
-  { id: "sourcing", label: "Bronnen", question: "Wie mag het verhaal vertellen?", color: "#3498db" },
-  { id: "flak", label: "Flak", question: "Wie oefent druk uit op de berichtgeving?", color: "#9b59b6" },
-  { id: "ideologie", label: "Ideologie", question: "Welk wereldbeeld is vanzelfsprekend?", color: "#2ecc71" },
-  { id: "tegenmacht", label: "Tegenmacht", question: "Wie houdt de macht in toom?", color: "#1abc9c" },
+  { id: "eigendom", label: "Eigendom", question: "Wie is de eigenaar?", ask: "Wie bezit wat?", color: "#e74c3c" },
+  { id: "advertentie", label: "Advertenties", question: "Wie betaalt de rekening?", ask: "Wie betaalt?", color: "#f0a030" },
+  { id: "sourcing", label: "Bronnen", question: "Wie mag het verhaal vertellen?", ask: "Wie praat mee?", color: "#3498db" },
+  { id: "flak", label: "Flak", question: "Wie oefent druk uit op de berichtgeving?", ask: "Wie valt aan?", color: "#9b59b6" },
+  { id: "ideologie", label: "Ideologie", question: "Welk wereldbeeld is vanzelfsprekend?", ask: "Welke kringen?", color: "#2ecc71" },
+  { id: "tegenmacht", label: "Tegenmacht", question: "Wie houdt de macht in toom?", ask: "Wie spreekt tegen?", color: "#1abc9c" },
 ];
+
+/** Short question per filter key, "overig" included (relations without a filter). */
+export function filterAsk(key: string): string {
+  return FILTERS.find((filter) => filter.id === key)?.ask ?? "Overige banden";
+}
 
 export const FILTER_BY_ID: Record<FilterId, FilterDefinition> = Object.fromEntries(
   FILTERS.map((filter) => [filter.id, filter]),
@@ -244,6 +251,15 @@ export const PM_RELATION_LABELS: Record<string, string> = {
   dienstverband: "is in dienst van",
   regulering: "reguleert",
   cooptatie: "coöpteert",
+  investering: "investeert in",
+  donor: "doneert aan",
+  woordvoerder_van: "is woordvoerder van",
+  citeert: "citeert",
+  framing: "stuurt de framing van",
+  intimidatie: "intimideert",
+  zelfcensuur: "past zelfcensuur toe voor",
+  lobbyt: "lobbyt bij",
+  algoritmische_filtering: "filtert algoritmisch",
 };
 
 export function pmRelationLabel(type: string): string {
@@ -271,6 +287,15 @@ const PM_RELATION_REVERSE_LABELS: Record<string, string> = {
   dienstverband: "heeft in dienst",
   regulering: "wordt gereguleerd door",
   cooptatie: "wordt gecoöpteerd door",
+  investering: "krijgt investeringen van",
+  donor: "krijgt donaties van",
+  woordvoerder_van: "heeft als woordvoerder",
+  citeert: "wordt geciteerd door",
+  framing: "krijgt framing van",
+  intimidatie: "wordt geïntimideerd door",
+  zelfcensuur: "is onderwerp van zelfcensuur bij",
+  lobbyt: "wordt belobbyd door",
+  algoritmische_filtering: "wordt algoritmisch gefilterd door",
 };
 
 export function pmRelationReverseLabel(type: string): string {

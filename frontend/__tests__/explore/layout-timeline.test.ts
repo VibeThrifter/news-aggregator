@@ -1,14 +1,19 @@
 import { deriveClues } from "@/lib/explore/clues";
 import { DEMO_EVENT } from "@/lib/explore/fixtures/demo-event";
+
+import { SECOND_EVENT } from "./fixtures/second-event";
 import { buildExploreInput } from "@/lib/explore/input";
 import {
-  BUBBLE_CLOSED,
   BUBBLE_OPEN,
+  BUBBLE_PLAIN,
   bubbleBoxes,
   buildBubbleScene,
+  isOutletShown,
   layoutBubbles,
+  selectBubbles,
   type BubbleBox,
 } from "@/lib/explore/layout/bubbles";
+import { useExploreStore } from "@/lib/explore/store";
 import { buildScrubberModel, firstReporters, formatLag, formatTimelineTime, parseTimelineTime } from "@/lib/explore/timeline";
 import { parseWikiSearch, parseWikiSummary, wikiSearchUrl, wikiSummaryUrl } from "@/lib/explore/wikipedia";
 
@@ -31,7 +36,7 @@ function boxes(count: number, groups: number, open = 0): BubbleBox[] {
   return Array.from({ length: count }, (_, i) => ({
     id: `b${i}`,
     group: `g${i % groups}`,
-    ...(i < open ? BUBBLE_OPEN : BUBBLE_CLOSED),
+    ...(i < open ? BUBBLE_OPEN : BUBBLE_PLAIN),
   }));
 }
 
@@ -54,11 +59,8 @@ describe("bubble layout", () => {
     expect(layout.groups).toHaveLength(groups);
   });
 
-  it("fits the dots of a closed bubble and makes room for readable group labels", () => {
-    // favicon 20 + gap 8 + three dots 26 + padding 20 + border 4
-    expect(BUBBLE_CLOSED.width).toBeGreaterThanOrEqual(78);
-
-    // "Zonder invalshoek": the halo is wide enough for the whole label ("Zonde…" before)
+  it("makes room for readable group labels", () => {
+    // "Nog niet ingedeeld": the halo is wide enough for the whole label (it was cut off as "Zonde…")
     const single = layoutBubbles(boxes(2, 1), ["g0"], { width: 328, seed: 5, labelWidths: { g0: 127 } });
     const [halo] = single.groups;
     expect(halo.lines).toBe(1);
@@ -73,7 +75,9 @@ describe("bubble layout", () => {
 
     // A long label wraps to two lines instead of widening its halo past its column
     const labelWidths = { g0: 210, g1: 60, g2: 127 };
-    const closed = layoutBubbles(boxes(12, 3), ["g0", "g1", "g2"], { width: 328, seed: 7, labelWidths });
+    // Narrow bubbles, so only the label could make a halo wider than its column
+    const narrow = Array.from({ length: 12 }, (_, i) => ({ id: `b${i}`, group: `g${i % 3}`, width: 80, height: 46 }));
+    const closed = layoutBubbles(narrow, ["g0", "g1", "g2"], { width: 328, seed: 7, labelWidths });
     const [wrapped, short] = closed.groups;
     expect(wrapped.lines).toBe(2);
     expect(short.lines).toBe(1);
@@ -113,14 +117,15 @@ describe("bubble layout", () => {
     const clues = deriveClues(input);
     const scene = buildBubbleScene(input, clues);
     expect(scene.bubbles.length).toBeGreaterThanOrEqual(8);
-    expect(scene.bubbles.every((bubble) => !bubble.outletKey.startsWith("dw"))).toBe(true);
+    // Foreign outlets get a bubble too; they are only shown when the reader adds them
+    expect(scene.bubbles.find((bubble) => bubble.outletKey.startsWith("dw"))?.isInternational).toBe(true);
     expect(scene.internationalCount).toBe(2);
     expect(scene.groupsByLens.invalshoek.map((group) => group.label)).toContain("Economische kans voor het dorp");
     expect(scene.contradictions).toHaveLength(2);
     expect(scene.groupsByLens.frame.some((group) => group.label === "Economisch")).toBe(true);
 
     // 2D spectrum map: links -> rechts (x) and gevestigd (top) -> alternatief (bottom) (y)
-    const spectrumBoxes = bubbleBoxes(scene, "spectrum", new Set());
+    const spectrumBoxes = bubbleBoxes(scene, "spectrum");
     const telegraaf = spectrumBoxes.find((box) => box.id.endsWith(":telegraaf"));
     expect(telegraaf?.xTarget).toBeCloseTo(0.7);
     expect(telegraaf?.yTarget).toBeCloseTo(0.15);
@@ -137,8 +142,69 @@ describe("bubble layout", () => {
     const geenstijl = layout.bubbles.get(spectrumBoxes.find((box) => box.id.endsWith(":geenstijl"))!.id)!;
     expect(volkskrant.x).toBeLessThan(geenstijl.x); // links left of rechts
 
-    const openBoxes = bubbleBoxes(scene, "invalshoek", new Set([scene.bubbles[0].id]));
-    expect(openBoxes[0].width).toBe(BUBBLE_OPEN.width);
+    // Perspectives are shown right away: bubbles with one are large enough for it
+    const boxes = bubbleBoxes(scene, "invalshoek");
+    expect(boxes.filter((box) => scene.bubbles.find((bubble) => bubble.id === box.id)?.perspectiveClueId).every((box) => box.width === BUBBLE_OPEN.width)).toBe(true);
+    expect(scene.bubbles.filter((bubble) => bubble.perspectiveClueId).every((bubble) => Boolean(bubble.stance))).toBe(true);
+  });
+});
+
+describe("choosing the outlets in the map", () => {
+  const input = buildExploreInput(DEMO_EVENT);
+  const scene = buildBubbleScene(input, deriveClues(input));
+  const shownWith = (selection?: { added: string[]; removed: string[] }) =>
+    selectBubbles(scene, (bubble) => isOutletShown({ key: bubble.outletKey, isInternational: bubble.isInternational }, selection));
+
+  it("shows the Dutch outlets by default, foreign ones when added and leaves out removed ones", () => {
+    const dw = input.outlets.find((outlet) => outlet.key.startsWith("dw"))!;
+    const nos = input.outlets.find((outlet) => outlet.key === "nos")!;
+    const standard = shownWith();
+    expect(standard.bubbles.some((bubble) => bubble.isInternational)).toBe(false);
+    expect(standard.bubbles.some((bubble) => bubble.outletKey === "nos")).toBe(true);
+
+    const chosen = shownWith({ added: [dw.key], removed: [nos.key] });
+    expect(chosen.bubbles.some((bubble) => bubble.outletKey === dw.key)).toBe(true);
+    expect(chosen.bubbles.some((bubble) => bubble.outletKey === "nos")).toBe(false);
+    // Groups without a chosen outlet disappear; every group left has a bubble
+    for (const group of chosen.groupsByLens.invalshoek) {
+      expect(chosen.bubbles.some((bubble) => `p${bubble.perspectiveIndex}` === group.key)).toBe(true);
+    }
+    // Contradiction lines only between outlets that are in the map
+    const ids = new Set(chosen.bubbles.map((bubble) => bubble.id));
+    expect(chosen.contradictions.every((line) => ids.has(line.from) && ids.has(line.to))).toBe(true);
+    expect(shownWith({ added: [], removed: input.outlets.map((outlet) => outlet.key) }).bubbles).toHaveLength(0);
+  });
+
+  it("gives outlets the analysis did not put in a perspective a plain bubble instead of typing dots", () => {
+    const plain = scene.bubbles.filter((bubble) => !bubble.perspectiveClueId);
+    expect(plain.length).toBeGreaterThan(0);
+    const boxes = bubbleBoxes({ ...scene, bubbles: plain }, "invalshoek");
+    expect(boxes.every((box) => box.width === BUBBLE_PLAIN.width)).toBe(true);
+  });
+
+  it("places them with the perspective their headlines lean to (estimate)", () => {
+    const input2 = buildExploreInput(SECOND_EVENT);
+    const scene2 = buildBubbleScene(input2, deriveClues(input2));
+    const vissers = scene2.groupsByLens.invalshoek.find((group) => group.label === "Vissers in het nauw")!;
+    for (const key of ["nu-nl", "geenstijl"]) {
+      const bubble = scene2.bubbles.find((item) => item.outletKey === key)!;
+      expect(bubble.estimated).toBe(true);
+      expect(`p${bubble.perspectiveIndex}`).toBe(vissers.key);
+    }
+    // Nothing left to put in "Nog niet ingedeeld"
+    expect(scene2.groupsByLens.invalshoek.some((group) => group.label === "Nog niet ingedeeld")).toBe(false);
+  });
+
+  it("remembers the choice per news item", () => {
+    const store = () => useExploreStore.getState();
+    store().setOutletShown(-9, { key: "dw", isInternational: true }, true);
+    store().setOutletShown(-9, { key: "nos", isInternational: false }, false);
+    expect(store().events["-9"].sources).toEqual({ added: ["dw"], removed: ["nos"] });
+    store().touchEvent(-9, { slug: "demo", title: "Demo" }); // a visit keeps it
+    expect(store().events["-9"].sources).toEqual({ added: ["dw"], removed: ["nos"] });
+    store().setOutletShown(-9, { key: "dw", isInternational: true }, false);
+    store().setOutletShown(-9, { key: "nos", isInternational: false }, true);
+    expect(store().events["-9"].sources).toEqual({ added: [], removed: [] });
   });
 });
 

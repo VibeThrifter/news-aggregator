@@ -17,6 +17,7 @@ const BiasDeckSheet = dynamic(() => import("./bias/BiasDeckSheet").then((m) => m
 const ModelSheet = dynamic(() => import("./network/ModelSheet").then((m) => m.ModelSheet), { ssr: false });
 const PmDetailsSheet = dynamic(() => import("./network/PmDetailsSheet").then((m) => m.PmDetailsSheet), { ssr: false });
 const FiltersSheet = dynamic(() => import("./network/FiltersSheet").then((m) => m.FiltersSheet), { ssr: false });
+const ArticleSheet = dynamic(() => import("./article/ArticleSheet").then((m) => m.ArticleSheet), { ssr: false });
 
 /** Renders the sheet that belongs to the ?p= URL parameter. */
 export function PanelHost() {
@@ -38,5 +39,6 @@ export function PanelHost() {
   }
   if (current.startsWith("entiteit:")) return <EntitySheet entityKey={current.slice("entiteit:".length)} />;
   if (current.startsWith("bias:")) return <BiasDeckSheet outletKey={current.slice("bias:".length)} />;
+  if (current.startsWith("artikel:")) return <ArticleSheet articleId={Number(current.slice("artikel:".length))} />;
   return null;
 }

@@ -145,7 +145,7 @@ export function ActorScreen({ slug }: { slug: string }) {
               </div>
             </div>
           ) : pmId !== null && entity ? (
-            <ActorNetwork pmId={pmId} slug={resolved.slug} demo={demo} />
+            <ActorNetwork pmId={pmId} slug={resolved.slug} demo={demo} aliases={aliases} />
           ) : (
             <p className="rounded-2xl border border-paper-300 bg-paper-50 p-4 text-sm text-ink-700">
               {name} staat (nog) niet in het propagandamodel. Zodra het uitzoeken iets oplevert, verschijnt hier het netwerk.

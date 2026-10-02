@@ -9,6 +9,7 @@ import { forceSimulation, forceX, forceY, type SimulationNodeDatum } from "d3-fo
 
 import { ArticleIndex } from "../input";
 import { frameLabel } from "../labels";
+import { perspectiveEstimates } from "../nearest";
 import { lcg } from "../normalize";
 import type { Clue, ExploreInput } from "../types";
 
@@ -17,6 +18,10 @@ export type HeroLens = "invalshoek" | "spectrum" | "frame" | "tegenspraak";
 export interface Bubble {
   id: string;
   outletKey: string;
+  /** Foreign outlet: only in the map when the reader adds it */
+  isInternational: boolean;
+  /** Not put in a perspective by the analysis; placed with the one its headlines lean to (estimate) */
+  estimated: boolean;
   /** Perspective index (-1 when the event has no clusters) */
   perspectiveIndex: number;
   perspectiveClueId: string | null;
@@ -46,6 +51,9 @@ export interface ContradictionLine {
   topic: string;
   from: string;
   to: string;
+  /** The outlets on either side (the line is drawn between one bubble of each) */
+  outletsA: string[];
+  outletsB: string[];
 }
 
 export interface BubbleScene {
@@ -56,7 +64,7 @@ export interface BubbleScene {
   internationalCount: number;
 }
 
-/** Build the bubbles of an event (Dutch outlets only; international outlets are summarised). */
+/** Build the bubbles of an event: one per (perspective, outlet), Dutch and foreign (see selectBubbles). */
 export function buildBubbleScene(input: ExploreInput, clues: Clue[], index = new ArticleIndex(input)): BubbleScene {
   const perspectiveClues = clues.filter((clue) => clue.body.type === "perspective");
   const frameClues = clues.filter((clue) => clue.body.type === "frame");
@@ -69,21 +77,23 @@ export function buildBubbleScene(input: ExploreInput, clues: Clue[], index = new
   }
 
   const bubbles: Bubble[] = [];
-  const dutch = input.outlets.filter((outlet) => !outlet.isInternational);
   const covered = new Set<string>();
 
   for (const clue of perspectiveClues) {
     if (clue.body.type !== "perspective") continue;
     for (const stance of clue.body.stances) {
       const outlet = index.outlet(stance.outletKey);
-      if (!outlet || outlet.isInternational) continue;
+      if (!outlet) continue;
       covered.add(outlet.key);
       bubbles.push({
         id: `${clue.body.index}:${outlet.key}`,
         outletKey: outlet.key,
+        isInternational: outlet.isInternational,
         perspectiveIndex: clue.body.index,
         perspectiveClueId: clue.id,
-        stance: stance.stance,
+        estimated: false,
+        // Shown right away; the perspective itself when the analysis gives no words for this outlet
+        stance: stance.stance?.trim() || clue.body.cluster.label,
         articleCount: outlet.articleIds.length,
         spectrum: outlet.spectrum,
         isAlternative: outlet.isAlternative,
@@ -94,13 +104,18 @@ export function buildBubbleScene(input: ExploreInput, clues: Clue[], index = new
       });
     }
   }
-  // Outlets without a perspective still get a bubble (group "Zonder invalshoek")
-  for (const outlet of dutch) {
+  // Outlets the analysis did not put in a perspective go with the one their headlines lean to; only
+  // without a clear winner in the group "Nog niet ingedeeld"
+  const estimates = perspectiveEstimates(input, clues, index);
+  for (const outlet of input.outlets) {
     if (covered.has(outlet.key)) continue;
+    const estimate = estimates.get(outlet.key);
     bubbles.push({
-      id: `-1:${outlet.key}`,
+      id: `${estimate ? `e${estimate.index}` : "-1"}:${outlet.key}`,
       outletKey: outlet.key,
-      perspectiveIndex: -1,
+      isInternational: outlet.isInternational,
+      estimated: Boolean(estimate),
+      perspectiveIndex: estimate ? estimate.index : -1,
       perspectiveClueId: null,
       stance: null,
       articleCount: outlet.articleIds.length,
@@ -120,7 +135,7 @@ export function buildBubbleScene(input: ExploreInput, clues: Clue[], index = new
     clueId: clue.id,
   }));
   if (bubbles.some((bubble) => bubble.perspectiveIndex === -1)) {
-    invalshoek.push({ key: "p-1", label: "Zonder invalshoek", maskedLabel: "Zonder invalshoek", clueId: null });
+    invalshoek.push({ key: "p-1", label: "Nog niet ingedeeld", maskedLabel: "Nog niet ingedeeld", clueId: null });
   }
 
   const frameGroups = new Map<string, BubbleGroup>();
@@ -145,7 +160,14 @@ export function buildBubbleScene(input: ExploreInput, clues: Clue[], index = new
         clue.body.type === "contradiction" && clue.body.outletsB.includes(bubble.outletKey) && bubble.id !== from?.id,
     );
     if (from && to) {
-      contradictions.push({ clueId: clue.id, topic: clue.body.contradiction.topic, from: from.id, to: to.id });
+      contradictions.push({
+        clueId: clue.id,
+        topic: clue.body.contradiction.topic,
+        from: from.id,
+        to: to.id,
+        outletsA: clue.body.outletsA,
+        outletsB: clue.body.outletsB,
+      });
     }
   }
 
@@ -158,6 +180,38 @@ export function buildBubbleScene(input: ExploreInput, clues: Clue[], index = new
     },
     contradictions,
     internationalCount: input.outlets.filter((outlet) => outlet.isInternational).length,
+  };
+}
+
+/** Which outlets the reader put in the map: Dutch ones unless removed, foreign ones only when added. */
+export interface SourceSelection {
+  added: readonly string[];
+  removed: readonly string[];
+}
+
+export function isOutletShown(outlet: { key: string; isInternational: boolean }, selection?: SourceSelection | null): boolean {
+  return outlet.isInternational ? Boolean(selection?.added.includes(outlet.key)) : !selection?.removed.includes(outlet.key);
+}
+
+/** The scene with only the chosen outlets: empty groups disappear, contradiction lines follow their outlets. */
+export function selectBubbles(scene: BubbleScene, shown: (bubble: Bubble) => boolean): BubbleScene {
+  const bubbles = scene.bubbles.filter(shown);
+  const used = (lens: HeroLens) => new Set(bubbles.map((bubble) => bubbleGroupKey(bubble, lens)));
+  const invalshoek = used("invalshoek");
+  const frame = used("frame");
+  return {
+    ...scene,
+    bubbles,
+    groupsByLens: {
+      invalshoek: scene.groupsByLens.invalshoek.filter((group) => invalshoek.has(group.key)),
+      spectrum: scene.groupsByLens.spectrum,
+      frame: scene.groupsByLens.frame.filter((group) => frame.has(group.key)),
+    },
+    contradictions: scene.contradictions.flatMap((line) => {
+      const from = bubbles.find((bubble) => line.outletsA.includes(bubble.outletKey));
+      const to = bubbles.find((bubble) => line.outletsB.includes(bubble.outletKey) && bubble.id !== from?.id);
+      return from && to ? [{ ...line, from: from.id, to: to.id }] : [];
+    }),
   };
 }
 
@@ -209,9 +263,10 @@ export interface BubbleLayout {
   groups: PlacedGroup[];
 }
 
-/** Closed: favicon + three typing dots (20 + 8 + 26 px, plus padding and border) */
-export const BUBBLE_CLOSED = { width: 80, height: 46 };
+/** With a perspective: favicon and what the outlet says (up to three lines), shown right away */
 export const BUBBLE_OPEN = { width: 168, height: 64 };
+/** Not put in a perspective (yet): favicon, name and "nog niet ingedeeld" */
+export const BUBBLE_PLAIN = { width: 168, height: 46 };
 
 const PAD = 6;
 /** Halo around a group: this much around the bubbles on the sides and at the bottom */
@@ -490,10 +545,10 @@ export function layoutBubbles(boxes: BubbleBox[], groupOrder: string[], options:
   return plotted ? layoutPlotted(boxes, groups, width, options) : layoutGrouped(boxes, groups, width, options);
 }
 
-/** Convenience: boxes for a lens, with open (revealed) bubbles larger than closed ones. */
-export function bubbleBoxes(scene: BubbleScene, lens: HeroLens, openIds: ReadonlySet<string>): BubbleBox[] {
+/** Convenience: boxes for a lens (bubbles with a perspective are larger: they show it). */
+export function bubbleBoxes(scene: BubbleScene, lens: HeroLens): BubbleBox[] {
   return scene.bubbles.map((bubble) => {
-    const size = openIds.has(bubble.id) ? BUBBLE_OPEN : BUBBLE_CLOSED;
+    const size = bubble.perspectiveClueId ? BUBBLE_OPEN : BUBBLE_PLAIN;
     const box: BubbleBox = { id: bubble.id, group: bubbleGroupKey(bubble, lens), width: size.width, height: size.height };
     if (lens === "spectrum") {
       // 2D map: links (0) -> rechts (10) and gevestigd (+1, top) -> alternatief (-1, bottom)

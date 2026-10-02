@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from backend.app.core.scheduler import get_scheduler
+from backend.app.services.article_digest import get_article_digest_service
 from backend.app.services.enrich_service import ArticleEnrichmentService
 from backend.app.services.entity_research.service import get_entity_research_service
 from backend.app.services.event_service import EventService
@@ -596,6 +597,60 @@ async def trigger_batch_bias_analysis(limit: int = 10):
         articles_failed=result["articles_failed"],
         failed_article_ids=result.get("failed_article_ids"),
     )
+
+
+# Foreign article digest ("Wat schreef …?"): Dutch gist of what foreign articles report
+class ArticleDigestResponse(BaseModel):
+    """The stored digest of one article."""
+
+    article_id: int
+    digest: dict[str, Any]
+
+
+class ArticleDigestBatchResponse(BaseModel):
+    """Statistics of a digest batch; ``pending`` counts what is left for the same age window."""
+
+    articles_found: int
+    articles_digested: int
+    from_text: int
+    from_title: int
+    articles_failed: int
+    failed_article_ids: list[int] | None = None
+    # Set when the batch stopped at a problem of the LLM provider (rate limit, quota, outage)
+    stopped: str | None = None
+    pending: int
+
+
+@router.post("/trigger/article-digest/{article_id}", response_model=ArticleDigestResponse)
+async def trigger_article_digest(article_id: int):
+    """Fetch and digest one article now, also when it already has a digest."""
+
+    try:
+        outcome = await get_article_digest_service().digest_article(article_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Article digest failed: {exc}") from exc
+    return ArticleDigestResponse(article_id=outcome.article_id, digest=outcome.digest)
+
+
+@router.post("/trigger/article-digests", response_model=ArticleDigestBatchResponse)
+async def trigger_article_digests(limit: int = 10, max_age_hours: int | None = None):
+    """Digest foreign articles of news that is not archived, newest first.
+
+    Args:
+        limit: Maximum number of articles (1-50, default 10)
+        max_age_hours: Only articles added in the last N hours. Leave it out to backfill all
+            foreign articles of active news (the scheduled job only takes recent ones).
+    """
+    if limit < 1 or limit > 50:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 50")
+    if max_age_hours is not None and max_age_hours < 1:
+        raise HTTPException(status_code=400, detail="max_age_hours must be at least 1")
+    stats = await get_article_digest_service().digest_batch(
+        limit=limit, max_age_hours=max_age_hours
+    )
+    return ArticleDigestBatchResponse(**stats)
 
 
 # Exploration endpoints (Epic 11, Story 11.8)

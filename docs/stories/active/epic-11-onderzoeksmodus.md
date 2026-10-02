@@ -251,6 +251,92 @@ toegankelijkheid.
 - De spectrumkaart houdt haar datagestuurde plaatsing.
 - De hint krijgt eigen ruimte onder de kaart zolang hij zichtbaar is.
 
+### Iteratie na feedback (2026-10-01): meteen de invalshoek, zelf bronnen kiezen
+- **Invalshoek meteen zichtbaar**: geen typ-puntjes en geen tik-om-te-onthullen meer ("eerst puntjes en daarna klikken
+  is nutteloos"). Het gaat om de kaart, de lijstweergave en de bronballon. Eén tik opent de ballon en telt de
+  invalshoek als gevonden. Groepslabels zijn niet meer gemaskeerd.
+- **Geen "Zonder invalshoek"** ("elke bron heeft een invalshoek"):
+  - een bron die de analyse niet indeelde, staat bij de invalshoek waar haar koppen het meest op lijken
+    (`lib/explore/nearest.ts`);
+  - elk woord stemt met zijn aandeel per invalshoek (label, samenvatting, standpunten, koppen van de leden);
+  - er moet een duidelijke winnaar zijn: minstens 1,5× de nummer twee;
+  - zo'n ballon is gestippeld ("geschatte invalshoek") en de bronballon legt de schatting uit;
+  - zonder duidelijke winnaar blijft de bron "Nog niet ingedeeld" (bijv. een Engelstalige kop).
+- **"Wat schreef … ?"** in de bronballon: de titels van de artikelen van die bron, als link.
+- **Zelf bronnen kiezen** (`SourcePicker`, "Bronnen in de kaart"):
+  - vervangt de aparte pagina "+N buitenlandse bronnen";
+  - Nederlandse bronnen staan standaard aan, buitenlandse (met vlag) kun je erbij zetten;
+  - de keuze wordt per nieuwsitem bewaard (`EventProgress.sources`);
+  - de spectrumkaart plaatst alleen bronnen met een bekende positie en noemt de rest apart.
+- **"Wie zweeg?" verwijderd**:
+  - zonder context is het vanzelfsprekend;
+  - het kan misleiden, want een artikel kan in een ander event gevallen zijn;
+  - stilte is pas iets waard bij een belang in het verhaal (idee voor later, via het propagandamodel).
+- **"Geen tegenspraak gevonden"** staat boven de kaart in plaats van over de ballonnen.
+
+### Iteratie na feedback (2026-10-01): "Wat schreef …?" zegt wat de bron schreef
+- Feedback op de bronballon van Deutsche Welle: "teveel tekst en staat niet wat het schreef".
+- **Geen uitlegzin meer.** "De analyse heeft … nog niet bij een invalshoek ingedeeld. Hieronder staat wat het schreef."
+  is weg. Een schatting staat er kort als "Geschatte invalshoek: …".
+  - Buitenlandse bronnen komen volgens de prompt nooit in een invalshoek; de summary is de enige plek waar de
+    analyse ze bespreekt.
+- **Wat het schreef**: de zinnen uit de LLM-summary die de bron noemen (`lib/explore/outlet-sentences.ts`).
+  - De prompt laat elk feit aan een publicatie toeschrijven ("meldt NOS", "aldus Reuters"), dus deze zinnen zeggen
+    wat de bron schreef in de woorden van de analyse. Dat zijn geen artikelteksten, dus het mag (auteursrecht).
+  - Namen worden gematcht zoals de aantikbare namen in de summary, met alle bronnen tegelijk. Daardoor telt
+    "Een Blik op de NOS" niet als NOS.
+  - Een zin als "Dat meldt RTL Nieuws." of "Daarbij …" krijgt de zin ervoor erbij. Op echte data gaat dat om ±8%
+    van de zinnen die een bron noemen.
+  - De eigen naam staat vet. Standaard is één zin zichtbaar; de rest staat achter "Nog n zinnen".
+  - Daaronder blijven de koppen als link staan, zonder de bronnaam (die staat al bovenaan de ballon).
+- Aliassen voor namen die feeds en de summary gebruiken: "DW" (Deutsche Welle), "VRT" (VRT NWS), "AP News"
+  (Associated Press). Niet "AP": dat is in Nederlandse tekst vaak de Autoriteit Persoonsgegevens.
+- Zinsplitser `summarySentences` in `lib/explore/summary.ts`:
+  - koppen worden overgeslagen;
+  - niet splitsen in "NU.nl", "1.200", "o.a." of initialen;
+  - getest op 300 echte summaries.
+- Tests: `outlet-sentences.test.ts`; Playwright `onderzoeksmodus.spec.ts` controleert de ballonnen van DW, VRT en De
+  Telegraaf, inclusief "Nog 1 zin".
+- **Tweede ronde** (feedback "ik kan nog steeds niet echt lezen wat dat medium nou zegt", "aanwijzingen bij DW slaat
+  nergens op", "nietsnuttig balkje van het buitenland"):
+  - Van buitenlandse artikelen kennen we alleen de kop. Google News levert geen tekst: `content` is de kop plus de
+    bronnaam. Wat de summary over een buitenlandse bron zegt, is dus een gok op basis van de kop.
+  - Bij buitenlandse bronnen staat onder "Wat schreef …?" daarom alleen de kop, met "Van buitenlandse media hebben we
+    alleen de kop." eronder. De summaryzinnen verschijnen daar niet.
+  - De aanwijzing "international" is weg. Dat was per land een balkje met alleen de buitenlandse koppen, en het
+    stond ook als "Aanwijzingen bij DW" in de bronballon.
+  - Het spoor "En het buitenland?" toont alleen nog de landen die een rol spelen ("Waarom Duitsland?").
+  - In de artikelregels van een bronballon staat geen favicon meer: het logo staat al bovenaan de ballon.
+- **Derde ronde: buitenlandse tekst ophalen + Nederlandse kern** (eigenaarsbesluit 2026-10-01, "Tekst ophalen +
+  NL-kern"):
+  - Backend `services/article_digest.py`:
+    - haalt de tekst van een buitenlands artikel op bij de uitgever (trafilatura);
+    - laat de LLM in hoogstens twee Nederlandse zinnen, in eigen woorden, zeggen wat het meldt (prompt
+      `llm/templates/article_digest_prompt.txt`, overschrijfbaar met `llm_config.prompt_article_digest`);
+    - bewaart alleen die kern in `articles.source_metadata.digest` (`nl`, `basis`, `provider`, `model`,
+      `generated_at`). De tekst zelf wordt niet opgeslagen (databasegrootte) en nooit getoond (auteursrecht).
+  - Lukt ophalen niet (paywall), dan is de kern de kop in het Nederlands (`basis: "title"`).
+  - Provider: `llm_config.provider_digest`, anders die van de feitenanalyse (nu DeepSeek). Mistral stond op
+    2026-10-01 op 0 verzoeken per minuut.
+  - Job "Article Digest": elke 15 minuten, 10 artikelen, alleen artikelen van de laatste 72 uur
+    (`ARTICLE_DIGEST_*`). Oudere artikelen van actief nieuws via `POST /admin/trigger/article-digests`
+    (backfill). Eén artikel: `POST /admin/trigger/article-digest/{id}`.
+  - Een probleem bij de aanbieder (rate limit, quotum, storing) stopt de batch zonder het artikel iets aan te
+    rekenen. Een onbruikbaar antwoord telt als mislukking; na 2 mislukkingen slaan batches het artikel over.
+  - Frontend:
+    - `getExploration` leest `digest:source_metadata->digest`;
+    - in de bronballon staat bij een buitenlands artikel de kern in plaats van de kop, of "alleen de kop"
+      zolang er geen kern is;
+    - een tik opent het artikelpaneel `artikel:<id>` (`article/ArticleSheet.tsx`): de kern, waar die op
+      gebaseerd is, de invalshoek met kernboodschap als het artikel in een cluster zit, en de originele kop als
+      link.
+  - Ballonnen zijn 340 px breed in plaats van 300 ("grotere popup").
+  - Droge test op echte artikelen (zonder schrijven), met DeepSeek, ±1,3 s per kern:
+    - BBC en Al Jazeera: kern uit de tekst;
+    - New York Times: paywall, dus kern uit de kop.
+  - Tests: `backend/tests/unit/test_article_digest.py` (14), `outlet-sentences.test.ts` (kern inlezen),
+    Playwright `onderzoeksmodus.spec.ts` (kern in de ballon, artikelpaneel).
+
 ---
 
 ## Story 11.7: Slepen & bewaren

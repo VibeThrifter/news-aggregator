@@ -59,6 +59,14 @@ export interface OutletProfile {
   watchdogOf?: string[];
 }
 
+/** What a foreign article reports, written by the LLM in Dutch (never the article text). */
+export interface ArticleDigest {
+  /** At most two sentences, in the words of the analysis */
+  text: string;
+  /** "title" when the article text could not be fetched: then it is the headline in Dutch */
+  basis: "text" | "title";
+}
+
 export interface ExploreArticle {
   id: number;
   /** Article title — only as link text to the article itself */
@@ -71,6 +79,8 @@ export interface ExploreArticle {
   publishedAt: string | null;
   isInternational: boolean;
   sourceCountry: string | null;
+  /** Dutch gist of a foreign article (backend job "Article Digest"), or null */
+  digest: ArticleDigest | null;
 }
 
 export interface ExploreOutlet {
@@ -230,10 +240,8 @@ export type ClueBody =
   | { type: "questions"; analysis: MediaAnalysis; outletKey: string | null }
   | { type: "science"; plurality: ScientificPlurality }
   | { type: "consensus"; clusterLabel: string }
-  | { type: "silent"; outletNames: string[] }
   | { type: "first"; order: OutletRef[] }
   | { type: "timeline"; item: TimelineEvent; timeLabel: string; historic: boolean }
-  | { type: "international"; country: string | null; articleIds: number[] }
   | { type: "country"; country: InvolvedCountry };
 
 export type ClueType = ClueBody["type"];

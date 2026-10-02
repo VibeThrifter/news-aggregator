@@ -16,6 +16,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from ..db.session import ensure_healthy_connection, get_sessionmaker
 from ..events.maintenance import get_event_maintenance_service
 from ..repositories.event_repo import EventRepository
+from ..services.article_digest import get_article_digest_service
 from ..services.bias_service import BiasDetectionService, get_bias_detection_service
 from ..services.exploration_service import get_exploration_service
 from ..services.ingest_service import IngestService
@@ -38,6 +39,8 @@ MAINTENANCE_TIMEOUT_SECONDS = 600
 INTERNATIONAL_ENRICHMENT_TIMEOUT_SECONDS = 900
 # Maximum time allowed for bias analysis (30 minutes - many LLM calls)
 BIAS_ANALYSIS_TIMEOUT_SECONDS = 1800
+# Maximum time allowed for one article digest batch (page fetches + one LLM call per article)
+ARTICLE_DIGEST_TIMEOUT_SECONDS = 900
 # Maximum time allowed for the propaganda-model sync (Story 11.17)
 PROPAGANDA_SYNC_TIMEOUT_SECONDS = 600
 # Maximum time allowed for one entity research cycle (Epic 12; research rounds run in the
@@ -66,6 +69,8 @@ class NewsAggregatorScheduler:
         self._propaganda_sync_last_run: dict | None = None
         # Epic 12: outcome of the last entity research cycle
         self._entity_research_last_run: dict | None = None
+        # "Wat schreef …?": outcome of the last foreign article digest batch
+        self._article_digest_last_run: dict | None = None
         self._is_running = False
 
     def _get_ingest_service(self) -> IngestService:
@@ -176,6 +181,25 @@ class NewsAggregatorScheduler:
             replace_existing=True,
             max_instances=1,
         )
+
+        # Foreign article digest - Dutch gist of what foreign articles report ("Wat schreef …?")
+        if self.settings.article_digest_enabled:
+            self.scheduler.add_job(
+                func=self._article_digest_job,
+                trigger=IntervalTrigger(minutes=self.settings.article_digest_interval_minutes),
+                id="article_digest",
+                name="Article Digest",
+                replace_existing=True,
+                max_instances=1,
+            )
+            logger.info(
+                "Article digest job enabled",
+                interval_minutes=self.settings.article_digest_interval_minutes,
+                batch_size=self.settings.article_digest_batch_size,
+                max_age_hours=self.settings.article_digest_max_age_hours,
+            )
+        else:
+            logger.info("Article digest job disabled (set ARTICLE_DIGEST_ENABLED=true to enable)")
 
         # Propaganda-model sync (Story 11.17) - only writes when the pm database changed
         if self.settings.propaganda_sync_enabled:
@@ -370,6 +394,39 @@ class NewsAggregatorScheduler:
             job_logger.error("Exploration refresh failed", error=run["error"])
         run["finished_at"] = datetime.now(timezone.utc).isoformat()
         self._exploration_last_run = run
+
+    async def _article_digest_job(self) -> None:
+        """Digest the newest foreign articles without a Dutch gist. Never raises."""
+
+        correlation_id = str(uuid.uuid4())
+        job_logger = logger.bind(correlation_id=correlation_id, job="article_digest")
+        run: dict = {"started_at": datetime.now(timezone.utc).isoformat(), "success": False}
+        try:
+            if not await ensure_healthy_connection():
+                run["error"] = "database connection unhealthy"
+                job_logger.error("Database connection unhealthy, skipping article digest")
+                self._reset_services()
+            else:
+                stats = await asyncio.wait_for(
+                    get_article_digest_service().digest_batch(
+                        limit=self.settings.article_digest_batch_size,
+                        max_age_hours=self.settings.article_digest_max_age_hours,
+                        correlation_id=correlation_id,
+                    ),
+                    timeout=ARTICLE_DIGEST_TIMEOUT_SECONDS,
+                )
+                run.update(success=True, result=stats)
+                job_logger.info("Article digest job completed", **stats)
+        except asyncio.TimeoutError:
+            run["error"] = f"timed out after {ARTICLE_DIGEST_TIMEOUT_SECONDS} seconds"
+            job_logger.error(
+                "Article digest job timed out", timeout_seconds=ARTICLE_DIGEST_TIMEOUT_SECONDS
+            )
+        except Exception as exc:
+            run["error"] = str(exc) or type(exc).__name__
+            job_logger.error("Article digest job failed", error=run["error"])
+        run["finished_at"] = datetime.now(timezone.utc).isoformat()
+        self._article_digest_last_run = run
 
     async def _propaganda_sync_job(self) -> None:
         """Sync the approved propaganda-model graph when its database changed. Never raises."""
@@ -586,6 +643,7 @@ class NewsAggregatorScheduler:
                 "exploration_last_run": self._exploration_last_run,
                 "propagandamodel_last_run": self._propaganda_sync_last_run,
                 "entity_research_last_run": self._entity_research_last_run,
+                "article_digest_last_run": self._article_digest_last_run,
             }
 
         jobs = []
@@ -605,6 +663,7 @@ class NewsAggregatorScheduler:
             "exploration_last_run": self._exploration_last_run,
             "propagandamodel_last_run": self._propaganda_sync_last_run,
             "entity_research_last_run": self._entity_research_last_run,
+            "article_digest_last_run": self._article_digest_last_run,
         }
 
     async def run_poll_feeds_now(self) -> dict:

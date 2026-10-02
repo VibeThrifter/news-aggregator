@@ -22,13 +22,9 @@ import {
 } from "./ids";
 import { ArticleIndex } from "./input";
 import { PRESENTED_AS_LABELS } from "./labels";
-import { DUTCH_OUTLETS } from "./media-landscape";
 import { actorKeys, fnv1a } from "./normalize";
 import { firstReporters, parseTimelineTime } from "./timeline";
 import type { Clue, ClueBody, ExploreInput, NodeId, SpoorId, StanceEntry } from "./types";
-
-/** Mainstream outlets used for the "Wie zweeg?" clue. */
-const MAINSTREAM_KEYS = ["nos", "nu-nl", "ad", "rtl-nieuws", "telegraaf", "volkskrant", "parool", "trouw"];
 
 const PERSON_TYPES = /(persoon|politicus|minister|expert|wetenschapper|hoogleraar|woordvoerder|journalist|arts|advocaat)/i;
 
@@ -366,21 +362,6 @@ export function deriveClues(input: ExploreInput, index: ArticleIndex = new Artic
     );
   }
 
-  if (dutchOutlets.length >= 2) {
-    const present = new Set(dutchOutlets.map((outlet) => outlet.key));
-    const silent = DUTCH_OUTLETS.filter((profile) => MAINSTREAM_KEYS.includes(profile.key) && !present.has(profile.key));
-    if (silent.length > 0 && silent.length < MAINSTREAM_KEYS.length) {
-      collector.add(
-        "wat-zie-je-niet",
-        "silent",
-        { type: "silent", outletNames: silent.map((profile) => profile.name) },
-        { title: "Wie zweeg?", hint: "Voor zover in onze bronnen" },
-        [],
-        [],
-      );
-    }
-  }
-
   // --- Hoe liep het? -------------------------------------------------------------------------------
   const order = firstReporters(input);
   if (order.length >= 2) {
@@ -409,27 +390,8 @@ export function deriveClues(input: ExploreInput, index: ArticleIndex = new Artic
   });
 
   // --- En het buitenland? --------------------------------------------------------------------------
-  const byCountry = new Map<string, number[]>();
-  for (const article of input.articles) {
-    if (!article.isInternational) continue;
-    const country = article.sourceCountry ?? index.outlet(article.outletKey)?.country ?? "";
-    const list = byCountry.get(country) ?? [];
-    list.push(article.id);
-    byCountry.set(country, list);
-  }
-  for (const [country, articleIds] of Array.from(byCountry.entries())) {
-    const outletKeys = unique(articleIds.map((id) => index.article(id)?.outletKey).filter((key): key is string => Boolean(key)));
-    const label = country ? `${getCountryFlag(country)} ${getCountryName(country)}` : "Buitenland";
-    collector.add(
-      "buitenland",
-      `international:${country}`,
-      { type: "international", country: country || null, articleIds },
-      { title: label.trim(), hint: `${articleIds.length} ${articleIds.length === 1 ? "artikel" : "artikelen"}` },
-      outletKeys,
-      [...(country ? [countryNode(country)] : []), ...outletKeys.map(outletNode)],
-    );
-  }
-
+  // Only the countries that play a role. Foreign outlets are not clues: of their articles only the
+  // headline is known, which the outlet balloon already shows ("Wat schreef …?").
   for (const country of insight?.involved_countries ?? []) {
     if (!country.iso_code) continue;
     collector.add(
@@ -476,10 +438,8 @@ export const CLUE_TYPE_LABELS: Record<Clue["type"], string> = {
   questions: "Niet gesteld",
   science: "Wetenschap",
   consensus: "Eenstemmigheid",
-  silent: "Stilte",
   first: "Wie eerst",
   timeline: "Moment",
-  international: "Buitenland",
   country: "Land",
 };
 
@@ -520,14 +480,10 @@ export function revealedTitle(clue: Clue, index: ArticleIndex): string {
       return body.plurality.topic;
     case "consensus":
       return "Iedereen hetzelfde verhaal";
-    case "silent":
-      return "Wie zweeg";
     case "first":
       return `Eerst: ${outletName(body.order[0]?.outletKey)}`;
     case "timeline":
       return body.item.headline;
-    case "international":
-      return clue.teaser.title;
     case "country":
       return body.country.name;
     default:

@@ -1,9 +1,12 @@
 "use client";
 
+import { Fragment, useState } from "react";
 import Link from "next/link";
-import { Network, Pin, Scale, ScanText } from "lucide-react";
+import { ChevronRight, Network, Pin, Scale, ScanText } from "lucide-react";
 
 import { biasByOutlet, objectivity } from "@/lib/explore/bias";
+import { perspectiveEstimates } from "@/lib/explore/nearest";
+import { outletSentences } from "@/lib/explore/outlet-sentences";
 import { revealedTitle } from "@/lib/explore/clues";
 import { OWNERSHIP_TYPE_LABELS } from "@/lib/explore/media-landscape";
 import { SPOOR_BY_ID, toneLabel } from "@/lib/explore/labels";
@@ -12,9 +15,11 @@ import { getCountryFlag } from "@/lib/format";
 import type { ExploreOutlet } from "@/lib/explore/types";
 
 import { SPOOR_COLORS, dossierIds, useExplore } from "../ExploreContext";
+import { ArticleRow, articleDate } from "../entity/ArticleMentions";
 import { useToast } from "../ui/Toast";
 import { Balloon } from "../ui/Balloon";
 import { Chip, Eyebrow, Favicon, Tag } from "../ui/primitives";
+import { WhyRoutes } from "./WhyRoutes";
 
 function AxisBar({ value, left, right, gradient, label }: { value: number; left: string; right: string; gradient: string; label: string }) {
   return (
@@ -63,11 +68,24 @@ export function OutletCard({ outletKey, onNavigate }: { outletKey: string; onNav
   const { exploration, isRevealed, panel, pin, eventId } = useExplore();
   const setCompareSlot = useExploreStore((state) => state.setCompareSlot);
   const toast = useToast();
+  const [allArticles, setAllArticles] = useState(false);
+  const [allSentences, setAllSentences] = useState(false);
   const outlet = exploration.index.outlet(outletKey);
   if (!outlet) return null;
 
   const clues = exploration.clues.filter((clue) => clue.outletKeys.includes(outletKey));
-  const perspectives = clues.filter((clue) => clue.body.type === "perspective" && isRevealed(clue.id));
+  // The perspectives are visible in the bubbles right away, so here too
+  const perspectives = clues.filter((clue) => clue.body.type === "perspective");
+  const estimate = perspectives.length === 0 ? perspectiveEstimates(exploration.input, exploration.clues, exploration.index).get(outletKey) : undefined;
+  // What this outlet wrote in this news: the summary sentences that name it (words of the analysis),
+  // then the titles as links to the articles (never their content). Google News only gives a foreign
+  // article's headline, so what the summary says about it is a guess; instead a foreign article shows
+  // its Dutch gist (backend job "Article Digest"), or "alleen de kop" until it has one.
+  const sentences = outlet.isInternational ? [] : (outletSentences(exploration.input).get(outletKey) ?? []);
+  const articles = outlet.articleIds
+    .map((id) => exploration.index.article(id))
+    .filter((article): article is NonNullable<typeof article> => Boolean(article))
+    .sort((a, b) => String(a.publishedAt ?? "").localeCompare(String(b.publishedAt ?? "")));
   const tone = clues.find((clue) => clue.body.type === "tone" && isRevealed(clue.id));
   const bias = biasByOutlet(exploration.input).get(outletKey);
   const ownership = outlet.profile?.ownershipType;
@@ -162,6 +180,77 @@ export function OutletCard({ outletKey, onNavigate }: { outletKey: string; onNav
           </div>
         ) : null,
       )}
+
+      {estimate ? (
+        <p className="text-sm text-ink-600">
+          Geschatte invalshoek: <strong className="font-semibold text-ink-800">{estimate.label}</strong>
+        </p>
+      ) : null}
+
+      {sentences.length || articles.length ? (
+        <div className="space-y-1">
+          <Eyebrow>Wat schreef {outlet.name}?</Eyebrow>
+          {sentences.length ? (
+            <ul className="space-y-1.5 pb-1 text-sm text-ink-800">
+              {(allSentences ? sentences : sentences.slice(0, 1)).map((parts, i) => (
+                <li key={i}>
+                  {parts.map((part, j) =>
+                    part.own ? (
+                      <strong key={j} className="font-semibold text-ink-900">
+                        {part.text}
+                      </strong>
+                    ) : (
+                      <Fragment key={j}>{part.text}</Fragment>
+                    ),
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {sentences.length > 1 && !allSentences ? (
+            <button type="button" onClick={() => setAllSentences(true)} className="min-h-[40px] text-sm font-semibold text-accent-blue">
+              {sentences.length === 2 ? "Nog 1 zin" : `Nog ${sentences.length - 1} zinnen`}
+            </button>
+          ) : null}
+          <ul className="divide-y divide-paper-200">
+            {(allArticles ? articles : articles.slice(0, 3)).map((article) =>
+              article.digest ? (
+                // A foreign article: what it reports in Dutch; tap for the article panel (headline, link)
+                <li key={article.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onNavigate?.();
+                      panel.open(`artikel:${article.id}`);
+                    }}
+                    className="flex min-h-[44px] w-full items-start gap-2 py-2 text-left"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm text-ink-900">{article.digest.text}</span>
+                      <span className="mt-0.5 block text-xs text-ink-500">{articleDate(article.publishedAt)}</span>
+                    </span>
+                    <ChevronRight size={16} className="mt-0.5 shrink-0 text-ink-400" aria-hidden="true" />
+                  </button>
+                </li>
+              ) : (
+                <ArticleRow
+                  key={article.id}
+                  article={{ id: article.id, title: article.title, url: article.url, source_name: article.outletName, published_at: article.publishedAt }}
+                  showSource={false}
+                  note={article.isInternational ? "alleen de kop" : undefined}
+                />
+              ),
+            )}
+          </ul>
+          {articles.length > 3 && !allArticles ? (
+            <button type="button" onClick={() => setAllArticles(true)} className="min-h-[40px] text-sm font-semibold text-accent-blue">
+              Alle {articles.length} artikelen
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      <WhyRoutes outletKey={outletKey} />
 
       {tone && tone.body.type === "tone" ? (
         <p className="text-sm">

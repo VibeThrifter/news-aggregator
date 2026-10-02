@@ -25,6 +25,8 @@ export interface EventProgress {
   lastVisitedAt: string;
   slug: string | null;
   title: string;
+  /** Outlets in "Wie zegt wat?": foreign ones the reader added, Dutch ones they removed */
+  sources?: { added: string[]; removed: string[] };
 }
 
 export type DossierItemKind = "outlet" | "actor" | "entity" | "clue" | "event" | "pm" | "note" | "bias" | "country";
@@ -84,6 +86,8 @@ export interface ExploreState {
   reveal(eventId: number, clueIds: string[]): void;
   markSpoorCompleted(eventId: number, spoor: SpoorId): void;
   resetEvent(eventId: number): void;
+  /** Put an outlet in or out of "Wie zegt wat?" */
+  setOutletShown(eventId: number, outlet: { key: string; isInternational: boolean }, shown: boolean): void;
 
   addItem(item: Omit<DossierItem, "addedAt"> & { addedAt?: string }): "added" | "exists" | "full";
   removeItem(id: string): void;
@@ -158,6 +162,7 @@ export const useExploreStore = create<ExploreState>()(
                 lastVisitedAt: new Date().toISOString(),
                 slug: meta.slug,
                 title: meta.title,
+                ...(existing?.sources ? { sources: existing.sources } : {}),
               },
             }),
           };
@@ -189,6 +194,29 @@ export const useExploreStore = create<ExploreState>()(
           const existing = state.events[key];
           if (!existing || existing.completed.includes(spoor)) return state;
           return { events: { ...state.events, [key]: { ...existing, completed: [...existing.completed, spoor] } } };
+        });
+      },
+
+      setOutletShown(eventId, outlet, shown) {
+        set((state) => {
+          const key = String(eventId);
+          const existing = state.events[key] ?? {
+            revealed: [],
+            completed: [],
+            lastVisitedAt: new Date().toISOString(),
+            slug: null,
+            title: "",
+          };
+          const added = new Set(existing.sources?.added ?? []);
+          const removed = new Set(existing.sources?.removed ?? []);
+          if (outlet.isInternational) {
+            if (shown) added.add(outlet.key);
+            else added.delete(outlet.key);
+          } else if (shown) removed.delete(outlet.key);
+          else removed.add(outlet.key);
+          return {
+            events: { ...state.events, [key]: { ...existing, sources: { added: Array.from(added), removed: Array.from(removed) } } },
+          };
         });
       },
 

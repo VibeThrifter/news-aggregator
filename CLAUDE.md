@@ -155,6 +155,7 @@ make clean             # Clean up generated files
 | Bias Analysis | 6 hours | Per-sentence bias detection (Epic 10, disabled by default) |
 | Exploration Refresh | 24 hours (na Event Maintenance) | Event Maintenance → daarna Exploration refresh (entiteiten + gerelateerde events, Epic 11) |
 | Entity Research | 15 min | Wie is dit? (Epic 12): triage van namen in het nieuws (rol + belang), onderzoeksdoelen naar het propagandamodel, rondes van de pm-agent `nieuws-scout` starten (max 4/dag, 08–22) en resultaten ophalen (`ENTITY_RESEARCH_ENABLED`, `NIEUWS_SCOUT_*`, vereist migratie 006 + draaiende pm-server) |
+| Article Digest | 15 min | "Wat schreef …?": haalt de tekst van nieuwe buitenlandse artikelen op (Google News geeft alleen de kop) en laat de LLM een Nederlandse kern van hoogstens twee zinnen schrijven in `source_metadata.digest`; de tekst zelf wordt niet opgeslagen. Alleen artikelen van de laatste 72 uur, oudere via de admin-backfill (`ARTICLE_DIGEST_*`; provider: `llm_config.provider_digest`, anders die van de feitenanalyse) |
 | Propagandamodel Sync | 60 min | Synct het goedgekeurde propagandamodel (alleen-lezen) naar de `pm_*`-tabellen, alleen als het DB-bestand gewijzigd is (Epic 11, Story 11.17; `PROPAGANDA_SYNC_ENABLED`, `PROPAGANDA_SYNC_INTERVAL_MINUTES`, vereist migratie 005) |
 
 **Note:** Bias Analysis is disabled by default to save LLM costs. Enable with `BIAS_ANALYSIS_SCHEDULER_ENABLED=true`.
@@ -162,6 +163,8 @@ make clean             # Clean up generated files
 **Note:** Exploration refresh draait direct na een geslaagde Event Maintenance (eigen timeout `EXPLORATION_REFRESH_TIMEOUT_SECONDS`) en na elke insight-generatie per event. Uitzetten met `EXPLORATION_ENABLED=false`. Vereist migratie `database/migrations/004_explore_entities_relations.sql`.
 
 **Note (Epic 12 "Wie is dit?"):** namen in de nieuws-app zijn aantikbaar; ontbreekt een naam in het propagandamodel of heeft hij < 3 verbanden, dan zet de job "Entity Research" hem als onderzoeksdoel klaar in `~/Workspace/propaganda-model` (`POST /api/nieuws/doelen`, account `nieuws-agent`). Het onderzoek doet de pm-missie `nieuws-scout` (bestaande agent-runner + LinkedIn-tool met snelheidsrem 2/uur, 10/dag); de pm-service `nieuws_autokeur_service.py` keurt alleen neutrale structuurfeiten met bron-URL automatisch goed (eigenaarsbesluit 2026-09-30, terug te draaien met `scripts/admin.py intrekken`). Privépersonen worden nooit onderzocht. Spec: `docs/stories/active/epic-12-wie-is-dit.md`.
+
+**Note (Epic 13 "Waarom zo?"):** het propagandanetwerk toont verbanden *tussen* dingen in plaats van alles rond één knoop: RPC `pm_paths` (migratie `database/migrations/007_waarom_zo.sql`, zelfde regels als `frontend/lib/explore/pm-paths.ts`), vragen per filter (3 meest specifieke + bundel), "Verbind met beeld", "Zoek verband met…". Specifiek wint van "meeste verbanden". Spec: `docs/stories/active/epic-13-waarom-zo.md`.
 
 ### LLM Prompts Updaten
 
@@ -281,7 +284,13 @@ curl -X POST "http://localhost:8000/admin/trigger/entity-research/person:dilan-y
 # Entity research status (queue counts, budgets, nieuws-scout runner, LinkedIn brake, pm server)
 curl "http://localhost:8000/admin/entity-research/status"
 
-# Check scheduler status (includes exploration_last_run and propagandamodel_last_run)
+# Wat schreef …?: Dutch gist of one foreign article now (fetch text + LLM, also when it has one)
+curl -X POST "http://localhost:8000/admin/trigger/article-digest/{article_id}"
+
+# Gist batch for foreign articles of active news without one (leave out max_age_hours = backfill all)
+curl -X POST "http://localhost:8000/admin/trigger/article-digests?limit=50"
+
+# Check scheduler status (includes exploration_last_run, propagandamodel_last_run and article_digest_last_run)
 curl "http://localhost:8000/admin/scheduler/status"
 ```
 

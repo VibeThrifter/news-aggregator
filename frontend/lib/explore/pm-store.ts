@@ -2,13 +2,13 @@
 
 /**
  * Session state of the propaganda-model explorer (not persisted): the graph you built (which loaded
- * neighbourhoods are in it, expanded nodes, seeds, filter toggles) with undo/redo, plus a cache of
- * everything fetched. Shared between the canvas and the sheets.
+ * neighbourhoods and routes are in it, expanded nodes, seeds, filter toggles) with undo/redo, plus a
+ * cache of everything fetched. Shared between the canvas and the sheets.
  */
 
 import { create } from "zustand";
 
-import type { PmNeighborhood } from "@/lib/types";
+import type { PmNeighborhood, PmPaths } from "@/lib/types";
 
 import { DEFAULT_HIDDEN_FILTERS, hoodKey, type PmExpansion, type PmSeed } from "./pm-graph";
 
@@ -23,6 +23,10 @@ export interface PmView {
   latest: PmExpansion | null;
   /** Nodes taken out of a bundle ("+84"): always drawn */
   revealed: number[];
+  /** Epic 13: route results that are part of the graph (keys into `routeSets`) */
+  activeRoutes: string[];
+  /** The last routes added: the view glides to them (instead of `latest`) */
+  latestRoutes: string | null;
 }
 
 const HISTORY_LIMIT = 30;
@@ -33,6 +37,8 @@ interface PmState extends PmView {
   seeded: boolean;
   /** Everything fetched, by hoodKey(id, filters) — also neighbourhoods not (or no longer) in the graph */
   neighborhoods: Record<string, PmNeighborhood>;
+  /** Epic 13: every route result fetched, by request key */
+  routeSets: Record<string, PmPaths>;
   /** hoodKeys being loaded */
   loading: string[];
   selected: string | null;
@@ -53,6 +59,8 @@ interface PmState extends PmView {
   toggleFilter(filter: string): void;
   showFilter(filter: string): void;
   setLatest(latest: PmExpansion | null): void;
+  /** Add routes to the graph (cache them too) and glide to them; `record()` first for an undoable step */
+  putRoutes(key: string, paths: PmPaths, options?: { glide?: boolean }): void;
   /** Take nodes out of their bundle (undoable), with the relations that link them (as small neighbourhoods) */
   reveal(ids: number[], hoods?: Record<string, PmNeighborhood>): void;
   undo(): void;
@@ -68,6 +76,8 @@ export function viewOf(state: PmView): PmView {
     hiddenFilters: state.hiddenFilters,
     latest: state.latest,
     revealed: state.revealed,
+    activeRoutes: state.activeRoutes,
+    latestRoutes: state.latestRoutes,
   };
 }
 
@@ -76,6 +86,7 @@ export const usePmStore = create<PmState>()((set) => ({
   seeds: [],
   seeded: false,
   neighborhoods: {},
+  routeSets: {},
   active: [],
   expanded: [],
   loading: [],
@@ -83,6 +94,8 @@ export const usePmStore = create<PmState>()((set) => ({
   selected: null,
   latest: null,
   revealed: [],
+  activeRoutes: [],
+  latestRoutes: null,
   past: [],
   future: [],
   epoch: 0,
@@ -93,12 +106,15 @@ export const usePmStore = create<PmState>()((set) => ({
       seeds: [],
       seeded: false,
       neighborhoods: {},
+      routeSets: {},
       active: [],
       expanded: [],
       loading: [],
       selected: null,
       latest: null,
       revealed: [],
+      activeRoutes: [],
+      latestRoutes: null,
       past: [],
       future: [],
       epoch: state.epoch + 1,
@@ -142,7 +158,14 @@ export const usePmStore = create<PmState>()((set) => ({
     set((state) => ({ hiddenFilters: state.hiddenFilters.filter((item) => item !== filter) }));
   },
   setLatest(latest) {
-    set({ latest });
+    set({ latest, latestRoutes: null });
+  },
+  putRoutes(key, paths, options = {}) {
+    set((state) => ({
+      routeSets: { ...state.routeSets, [key]: paths },
+      activeRoutes: state.activeRoutes.includes(key) ? state.activeRoutes : [...state.activeRoutes, key],
+      ...(options.glide === false ? {} : { latestRoutes: key, latest: null }),
+    }));
   },
   reveal(ids, hoods = {}) {
     set((state) => {

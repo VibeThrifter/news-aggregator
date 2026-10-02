@@ -449,6 +449,35 @@ export interface PmMeta {
   relation_count: number;
 }
 
+/** Epic 13: one route between two entities (pm_paths, migration 007). */
+export interface PmPathRoute {
+  from: number;
+  to: number;
+  /** 1 = best route of this (from, to) pair */
+  rank: number;
+  hops: number;
+  /** Entity ids from `from` to `to` */
+  nodes: number[];
+  /** Relation ids, one per hop, in path order */
+  relations: number[];
+  /** At least one relation had ended before the reference date */
+  historic: boolean;
+  /** Other `from` ids with the same explanation (same intermediates and kinds of relation) to `to` */
+  shared_with: number[];
+}
+
+/** Epic 13: routes between two sets of entities, with everything on them (pm_paths, migration 007). */
+export interface PmPaths {
+  routes: PmPathRoute[];
+  entities: PmEntity[];
+  relations: PmRelation[];
+  /** More routes existed than were returned (cap of 60) */
+  truncated: boolean;
+  max_hops: number;
+  /** Reference date (YYYY-MM-DD) */
+  at: string;
+}
+
 // Epic 12 "Wie is dit?": automatic research of names in the news (RPC functions, migration 006)
 
 export type EntityResearchStatus =

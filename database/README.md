@@ -187,6 +187,12 @@ downloaded directly. The frontend uses only these SECURITY DEFINER RPC functions
 
 `pm_neighborhood` also returns `auto_approved` on the center, entities and relations.
 
+Epic 13 (migration 007) adds routes between two sets of entities:
+
+| Function | Returns |
+| -------- | ------- |
+| `pm_paths(p_from int[], p_to int[], p_max_hops int = 3, p_limit int = 2, p_at text = NULL)` | `{"routes","entities","relations","truncated","max_hops","at"}` - the best simple routes of 1..3 relations (either direction) from any `p_from` id (first 12) to any `p_to` id (first 40); intermediate stations are never one of the given ids; `p_limit` routes per pair (1..5), at most 60 in all (`truncated`). Each route: `{"from","to","rank","hops","nodes","relations","historic","shared_with"}`; `shared_with` = the other `p_from` ids with the same stations and kinds of relation to the same target. Ranking (never returned): strength of the kind of relation x certainty x 0.5 when it ended before `p_at` (default today), times `1/sqrt(1 + degree)` per station; relations starting after `p_at` are ignored. `entities`/`relations` = only what is on the returned routes. Same rules as `frontend/lib/explore/pm-paths.ts` |
+
 ### `entity_research` - Wie is dit? (Epic 12)
 Research status per named entity, written by the local backend
 (`backend/app/services/entity_research/`) and by the RPC `request_entity_research` (a tap on a
@@ -287,6 +293,7 @@ Currently, schema changes are applied manually:
 | `004_explore_entities_relations.sql` | `event_entities` (incl. `article_ids`), `event_relations`, RLS read-only policies, `idx_articles_fts` + RPC `search_articles` (Epic 11) |
 | `005_propagandamodel.sql` | `pm_entities`, `pm_relations`, `pm_sources`, `pm_aliases`, `pm_meta` (RLS without policies, no anon grants) + RPC functions `pm_meta_info`, `pm_match`, `pm_search`, `pm_neighborhood`, `pm_details` (Epic 11, Story 11.17) |
 | `006_entity_research.sql` | `entity_research` (RLS without policies) + RPC functions `request_entity_research`, `entity_research_status`, `entity_cooccurrence`; converts `event_entities.aliases` to `TEXT[]` when `create_all()` made it `VARCHAR[]` (Epic 12) |
+| `007_waarom_zo.sql` | RPC function `pm_paths` (routes between entities of the propaganda model; Epic 13, Story 13.1) |
 
 ```bash
 # plain postgresql:// connection string (not the postgresql+asyncpg:// SQLAlchemy URL)
@@ -363,6 +370,15 @@ psql "postgresql://postgres:<password>@<host>:5432/postgres" \
   -f database/migrations/006_entity_research.sql
 curl -X POST "http://localhost:8000/admin/trigger/entity-research"
 curl "http://localhost:8000/admin/entity-research/status"
+```
+
+**007 - run it after 005.** Only adds the SECURITY DEFINER function `pm_paths` (no tables, no
+data); safe to re-run. Until it runs, the network falls back to what it can do without routes (the
+questions per filter keep working).
+
+```bash
+psql "postgresql://postgres:<password>@<host>:5432/postgres" \
+  -f database/migrations/007_waarom_zo.sql
 ```
 
 **Future**: Alembic migrations for version-controlled schema evolution.

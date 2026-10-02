@@ -1,0 +1,18 @@
+Je vat één buitenlands nieuwsartikel samen voor Nederlandse lezers.
+
+BRON: {source_name}
+KOP: {title}
+
+{text_block}
+
+OPDRACHT:
+Schrijf in het Nederlands, in eigen woorden, wat dit artikel meldt: het kernnieuws en het accent dat de bron legt.
+
+REGELS:
+- Hoogstens twee korte zinnen, samen hoogstens 45 woorden.
+- Eigen woorden: geen citaten en geen zinnen of zinsdelen letterlijk overnemen (auteursrecht).
+- Alleen wat in de kop en de tekst staat. Verzin niets en geef geen eigen oordeel.
+- Begin direct met de inhoud, niet met "Het artikel", "De bron" of de naam van de bron.
+- Is er alleen een kop: geef de kop in het Nederlands weer en voeg niets toe.
+
+Antwoord uitsluitend met JSON: {"kern": "..."}

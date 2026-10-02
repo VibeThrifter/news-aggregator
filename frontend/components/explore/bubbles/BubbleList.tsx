@@ -9,7 +9,7 @@ import { Favicon } from "../ui/primitives";
 
 /** Accessible list version of the bubble map: same data, grouped per lens. */
 export function BubbleList({ scene, lens, onTap }: { scene: BubbleScene; lens: Exclude<HeroLens, "tegenspraak">; onTap: (bubble: Bubble) => boolean }) {
-  const { exploration, isRevealed } = useExplore();
+  const { exploration } = useExplore();
   const groups = scene.groupsByLens[lens];
 
   return (
@@ -17,15 +17,13 @@ export function BubbleList({ scene, lens, onTap }: { scene: BubbleScene; lens: E
       {groups.map((group) => {
         const members = scene.bubbles.filter((bubble) => bubbleGroupKey(bubble, lens) === group.key);
         if (members.length === 0) return null;
-        const discovered = group.clueId ? isRevealed(group.clueId) : true;
         return (
-          <section key={group.key} aria-label={discovered ? group.label : group.maskedLabel}>
-            <h3 className="mb-2 text-sm font-semibold text-ink-900">{discovered ? group.label : group.maskedLabel}</h3>
+          <section key={group.key} aria-label={group.label}>
+            <h3 className="mb-2 text-sm font-semibold text-ink-900">{group.label}</h3>
             <ul className="space-y-1.5">
               {members.map((bubble) => {
                 const outlet = exploration.index.outlet(bubble.outletKey);
                 if (!outlet) return null;
-                const open = bubble.perspectiveClueId ? isRevealed(bubble.perspectiveClueId) : true;
                 return (
                   <li key={bubble.id}>
                     <Balloon
@@ -47,7 +45,7 @@ export function BubbleList({ scene, lens, onTap }: { scene: BubbleScene; lens: E
                         >
                           <Favicon name={outlet.name} domain={outlet.domain} size={18} />
                           <span className="font-semibold">{outlet.name}</span>
-                          <span className="flex-1 truncate text-ink-600">{open ? bubble.stance : "— tik om te onthullen"}</span>
+                          <span className="flex-1 truncate text-ink-600">{bubble.perspectiveClueId ? bubble.stance : bubble.estimated ? "geschatte invalshoek" : "nog niet ingedeeld"}</span>
                         </button>
                       )}
                     </Balloon>

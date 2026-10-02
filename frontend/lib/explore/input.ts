@@ -8,7 +8,7 @@ import type { AggregationResponse, ArticleBiasAnalysis, EventEntity, EventRelati
 import { findOutletByName, findOutletByUrl } from "./media-landscape";
 import { normalizeUrl, slugify, urlFingerprint, urlHost } from "./normalize";
 import { splitLlmSummary } from "./summary";
-import type { ExploreArticle, ExploreAvailability, ExploreInput, ExploreOutlet, OutletProfile } from "./types";
+import type { ArticleDigest, ExploreArticle, ExploreAvailability, ExploreInput, ExploreOutlet, OutletProfile } from "./types";
 
 export interface RawExploreArticle {
   id: number;
@@ -20,6 +20,8 @@ export interface RawExploreArticle {
   source_country: string | null;
   /** source_metadata.spectrum: 0..10, "alternative" or null */
   spectrum: number | string | null;
+  /** source_metadata.digest: Dutch gist of a foreign article, written by the backend job */
+  digest?: { nl?: unknown; basis?: unknown } | null;
 }
 
 export interface RawExploration {
@@ -48,6 +50,12 @@ function parseSpectrum(value: number | string | null | undefined): number | "alt
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseDigest(value: RawExploreArticle["digest"]): ArticleDigest | null {
+  if (!value || typeof value !== "object") return null;
+  const text = typeof value.nl === "string" ? value.nl.trim() : "";
+  return text ? { text, basis: value.basis === "title" ? "title" : "text" } : null;
 }
 
 function resolveProfile(article: RawExploreArticle): OutletProfile | null {
@@ -105,6 +113,7 @@ export function buildExploreInput(raw: RawExploration): ExploreInput {
       publishedAt: rawArticle.published_at ?? null,
       isInternational,
       sourceCountry: rawArticle.source_country ?? null,
+      digest: parseDigest(rawArticle.digest),
     });
   }
 

@@ -3,9 +3,10 @@
  * into a scene for the network view.
  */
 
-import type { EntityKind, PmBreakdown, PmEntity, PmMatch, PmNeighborhood, PmRelation } from "@/lib/types";
+import type { EntityKind, PmBreakdown, PmEntity, PmMatch, PmNeighborhood, PmPaths, PmRelation } from "@/lib/types";
 
 import { FILTERS } from "./labels";
+import { hubFactor, referenceDate, relationWeight } from "./pm-paths";
 
 export interface PmSeed {
   id: number;
@@ -200,7 +201,8 @@ export interface PmMerged {
   filterCounts: Map<number, Record<string, number>>;
 }
 
-export function mergeNeighborhoods(neighborhoods: PmNeighborhood[]): PmMerged {
+/** One graph from loaded neighbourhoods plus routes (Epic 13); routes add no counts. */
+export function mergeNeighborhoods(neighborhoods: PmNeighborhood[], paths: PmPaths[] = []): PmMerged {
   const entities = new Map<number, PmEntity>();
   const relations = new Map<number, PmRelation>();
   const totals = new Map<number, number>();
@@ -216,7 +218,28 @@ export function mergeNeighborhoods(neighborhoods: PmNeighborhood[]): PmMerged {
       relations.set(relation.id, relation);
     }
   }
+  for (const result of paths) {
+    for (const entity of result.entities) {
+      if (!entities.has(entity.id)) entities.set(entity.id, entity);
+    }
+    for (const relation of result.relations) {
+      relations.set(relation.id, relation);
+    }
+  }
   return { entities, relations, totals, filterCounts };
+}
+
+/** Everything on some routes: drawn whatever the filters or bundles say, because you asked for it. */
+export function routeParts(paths: PmPaths[]): { nodes: Set<number>; relations: Set<number> } {
+  const nodes = new Set<number>();
+  const relations = new Set<number>();
+  for (const result of paths) {
+    for (const route of result.routes) {
+      route.nodes.forEach((id) => nodes.add(id));
+      route.relations.forEach((id) => relations.add(id));
+    }
+  }
+  return { nodes, relations };
 }
 
 /** Loaded relations that touch an entity, optionally only via some filters. */
@@ -230,10 +253,11 @@ export const otherEnd = (relation: Pick<PmRelation, "source_id" | "target_id">, 
   relation.source_id === id ? relation.target_id : relation.source_id;
 
 /**
- * Neighbours drawn per filter around a node: a few around a node you only see, more around a node
- * you expanded (along that filter). The rest of an expanded node goes into a bundle ("+84").
+ * Neighbours drawn per filter around a node (Epic 13): none around a node you only see (only what
+ * connects it to the rest is drawn), three around a node you asked about (along that filter). The
+ * rest of an asked node goes into a bundle ("+84").
  */
-export const SHOWN_PER_FILTER = { expanded: 5, collapsed: 1 } as const;
+export const SHOWN_PER_FILTER = { expanded: 3, collapsed: 0 } as const;
 
 export const bundleKey = (anchorId: number, filter: string) => `${anchorId}:${filter}`;
 export const bundleNodeId = (anchorId: number, filter: string) => `bundle:${bundleKey(anchorId, filter)}`;
@@ -248,21 +272,31 @@ export interface PmBundle {
   members: PmRelation[];
 }
 
-/** Ranking inside a filter: hubs of the model first, then the best documented relation, then by name. */
-export interface Prominence {
+/**
+ * Ranking inside a filter (Epic 13): the most *specific* neighbours first — a strong, well-founded,
+ * current tie with a party that is not linked to everything — then the best documented relation,
+ * then by name. The old ranking (most relations first) put the hubs that explain nothing on top.
+ */
+export interface Specificity {
   id: number;
-  degree: number;
+  score: number;
   sources: number;
   name: string;
 }
 
-export const byProminence = (x: Prominence, y: Prominence) =>
-  y.degree - x.degree || y.sources - x.sources || x.name.localeCompare(y.name, "nl");
+export const bySpecificity = (x: Specificity, y: Specificity) =>
+  y.score - x.score || y.sources - x.sources || x.name.localeCompare(y.name, "nl");
 
-export function prominenceOf(entity: Pick<PmEntity, "id" | "degree" | "name"> | undefined, id: number, relations: Pick<PmRelation, "source_count">[] = []): Prominence {
+export function specificityOf(
+  entity: Pick<PmEntity, "id" | "degree" | "name"> | undefined,
+  id: number,
+  relations: Pick<PmRelation, "relation_type" | "certainty_label" | "active_from" | "active_until" | "source_count">[] = [],
+  at: string = referenceDate(),
+): Specificity {
+  const tie = Math.max(0, ...relations.map((relation) => relationWeight(relation, at)?.weight ?? 0));
   return {
     id,
-    degree: entity?.degree ?? 0,
+    score: tie * hubFactor(entity?.degree),
     sources: Math.max(0, ...relations.map((relation) => relation.source_count ?? 0)),
     name: entity?.name ?? "",
   };
@@ -316,8 +350,8 @@ export function isHistoric(relation: Pick<PmRelation, "active_until">, now: Date
   return Number.isNaN(until.getTime()) ? year < now.getFullYear() : until.getTime() < now.getTime();
 }
 
-/** Bundles smaller than this whose relations are all loaded are simply drawn */
-const MIN_BUNDLE = 3;
+/** A leftover smaller than this whose relations are all loaded is simply drawn (a "+1" bundle is silly) */
+const MIN_BUNDLE = 2;
 
 export function pmScene(
   merged: PmMerged,
@@ -329,6 +363,9 @@ export function pmScene(
     expandedFilters?: ReadonlyMap<number, ReadonlySet<string>>;
     /** Taken out of a bundle by the user: always drawn */
     revealed?: ReadonlySet<number>;
+    /** On a route the user asked for (Epic 13): always drawn, their relations always visible */
+    routeNodes?: ReadonlySet<number>;
+    routeRelations?: ReadonlySet<number>;
     maxNodes?: number;
     eventLabel?: string;
     now?: Date;
@@ -338,12 +375,17 @@ export function pmScene(
 ): { nodes: PmSceneNode[]; edges: PmSceneEdge[]; latestIds: string[]; bundles: PmBundle[] } {
   const hidden = options.hiddenFilters ?? new Set<string>();
   const revealed = options.revealed ?? new Set<number>();
+  const routeNodes = options.routeNodes ?? new Set<number>();
+  const routeRelations = options.routeRelations ?? new Set<number>();
   const maxNodes = options.maxNodes ?? 100;
+  const at = referenceDate(null, options.now);
   const seedById = new Map(seeds.map((seed) => [seed.id, seed]));
   const entityOf = (id: number) => merged.entities.get(id);
   const visibleKeys = ALL_FILTER_KEYS.filter((key) => !hidden.has(key));
 
-  const relations = Array.from(merged.relations.values()).filter((relation) => isRelationVisible(relation, hidden));
+  const relations = Array.from(merged.relations.values()).filter(
+    (relation) => isRelationVisible(relation, hidden) || routeRelations.has(relation.id),
+  );
   const latest = options.latest && merged.entities.has(options.latest.id) ? options.latest : null;
 
   // Anchors: the nodes whose neighbours are drawn (seeds, expanded nodes, the node expanded last)
@@ -380,20 +422,25 @@ export function pmScene(
     }
   }
 
-  // Always drawn: nodes taken out of a bundle, and nodes that link two anchors (a shared owner or source)
+  // Always drawn: nodes taken out of a bundle, nodes on a route you asked for, and nodes that link two
+  // anchors (a shared owner or source)
   const forced = new Set<number>();
   touches.forEach((set, id) => {
     if (set.size >= 2 || revealed.has(id)) forced.add(id);
   });
+  routeNodes.forEach((id) => {
+    if (merged.entities.has(id) && !anchors.has(id)) forced.add(id);
+  });
 
-  // Per anchor and filter only the most prominent neighbours: a few, more when expanded along that filter
+  // Per anchor and filter only the most specific neighbours: none around a node you only see, a few
+  // along a filter you asked about
   const shown = new Set<number>(forced);
   groups.forEach((group) => {
     const limit = expandedVia(group.anchor, group.filter) ? SHOWN_PER_FILTER.expanded : SHOWN_PER_FILTER.collapsed;
     Array.from(group.members.entries())
       .filter(([id]) => !forced.has(id))
-      .map(([id, list]) => prominenceOf(entityOf(id), id, list))
-      .sort(byProminence)
+      .map(([id, list]) => specificityOf(entityOf(id), id, list, at))
+      .sort(bySpecificity)
       .slice(0, limit)
       .forEach(({ id }) => shown.add(id));
   });
@@ -410,7 +457,7 @@ export function pmScene(
     return { count: Math.max(members.length, inModel - drawn), members };
   };
 
-  // A bundle of one or two is silly: draw those instead
+  // A bundle of one is silly: draw it instead (a question adds at most three parties plus one more node)
   anchors.forEach((anchor) => {
     for (const filter of visibleKeys) {
       if (!expandedVia(anchor, filter)) continue;
@@ -419,7 +466,7 @@ export function pmScene(
     }
   });
 
-  // Node cap: drop the least prominent optional nodes (never forced ones or the latest expansion's neighbours)
+  // Node cap: drop the least specific optional nodes (never forced ones or the latest expansion's neighbours)
   const latestNeighbours = new Set<number>(
     latest ? relations.filter((relation) => (relation.source_id === latest.id || relation.target_id === latest.id) && matchesFilters(relation, latest.filters)).map((relation) => otherEnd(relation, latest.id)) : [],
   );
@@ -427,8 +474,8 @@ export function pmScene(
   if (excess > 0) {
     Array.from(shown)
       .filter((id) => !forced.has(id) && !latestNeighbours.has(id))
-      .map((id) => prominenceOf(entityOf(id), id))
-      .sort(byProminence)
+      .map((id) => specificityOf(entityOf(id), id, relations.filter((relation) => relation.source_id === id || relation.target_id === id), at))
+      .sort(bySpecificity)
       .reverse()
       .slice(0, excess)
       .forEach(({ id }) => shown.delete(id));
@@ -443,8 +490,8 @@ export function pmScene(
       const { count, members } = leftovers(anchor, filter);
       if (count === 0 || (count === 1 && members.length === 0)) continue;
       const ranked = members
-        .map((relation) => ({ relation, rank: prominenceOf(entityOf(otherEnd(relation, anchor)), otherEnd(relation, anchor), [relation]) }))
-        .sort((x, y) => byProminence(x.rank, y.rank))
+        .map((relation) => ({ relation, rank: specificityOf(entityOf(otherEnd(relation, anchor)), otherEnd(relation, anchor), [relation], at) }))
+        .sort((x, y) => bySpecificity(x.rank, y.rank))
         .map((item) => item.relation);
       bundles.push({ anchorId: anchor, filter, count, members: ranked });
     }

@@ -165,6 +165,38 @@ class Settings(BaseSettings):
         description="Maximum number of articles to analyze per scheduled run"
     )
 
+    # Foreign article digest (Epic 11, "Wat schreef …?"): Google News only gives the headline,
+    # so the text is fetched from the publisher and the LLM stores a Dutch gist
+    article_digest_enabled: bool = Field(
+        default=True,
+        description="Scheduled job that fetches foreign article texts and stores a Dutch LLM gist"
+    )
+    article_digest_interval_minutes: int = Field(
+        default=15,
+        ge=5,
+        le=1440,
+        description="Interval in minutes for the article digest job"
+    )
+    article_digest_batch_size: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Maximum number of foreign articles to digest per scheduled run"
+    )
+    article_digest_max_age_hours: int = Field(
+        default=72,
+        ge=1,
+        le=720,
+        description="The scheduled job only digests foreign articles added in the last N hours "
+        "(older ones via POST /admin/trigger/article-digests)"
+    )
+    article_digest_text_chars: int = Field(
+        default=6000,
+        ge=500,
+        le=20000,
+        description="Characters of article text sent to the LLM"
+    )
+
     # Database Configuration
     database_url: str = Field(
         default="sqlite+aiosqlite:///./data/db.sqlite",

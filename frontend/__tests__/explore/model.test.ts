@@ -1,7 +1,9 @@
 import { biasByOutlet, biasCards, objectivity } from "@/lib/explore/bias";
 import { cluesBySpoor, deriveClues } from "@/lib/explore/clues";
 import { contradictionsBetween, outletProfileView } from "@/lib/explore/compare";
-import { DEMO_EVENT, DEMO_EVENT_2, isDemoIdentifier } from "@/lib/explore/fixtures/demo-event";
+import { DEMO_EVENT, isDemoIdentifier } from "@/lib/explore/fixtures/demo-event";
+
+import { SECOND_EVENT } from "./fixtures/second-event";
 import { buildGraph } from "@/lib/explore/graph";
 import { outletNode } from "@/lib/explore/ids";
 import { ArticleIndex, buildExploreInput, type RawExploration } from "@/lib/explore/input";
@@ -56,7 +58,7 @@ describe("buildExploreInput", () => {
     expect(input.event.title).toBe("Windpark Dijkerhoven splijt dorp en Den Haag");
     expect(input.event.isDemo).toBe(true);
     expect(isDemoIdentifier("demo")).toBe(true);
-    expect(isDemoIdentifier("demo-2")).toBe(true);
+    expect(isDemoIdentifier("demo-2")).toBe(false); // exactly one demo
     expect(isDemoIdentifier("windpark")).toBe(false);
   });
 
@@ -115,7 +117,7 @@ describe("deriveClues", () => {
 
   it("covers every insight field", () => {
     const types = new Set(clues.map((clue) => clue.type));
-    for (const type of ["perspective", "voices", "contradiction", "claim", "statistic", "fallacy", "authority", "timing", "ownership", "frame", "tone", "bias", "gap", "questions", "science", "silent", "first", "timeline", "international", "country"]) {
+    for (const type of ["perspective", "voices", "contradiction", "claim", "statistic", "fallacy", "authority", "timing", "ownership", "frame", "tone", "bias", "gap", "questions", "science", "first", "timeline", "country"]) {
       expect(types.has(type as never)).toBe(true);
     }
     expect(clues.filter((clue) => clue.type === "contradiction")).toHaveLength(2);
@@ -180,7 +182,7 @@ describe("deriveClues", () => {
     none.insight = null;
     none.bias = [];
     const derived = deriveClues(buildExploreInput(none));
-    expect(derived.every((clue) => ["ownership", "silent", "first", "international"].includes(clue.type))).toBe(true);
+    expect(derived.every((clue) => ["ownership", "first"].includes(clue.type))).toBe(true);
   });
 
   it("adds a consensus clue when all outlets share one perspective", () => {
@@ -200,7 +202,10 @@ describe("graph and fog-of-war", () => {
     const frame = graph.nodes.find((node) => node.kind === "frame");
     expect(frame?.baseline).toBe(false);
     expect(frame?.clueIds.length).toBeGreaterThan(0);
-    expect(graph.nodes.some((node) => node.kind === "related")).toBe(true);
+    // one demo: no related event there; a fixture with a relation gets a related node
+    expect(graph.nodes.some((node) => node.kind === "related")).toBe(false);
+    const second = buildExploreInput(SECOND_EVENT);
+    expect(buildGraph(second, deriveClues(second)).nodes.some((node) => node.kind === "related")).toBe(true);
   });
 
   it("merges actors with matching NER entities", () => {
@@ -260,7 +265,7 @@ describe("propaganda filter signals", () => {
   });
 
   it("returns empty signal lists (not a verdict) when there is nothing to report", () => {
-    const empty = eventFilterSignals(buildExploreInput(DEMO_EVENT_2), deriveClues(buildExploreInput(DEMO_EVENT_2)));
+    const empty = eventFilterSignals(buildExploreInput(SECOND_EVENT), deriveClues(buildExploreInput(SECOND_EVENT)));
     const flak = empty.find((entry) => entry.filter === "flak");
     expect(flak?.signals).toEqual([]);
   });

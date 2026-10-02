@@ -463,6 +463,7 @@ _AUTHORITY_HINTS: tuple[tuple[str, str], ...] = (
     ("journalist", JOURNALIST),
     ("redactie", JOURNALIST),
     ("politic", POLITICUS),
+    ("politiek", POLITICUS),  # before "politie": "politiek leider" is not the police
     ("politie", BESTUURDER),
     ("minister", POLITICUS),
     ("kamerlid", POLITICUS),
@@ -801,6 +802,50 @@ def cues_from_authority(authority: Mapping[str, Any]) -> list[RoleCue]:
     return cues
 
 
+# Organisation "names" that are no actor: photo credits and reference sites picked up by NER.
+NON_ACTOR_NAMES: frozenset[str] = frozenset(
+    {
+        "wikimedia-commons",
+        "wikimedia",
+        "wikipedia",
+        "creative-commons",
+        "getty-images",
+        "getty",
+        "shutterstock",
+        "istock",
+        "unsplash",
+        "pexels",
+        "flickr",
+        "google-maps",
+        "google-street-view",
+        "openstreetmap",
+    }
+)
+# Ministries/departments that NER glues onto a name ("Heinen van Financiën", "Defensie Katz")
+_DEPARTMENTS = (
+    r"Financi[eë]n|Defensie|Justitie(?: en Veiligheid)?|Buitenlandse Zaken|Binnenlandse Zaken|"
+    r"Volksgezondheid|Onderwijs|Economische Zaken|Landbouw|Infrastructuur(?: en Waterstaat)?|"
+    r"Sociale Zaken|Klimaat(?: en Groene Groei)?|Asiel(?: en Migratie)?|Migratie|Algemene Zaken|"
+    r"Volkshuisvesting|VWS|OCW|BZK|EZK|EZ|LNV|IenW|SZW|JenV|BuZa|KGG"
+)
+_DEPARTMENT_SUFFIX = re.compile(rf"\s+van\s+(?:{_DEPARTMENTS})\s*$")
+_DEPARTMENT_PREFIX = re.compile(rf"^(?:{_DEPARTMENTS})\s+")
+
+
+def is_non_actor(name: str) -> bool:
+    """A photo credit or reference site, not someone to research ("Wikimedia Commons")."""
+
+    slug = re.sub(r"[^a-z0-9]+", "-", fold(name)).strip("-")
+    return slug in NON_ACTOR_NAMES
+
+
+def clean_person_name(name: str) -> str:
+    """Strip ministries NER glued onto a person ("Heinen van Financiën" -> "Heinen")."""
+
+    cleaned = _DEPARTMENT_SUFFIX.sub("", name.strip())
+    return _DEPARTMENT_PREFIX.sub("", cleaned).strip() or name.strip()
+
+
 def infer_kind(name: str, authority_type: str | None = None) -> str:
     """person | org for a free-text actor name (LLM authorities have no NER kind)."""
 
@@ -915,5 +960,7 @@ __all__ = [
     "cues_from_after",
     "cues_from_authority",
     "fold",
+    "clean_person_name",
     "infer_kind",
+    "is_non_actor",
 ]

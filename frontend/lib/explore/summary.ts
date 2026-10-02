@@ -79,6 +79,51 @@ export function stripMarkdown(text: string): string {
     .trim();
 }
 
+/** A heading on its own line: "# Kopje" or "**Kopje**". */
+const HEADING_LINE = /^(#{1,6}\s.*|\*\*[^*]+\*\*:?)$/;
+const LIST_ITEM = /^([-*+]|\d+[.)])\s/;
+/** End of a sentence: . ! ? … (and closing quotes), a space, then a capital, digit or opening quote. */
+const SENTENCE_END = /[.!?…]+["'”’»)]*\s+(?=["'“‘„«(]?[\p{Lu}\p{N}])/gu;
+/** A period that does not end the sentence: initials ("J. Smith", "U.S.") and abbreviations ("o.a.", "dhr."). */
+const ABBREVIATION = /(?:^|[\s("'“‘„])(?:\p{Lu}(?:\.\p{Lu})*|\p{Ll}(?:\.\p{Ll})+|bijv|bv|ca|dhr|mevr|mr|dr|drs|ir|prof|nr|St|vs)\.$/u;
+
+/** Split plain text into sentences. */
+export function splitSentences(text: string): string[] {
+  const sentences: string[] = [];
+  let start = 0;
+  for (const match of text.matchAll(SENTENCE_END)) {
+    const index = match.index ?? 0;
+    const sentence = text.slice(start, index + match[0].trimEnd().length).trim();
+    if (ABBREVIATION.test(sentence)) continue;
+    if (sentence) sentences.push(sentence);
+    start = index + match[0].length;
+  }
+  const rest = text.slice(start).trim();
+  if (rest) sentences.push(rest);
+  return sentences;
+}
+
+/** The sentences of the summary body as plain text, without headings. */
+export function summarySentences(markdown: string): string[] {
+  const blocks: string[] = [];
+  let lines: string[] = [];
+  const flush = () => {
+    if (lines.length) blocks.push(lines.join(" "));
+    lines = [];
+  };
+  for (const raw of markdown.split("\n")) {
+    const line = raw.trim();
+    if (!line || HEADING_LINE.test(line)) {
+      flush();
+      continue;
+    }
+    if (LIST_ITEM.test(line)) flush();
+    lines.push(line.replace(LIST_ITEM, ""));
+  }
+  flush();
+  return blocks.flatMap((block) => splitSentences(stripMarkdown(block)));
+}
+
 /** Shorten text at a word boundary. */
 export function truncate(text: string, max: number): string {
   if (text.length <= max) {

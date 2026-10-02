@@ -16,20 +16,36 @@ import { Eyebrow, Favicon } from "../ui/primitives";
 
 const dateFormatter = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short", year: "numeric" });
 
+/** "29 sep 2026", or null without a valid date. */
+export function articleDate(value: string | null | undefined): string | null {
+  const published = parseIsoDate(value);
+  return published ? dateFormatter.format(published) : null;
+}
+
 function eventHref(article: Pick<ArticleRef, "event_slug" | "event_id">): string | null {
   if (article.event_slug) return `/event/${encodeURIComponent(article.event_slug)}`;
   return article.event_id != null ? `/event/${article.event_id}` : null;
 }
 
 /** One article: favicon, source, date and the title as a link to the article (never its content). */
-export function ArticleRow({ article, showEvent = false }: { article: ArticleRef; showEvent?: boolean }) {
+export function ArticleRow({
+  article,
+  showEvent = false,
+  showSource = true,
+  note,
+}: {
+  article: ArticleRef;
+  showEvent?: boolean;
+  showSource?: boolean;
+  /** Extra text after the date ("alleen de kop") */
+  note?: string;
+}) {
   const { exploration } = useExplore();
   const demo = exploration.input.event.isDemo;
-  const published = parseIsoDate(article.published_at);
   const href = showEvent ? eventHref(article) : null;
   return (
     <li className="flex gap-2 py-1.5 text-sm">
-      <Favicon name={article.source_name ?? "?"} size={16} className="mt-0.5 shrink-0" />
+      {showSource ? <Favicon name={article.source_name ?? "?"} size={16} className="mt-0.5 shrink-0" /> : null}
       <div className="min-w-0 flex-1">
         {demo ? (
           <p className="font-medium text-ink-900">{article.title}</p>
@@ -39,7 +55,7 @@ export function ArticleRow({ article, showEvent = false }: { article: ArticleRef
           </a>
         )}
         <p className="text-xs text-ink-500">
-          {[article.source_name, published ? dateFormatter.format(published) : null].filter(Boolean).join(" · ")}
+          {[showSource ? article.source_name : null, articleDate(article.published_at), note].filter(Boolean).join(" · ")}
           {href && article.event_id !== exploration.input.event.id ? (
             <>
               {" · "}

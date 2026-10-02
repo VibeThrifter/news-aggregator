@@ -20,6 +20,7 @@ from backend.app.services.entity_research.roles import (
     assess_organisation,
     assess_person,
     classify_word,
+    clean_person_name,
     cue_from_before,
     cue_from_byline,
     cue_from_span,
@@ -27,6 +28,7 @@ from backend.app.services.entity_research.roles import (
     cues_from_authority,
     fold,
     infer_kind,
+    is_non_actor,
 )
 
 
@@ -363,3 +365,33 @@ def test_request_bonus_does_not_make_it_automatic() -> None:
 
 def test_thin_coverage_lowers_priority() -> None:
     assert _decide(pm_degree=1).priority < _decide().priority
+
+
+# ------------------------------------------------------------------ real-data fixes (2026-10-01)
+def test_politiek_leider_is_a_politician_not_the_police() -> None:
+    [cue] = cues_from_authority(
+        {"authority": "Rob Jetten", "actual_role": "Politiek leider die een uitspraak doet"}
+    )
+    assert cue.category == POLITICUS
+    [police] = cues_from_authority({"authority": "X", "authority_type": "politie"})
+    assert police.category == BESTUURDER
+
+
+@pytest.mark.parametrize(
+    ("name", "cleaned"),
+    [
+        ("Heinen van Financiën", "Heinen"),
+        ("Defensie Katz", "Katz"),
+        ("Eelco Heinen", "Eelco Heinen"),
+        ("Hanneke van Buitenlandse Zaken", "Hanneke"),
+    ],
+)
+def test_clean_person_name(name: str, cleaned: str) -> None:
+    assert clean_person_name(name) == cleaned
+
+
+def test_non_actor_names() -> None:
+    assert is_non_actor("Wikimedia Commons") and is_non_actor("Getty Images")
+    assert not is_non_actor("ANP") and not is_non_actor("NordVind")
+    decision = _decide(kind="org", category=ORGANISATIE, non_actor=True)
+    assert decision.decision == prio.SKIP and "Geen actor" in decision.reason

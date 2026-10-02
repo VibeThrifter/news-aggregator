@@ -28,7 +28,7 @@ export function SporenGrid() {
           const empty = entry.total === 0;
           const reason =
             spoor.id === "buitenland"
-              ? "Geen buitenlandse bronnen"
+              ? "Geen andere landen"
               : !hasCriticalFields && ["wie-heeft-belang", "wat-zie-je-niet", "hoe-gebracht"].includes(spoor.id)
                 ? "Oudere analyse zonder kritische velden"
                 : "Niets gevonden";
