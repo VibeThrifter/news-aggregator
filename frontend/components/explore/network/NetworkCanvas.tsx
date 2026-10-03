@@ -32,6 +32,10 @@ export interface CanvasNodeData extends Record<string, unknown> {
   /** Short text inside the circle when there is no favicon */
   glyph?: string;
   ghost?: boolean;
+  /** A proposal: see-through until you tap it */
+  pending?: boolean;
+  /** Dashed outline (a name that is not in the model) */
+  dashed?: boolean;
   selected?: boolean;
   ring?: string;
 }
@@ -52,6 +56,8 @@ export interface CanvasEdge {
   width?: number;
   /** Direction arrow: at the target, at both ends, or none (undirected) */
   arrow?: "end" | "both" | null;
+  /** Leads to a proposal: see-through like it */
+  faded?: boolean;
 }
 
 const LABEL_WIDTH = 116;
@@ -72,7 +78,11 @@ const centerHandle = (size: number) => ({
 const BubbleNode = memo(function BubbleNode({ data }: NodeProps<Node<CanvasNodeData>>) {
   const { size, color } = data;
   return (
-    <div className="flex flex-col items-center" style={{ width: LABEL_WIDTH }}>
+    <div
+      className="flex flex-col items-center transition-opacity duration-200"
+      style={{ width: LABEL_WIDTH, opacity: data.pending ? 0.35 : 1 }}
+      data-pending={data.pending ? "true" : undefined}
+    >
       <Handle type="target" position={Position.Top} isConnectable={false} style={centerHandle(size)} />
       <Handle type="source" position={Position.Bottom} isConnectable={false} style={centerHandle(size)} />
       <div
@@ -80,7 +90,7 @@ const BubbleNode = memo(function BubbleNode({ data }: NodeProps<Node<CanvasNodeD
         style={{
           width: size,
           height: size,
-          border: `${data.ghost ? 2 : 3}px ${data.ghost ? "dashed" : "solid"} ${color}`,
+          border: `${data.ghost || data.dashed ? 2 : 3}px ${data.ghost || data.dashed ? "dashed" : "solid"} ${color}`,
           boxShadow: data.selected ? `0 0 0 4px ${color}44` : data.ring ? `0 0 0 3px ${data.ring}` : undefined,
         }}
       >
@@ -233,7 +243,13 @@ function FitOnChange({
 }) {
   const flow = useReactFlow();
   const fitKey = fitIds?.join("|") ?? "";
+  const shown = useRef<Set<string> | null>(null);
   useEffect(() => {
+    const before = shown.current;
+    const ids = new Set(signature ? signature.split("|") : []);
+    shown.current = ids;
+    // Taking nodes away (proposals you did not keep, a node you removed) leaves the view where it is
+    if (before && ids.size < before.size && Array.from(ids).every((id) => before.has(id))) return;
     const timer = window.setTimeout(() => {
       if (fitIds && fitIds.length > 1) {
         flow.fitView({ nodes: fitIds.map((id) => ({ id })), padding: 0.22, duration: 350, maxZoom: 1.3 });
@@ -339,7 +355,8 @@ export function NetworkCanvas({
             stroke: edge.color,
             strokeWidth: (edge.width ?? 2) + (active ? 2 : 0),
             strokeDasharray: edge.dashed ? "6 5" : undefined,
-            opacity: active ? 1 : 0.85,
+            opacity: active ? 1 : edge.faded ? 0.25 : 0.85,
+            transition: "opacity 200ms",
             cursor: hasEdgeTips ? "pointer" : undefined,
           },
         };

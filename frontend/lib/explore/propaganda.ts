@@ -2,7 +2,7 @@
  * Event-level signals per Herman & Chomsky filter, derived from the AI analysis of this event.
  *
  * Deliberately NO levels, scores or rankings: in line with the propaganda-model data licence we
- * show evidence ("aanwijzingen") that links to the clue it came from, never a verdict.
+ * show evidence ("signalen") that links to the finding it came from, never a verdict.
  * Structural relations (ownership, funding, advertisers, ...) come from the propaganda model itself.
  */
 
@@ -10,11 +10,11 @@ import { ArticleIndex } from "./input";
 import { biasByOutlet } from "./bias";
 import { FILTERS, frameLabel, type FilterId } from "./labels";
 import { OWNERSHIP_TYPE_LABELS } from "./media-landscape";
-import type { Clue, ExploreInput } from "./types";
+import type { Finding, ExploreInput } from "./types";
 
 export interface FilterSignal {
   text: string;
-  clueIds: string[];
+  findingIds: string[];
   outletKeys: string[];
 }
 
@@ -30,7 +30,7 @@ const SENSATIONAL_TONES = new Set(["sensationeel", "alarmerend"]);
 
 export function eventFilterSignals(
   input: ExploreInput,
-  clues: Clue[],
+  findings: Finding[],
   index: ArticleIndex = new ArticleIndex(input),
 ): FilterEvidence[] {
   const signals: Record<FilterId, FilterSignal[]> = {
@@ -41,13 +41,12 @@ export function eventFilterSignals(
     ideologie: [],
     tegenmacht: [],
   };
-  const push = (filter: FilterId, text: string, clue: Clue | undefined, outletKeys: string[] = []) => {
-    signals[filter].push({ text, clueIds: clue ? [clue.id] : [], outletKeys });
+  const push = (filter: FilterId, text: string, finding: Finding | undefined, outletKeys: string[] = []) => {
+    signals[filter].push({ text, findingIds: finding ? [finding.id] : [], outletKeys });
   };
   const name = (key: string | null | undefined) => (key ? (index.outlet(key)?.name ?? key) : "een bron");
 
   // Eigendom: ownership types of the outlets covering this event
-  const ownershipClue = clues.find((clue) => clue.type === "ownership");
   const byType = new Map<string, string[]>();
   for (const outlet of input.outlets) {
     const type = outlet.profile?.ownershipType;
@@ -58,46 +57,46 @@ export function eventFilterSignals(
   }
   for (const [type, keys] of Array.from(byType.entries())) {
     const label = OWNERSHIP_TYPE_LABELS[type as keyof typeof OWNERSHIP_TYPE_LABELS] ?? type;
-    push("eigendom", `${label}: ${keys.map((key) => name(key)).join(", ")}`, ownershipClue, keys);
+    push("eigendom", `${label}: ${keys.map((key) => name(key)).join(", ")}`, undefined, keys);
   }
 
-  for (const clue of clues) {
-    const body = clue.body;
+  for (const finding of findings) {
+    const body = finding.body;
     switch (body.type) {
       case "tone": {
         const tone = body.analysis.tone?.toLowerCase().trim() ?? "";
         if (SENSATIONAL_TONES.has(tone)) {
-          push("advertentie", `${capitalize(tone)} toon bij ${name(body.outletKey)}`, clue, body.outletKey ? [body.outletKey] : []);
+          push("advertentie", `${capitalize(tone)} toon bij ${name(body.outletKey)}`, finding, body.outletKey ? [body.outletKey] : []);
         }
         if (COUNTERPOWER_TONES.has(tone)) {
-          push("tegenmacht", `Kritische toon bij ${name(body.outletKey)}`, clue, body.outletKey ? [body.outletKey] : []);
+          push("tegenmacht", `Kritische toon bij ${name(body.outletKey)}`, finding, body.outletKey ? [body.outletKey] : []);
         }
         if (body.analysis.copy_paste_score?.toLowerCase().trim() === "hoog") {
-          push("sourcing", `${name(body.outletKey)} leunt sterk op persberichten of andere media`, clue, body.outletKey ? [body.outletKey] : []);
+          push("sourcing", `${name(body.outletKey)} leunt sterk op persberichten of andere media`, finding, body.outletKey ? [body.outletKey] : []);
         }
         if ((body.analysis.anonymous_source_count ?? 0) > 0) {
           push(
             "sourcing",
             `${body.analysis.anonymous_source_count} anonieme ${body.analysis.anonymous_source_count === 1 ? "bron" : "bronnen"} bij ${name(body.outletKey)}`,
-            clue,
+            finding,
             body.outletKey ? [body.outletKey] : [],
           );
         }
         if (body.analysis.narrative_alignment?.trim()) {
-          push("ideologie", `Past in een bestaand narratief (${name(body.outletKey)})`, clue, body.outletKey ? [body.outletKey] : []);
+          push("ideologie", `Past in een bestaand narratief (${name(body.outletKey)})`, finding, body.outletKey ? [body.outletKey] : []);
         }
         break;
       }
       case "voices": {
         if (body.sourcingPattern && OFFICIAL_SOURCES.test(body.sourcingPattern)) {
-          push("sourcing", `${name(body.outletKey)} laat vooral officiële bronnen aan het woord`, clue, [body.outletKey]);
+          push("sourcing", `${name(body.outletKey)} laat vooral officiële bronnen aan het woord`, finding, [body.outletKey]);
         }
         break;
       }
       case "authority": {
-        push("sourcing", `${body.authority.authority} wordt als autoriteit opgevoerd`, clue, body.outletKey ? [body.outletKey] : []);
+        push("sourcing", `${body.authority.authority} wordt als autoriteit opgevoerd`, finding, body.outletKey ? [body.outletKey] : []);
         if (body.authority.scope_creep?.trim()) {
-          push("sourcing", `${body.authority.authority} adviseert mogelijk buiten het eigen mandaat`, clue);
+          push("sourcing", `${body.authority.authority} adviseert mogelijk buiten het eigen mandaat`, finding);
         }
         break;
       }
@@ -105,32 +104,28 @@ export function eventFilterSignals(
         const type = body.frame.frame_type;
         const own = body.frame.attribution !== "geciteerd";
         if (type === "authority_deference" && own) {
-          push("sourcing", `Frame "${frameLabel(type)}" in eigen woorden`, clue, clue.outletKeys);
+          push("sourcing", `Frame "${frameLabel(type)}" in eigen woorden`, finding, finding.outletKeys);
         }
         if (IDEOLOGY_FRAMES.has(type) && own) {
-          push("ideologie", `Frame "${frameLabel(type)}" in eigen woorden`, clue, clue.outletKeys);
+          push("ideologie", `Frame "${frameLabel(type)}" in eigen woorden`, finding, finding.outletKeys);
         }
         break;
       }
       case "fallacy": {
         const type = body.fallacy.type.toLowerCase();
         if (type.includes("ad_hominem") || type.includes("stroman")) {
-          push("flak", `Aanval op personen of verdraaide kritiek (${body.fallacy.type.replace(/_/g, " ")})`, clue, clue.outletKeys);
+          push("flak", `Aanval op personen of verdraaide kritiek (${body.fallacy.type.replace(/_/g, " ")})`, finding, finding.outletKeys);
         }
-        break;
-      }
-      case "consensus": {
-        push("ideologie", "Alle bronnen brengen hetzelfde verhaal", clue, clue.outletKeys);
         break;
       }
       case "science": {
         if (!body.plurality.alternative_views_mentioned) {
-          push("ideologie", "Alternatieve wetenschappelijke visies worden niet genoemd", clue);
+          push("ideologie", "Alternatieve wetenschappelijke visies worden niet genoemd", finding);
         }
         break;
       }
       case "gap": {
-        push("tegenmacht", `Ontbrekende stem: ${body.gap.perspective}`, clue);
+        push("tegenmacht", `Ontbrekende stem: ${body.gap.perspective}`, finding);
         break;
       }
       default:
@@ -152,8 +147,8 @@ export function eventFilterSignals(
   for (const entry of Array.from(biasByOutlet(input).values())) {
     const adHominem = entry.topTypes.find((item) => item.type === "Ad Hominem Bias");
     if (adHominem) {
-      const clue = clues.find((candidate) => candidate.type === "bias" && candidate.outletKeys.includes(entry.outletKey));
-      push("flak", `Op de man spelen in eigen tekst van ${name(entry.outletKey)} (${adHominem.count}×)`, clue, [entry.outletKey]);
+      const finding = findings.find((candidate) => candidate.type === "bias" && candidate.outletKeys.includes(entry.outletKey));
+      push("flak", `Op de man spelen in eigen tekst van ${name(entry.outletKey)} (${adHominem.count}×)`, finding, [entry.outletKey]);
     }
   }
 

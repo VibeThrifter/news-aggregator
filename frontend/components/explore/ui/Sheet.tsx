@@ -6,8 +6,6 @@ import { Drawer } from "vaul";
 
 import { useIsDesktop } from "@/lib/explore/hooks";
 
-import { SheetDropStrip } from "../dnd/ExploreDnd";
-
 import { PortalRootContext } from "./portal-root";
 
 export { usePortalRoot } from "./portal-root";
@@ -76,7 +74,6 @@ export function Sheet({ open, onOpenChange, title, subtitle, icon, children, foo
           >
             <PortalRootContext.Provider value={portalRoot}>
               {children}
-              <SheetDropStrip />
             </PortalRootContext.Provider>
           </div>
           {footer ? (

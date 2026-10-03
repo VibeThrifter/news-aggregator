@@ -1,5 +1,7 @@
 import { createLocalPm, sortRelations, type PmSlice } from "@/lib/explore/pm-local";
+import { newsOnlyEntities, researchedIds, researchKeys } from "@/lib/explore/pm-seeds";
 import { usePmStore } from "@/lib/explore/pm-store";
+import type { EntityKind, EntityResearch, EventEntity, PmMatch, PmRelation } from "@/lib/types";
 import {
   DEFAULT_HIDDEN_FILTERS,
   bundleNodeId,
@@ -14,7 +16,16 @@ import {
   isHistoric,
   mergeNeighborhoods,
   pickHood,
+  countDirections,
+  directionsFrom,
+  expandedFiltersOf,
+  hoodKeyDirection,
+  influenceOf,
+  newsNodeId,
+  onSide,
   pmScene,
+  proposalsOf,
+  reasonKey,
   relationFilters,
   relationsByFilter,
   relationsOf,
@@ -22,6 +33,7 @@ import {
   routeParts,
   specificityOf,
   PM_EVENT_NODE,
+  viewScene,
 } from "@/lib/explore/pm-graph";
 
 const slice: PmSlice = {
@@ -440,5 +452,384 @@ describe("Epic 13: specific before connected, routes as undoable steps", () => {
     expect(store().activeRoutes).toEqual(["start", "pair:7:3"]);
     // The fetched routes stay cached after undo, so redo needs no new request
     expect(Object.keys(store().routeSets).sort()).toEqual(["pair:7:3", "start"]);
+  });
+});
+
+describe("proposals: what a step adds is see-through until you keep it", () => {
+  // NOS and RTL are in the news; ANP feeds both (it links them), five small sources feed NOS only,
+  // and one critic attacks NOS (flak, switched off by default)
+  const steps: PmSlice = {
+    meta: { version: "test", synced_at: "2026-10-03", entity_count: 9, relation_count: 8 },
+    entities: [
+      { id: 1, name: "NOS", type: "omroep", primary_filter: "sourcing", degree: 20 },
+      { id: 2, name: "RTL Nieuws", type: "mediaorganisatie", primary_filter: "eigendom", degree: 10 },
+      { id: 10, name: "ANP", type: "persbureau", primary_filter: "sourcing", degree: 50 },
+      // The lower the degree, the more specific
+      ...[11, 12, 13, 14, 15].map((id) => ({ id, name: `Bron ${id}`, type: "denktank", primary_filter: "sourcing", degree: id - 9 })),
+      { id: 16, name: "Criticus", type: "persoon", primary_filter: "flak", degree: 1 },
+    ],
+    relations: [
+      { id: 100, source_id: 10, target_id: 1, relation_type: "bron_van", filter: "sourcing", filters: ["sourcing"], source_count: 1 },
+      { id: 101, source_id: 10, target_id: 2, relation_type: "bron_van", filter: "sourcing", filters: ["sourcing"], source_count: 1 },
+      ...[11, 12, 13, 14, 15].map((id) => ({ id: 100 + id, source_id: id, target_id: 1, relation_type: "bron_van", filter: "sourcing", filters: ["sourcing"], source_count: 1 })),
+      { id: 117, source_id: 16, target_id: 1, relation_type: "flak", filter: "flak", filters: ["flak"], source_count: 1 },
+    ],
+    sources: {},
+    aliases: [],
+  };
+  const local = createLocalPm(steps);
+  const store = () => usePmStore.getState();
+  const scene = () => viewScene(store(), store());
+  const drawn = () => scene().nodes.map((node) => node.id);
+  const proposals = () => proposalsOf(scene(), store().pending, store().revealed);
+  const bundleCount = () => scene().bundles.find((bundle) => bundle.anchorId === 1 && bundle.filter === "sourcing")?.count;
+
+  /** The news: NOS and RTL, with ANP between them */
+  const start = (eventId: number) => {
+    store().reset(eventId);
+    store().setSeeds([
+      { id: 1, reason: "outlet", outletKey: "nos" },
+      { id: 2, reason: "outlet", outletKey: "rtl" },
+    ]);
+    store().putNeighborhood(local.neighborhood(1, 40)!, false);
+    store().putNeighborhood(local.neighborhood(2, 40)!, false);
+  };
+  /** "Wie praat mee?" about NOS, as the network asks it */
+  const ask = (filter = "sourcing") => {
+    const token = store().begin("ask");
+    store().recall(1, filter);
+    store().showFilter(filter);
+    store().setLatest({ id: 1, filters: [filter] });
+    store().putNeighborhood(local.neighborhood(1, 12, [filter])!, true, [filter]);
+    return token;
+  };
+
+  it("proposes the three most specific answers and their bundle, see-through", () => {
+    start(-20);
+    expect(drawn().sort()).toEqual(["pm-event", "pm:1", "pm:10", "pm:2"]);
+    expect(proposals().ghosts.size).toBe(0);
+
+    ask();
+    const now = proposals();
+    expect(now.parties.sort((a, b) => a - b)).toEqual([11, 12, 13]);
+    // Nothing kept yet: the question's bundle goes when it is withdrawn, so it is see-through too
+    expect(Array.from(now.ghosts).sort()).toEqual(["bundle:1:sourcing", "pm:11", "pm:12", "pm:13"]);
+    expect(now.withdraws).toBe(true);
+    expect(bundleCount()).toBe(2);
+  });
+
+  it("keeps what you tap, takes the rest away (the bundle too) without moving the next one up, and undoes that", () => {
+    start(-21);
+    ask();
+    store().keep("pm:12");
+    expect(Array.from(proposals().ghosts).sort()).toEqual(["bundle:1:sourcing", "pm:11", "pm:13"]);
+    expect(proposals().withdraws).toBe(false);
+
+    store().dropRest();
+    expect(store().pending).toBeNull();
+    expect(drawn()).toContain("pm:12");
+    expect(drawn()).not.toContain("pm:11");
+    expect(drawn()).not.toContain("pm:13");
+    // Bron 14 (the fourth) does not take a free place, and the bundle you did not tap went too
+    expect(drawn()).not.toContain("pm:14");
+    expect(bundleCount()).toBeUndefined();
+    expect(store().dismissed[11]).toEqual([reasonKey.group(1, "sourcing")]);
+    expect(store().dismissedBundles).toEqual(["1:sourcing"]);
+
+    // Undo brings the proposals back as they were
+    store().undo();
+    expect(store().pending?.kept).toEqual(["pm:12"]);
+    expect(Array.from(proposals().ghosts).sort()).toEqual(["bundle:1:sourcing", "pm:11", "pm:13"]);
+    store().redo();
+    expect(drawn()).not.toContain("pm:11");
+  });
+
+  it("keeps a bundle you tap, with what you did not keep in it", () => {
+    start(-29);
+    ask();
+    store().keep("bundle:1:sourcing");
+    expect(proposals().withdraws).toBe(false);
+    store().dropRest();
+    expect(drawn()).not.toContain("pm:11");
+    expect(bundleCount()).toBe(5); // Bron 11-15
+    // Weghalen takes it away (undoably)
+    store().remove("bundle:1:sourcing");
+    expect(bundleCount()).toBeUndefined();
+    store().undo();
+    expect(bundleCount()).toBe(5);
+  });
+
+  it("brings back what you took away of an answer when you ask the question again", () => {
+    start(-30);
+    ask();
+    store().keep("pm:12");
+    store().dropRest();
+    expect(drawn()).not.toContain("bundle:1:sourcing");
+
+    // Ask again: the bundle and the two sources come back as proposals; keep nothing and nothing changes
+    ask();
+    expect(Array.from(proposals().ghosts).sort()).toEqual(["bundle:1:sourcing", "pm:11", "pm:13"]);
+    store().dropRest();
+    expect(drawn()).toContain("pm:12");
+    expect(drawn()).not.toContain("pm:11");
+    expect(drawn()).not.toContain("bundle:1:sourcing");
+    expect(store().dismissedBundles).toEqual(["1:sourcing"]);
+  });
+
+  it("withdraws a question of which you keep nothing", () => {
+    start(-22);
+    const before = { active: store().active, expanded: store().expanded, hidden: store().hiddenFilters };
+    ask("flak");
+    expect(store().hiddenFilters).not.toContain("flak");
+    expect(proposals().parties).toEqual([16]);
+
+    store().dropRest();
+    expect(store().active).toEqual(before.active);
+    expect(store().expanded).toEqual(before.expanded);
+    expect(store().hiddenFilters).toEqual(before.hidden);
+    expect(store().latest).toBeNull();
+    expect(drawn().sort()).toEqual(["pm-event", "pm:1", "pm:10", "pm:2"]);
+    expect(store().past).toHaveLength(2); // the question, and taking it away
+  });
+
+  it("settles the last step when you take the next one, and keeps all on request", () => {
+    start(-23);
+    ask();
+    store().keep("pm:11");
+    store().begin("routes");
+    expect(store().pending?.kind).toBe("routes");
+    expect(Object.keys(store().dismissed).map(Number).sort((a, b) => a - b)).toEqual([12, 13]);
+    expect(store().dismissedBundles).toEqual(["1:sourcing"]);
+    expect(store().pending?.base).toContain("pm:11");
+
+    // Houd alle: everything stays, nothing is taken away
+    start(-24);
+    ask();
+    store().keepAll();
+    expect(store().pending).toBeNull();
+    expect(store().dismissed).toEqual({});
+    expect(drawn()).toEqual(expect.arrayContaining(["pm:11", "pm:12", "pm:13", "bundle:1:sourcing"]));
+  });
+
+  it("switches a filter the way the legend showed it, also when that withdraws a question", () => {
+    start(-25);
+    ask("flak"); // switches Flak on
+    store().toggleFilter("flak"); // you switch it off again: the question goes, Flak stays off
+    expect(store().hiddenFilters).toContain("flak");
+    expect(store().expanded).toEqual([]);
+    store().toggleFilter("flak");
+    expect(store().hiddenFilters).not.toContain("flak");
+  });
+
+  it("ends a step that proposed nothing (yet) without taking anything away", () => {
+    start(-26);
+    const token = store().begin("ask");
+    expect(store().pending?.token).toBe(token);
+    store().dropRest(); // its load has not arrived: nothing to take away
+    expect(store().pending).toBeNull();
+    expect(store().dismissed).toEqual({});
+    expect(drawn().sort()).toEqual(["pm-event", "pm:1", "pm:10", "pm:2"]);
+    // The next step gets a new token, so a late load of this one stays out of the graph
+    expect(store().begin("ask")).toBe(token + 1);
+  });
+
+  it("removes any node that is not the news' own or asked about, undoably", () => {
+    start(-27);
+    expect(drawn()).toContain("pm:10");
+    store().remove("pm:1"); // NOS is the news' own: stays
+    expect(store().past).toHaveLength(0);
+    store().remove("pm:10");
+    expect(drawn()).not.toContain("pm:10");
+    expect(store().dismissed[10]).toEqual([reasonKey.link([1, 2])]);
+    store().undo();
+    expect(drawn()).toContain("pm:10");
+  });
+
+  it("brings a removed node back when something new points at it, and when you pick it from a bundle", () => {
+    start(-28);
+    ask();
+    store().dropRest(); // nothing kept: withdrawn
+    ask();
+    store().keep("pm:11");
+    store().dropRest();
+    expect(drawn()).not.toContain("pm:12");
+
+    // A route through Bron 12 is a new reason
+    const route = { from: 2, to: 12, rank: 1, hops: 2, nodes: [2, 10, 12], relations: [101, 100], historic: false, shared_with: [] };
+    const merged = mergeNeighborhoods([local.neighborhood(1, 40)!, local.neighborhood(2, 40)!, local.neighborhood(1, 12, ["sourcing"])!]);
+    const options = {
+      hiddenFilters: new Set(store().hiddenFilters),
+      expandedFilters: new Map([[1, new Set(["sourcing"])]]),
+      dismissed: store().dismissed,
+    };
+    const seeds = store().seeds;
+    expect(pmScene(merged, seeds, new Set([1]), options).nodes.map((node) => node.id)).not.toContain("pm:12");
+    const viaRoute = pmScene(merged, seeds, new Set([1]), { ...options, routeNodes: new Set(route.nodes), routeKeys: new Map([[12, ["pair:2:12"]]]) });
+    expect(viaRoute.nodes.map((node) => node.id)).toContain("pm:12");
+
+    // Taken out of the bundle: chosen, so back for good
+    const behind = local.neighborhood(1, 60, ["sourcing"])!;
+    const [key, hood] = pickHood(behind.center, behind.relations.filter((relation) => relation.source_id === 12), behind.entities, "sourcing");
+    store().reveal([12], { [key]: hood });
+    expect(store().dismissed[12]).toBeUndefined();
+    expect(drawn()).toContain("pm:12");
+  });
+
+  it("draws the people and organisations of the news that are not in the model around Dit nieuws", () => {
+    const result = pmScene(mergeNeighborhoods([]), [], new Set(), { newsNodes: [{ id: newsNodeId("person:sarah-dobbe"), label: "Sarah Dobbe" }] });
+    expect(result.nodes.map((node) => node.id).sort()).toEqual(["news:person:sarah-dobbe", "pm-event"]);
+    expect(result.edges).toEqual([expect.objectContaining({ kind: "news", source: "pm-event", target: "news:person:sarah-dobbe" })]);
+  });
+});
+
+describe("every name of the news in the network", () => {
+  const entity = (key: string, name: string, kind: EntityKind, salience: number, aliases: string[] = [key.split(":")[1]]): EventEntity => ({
+    entity_key: key,
+    name,
+    kind,
+    aliases,
+    mention_count: Math.round(salience * 10),
+    article_count: 1,
+    outlet_counts: { "NU.nl": 1, NOS: 3 },
+    salience,
+  });
+  const research = (key: string, row: Partial<EntityResearch>): EntityResearch => ({ entity_key: key, name: "", kind: "person", status: "nieuw", ...row });
+  const input = {
+    entities: [
+      entity("person:david-van-weel", "David van Weel", "person", 0.36),
+      entity("org:vvd", "VVD", "org", 0.05),
+      entity("person:sarah-dobbe", "Sarah Dobbe", "person", 0.04),
+      entity("person:lisa", "Lisa", "person", 0.04),
+      entity("person:henk", "Henk", "person", 0.03),
+      entity("org:algemene-rekenkamer", "Algemene Rekenkamer", "org", 0.02),
+      entity("person:fons-lambie", "Fons Lambie", "person", 0.02),
+      entity("group:excuses", "Excuses", "group", 0.02),
+      entity("place:den-haag", "Den Haag", "place", 0.3),
+    ],
+  };
+  const matches = [{ alias: "vvd", entity_id: 53, type: "partij", degree: 27 } as PmMatch];
+  const rows = [
+    research("person:david-van-weel", { status: "klaar", pm_entity_id: 1252 }),
+    research("person:lisa", { status: "overgeslagen", role_category: "onbekend" }),
+    research("person:henk", { status: "overgeslagen", role_category: "prive" }),
+    research("person:fons-lambie", { status: "overgeslagen", status_reason: "buitenland", role_category: "journalist" }),
+    research("person:sarah-dobbe", { status: "wachtrij", role_category: "politicus" }),
+  ];
+
+  it("adds what research found in the model, also under another name", () => {
+    expect(researchedIds(rows)).toEqual([1252]);
+    expect(researchedIds(rows, new Set([1252]))).toEqual([]);
+    expect(researchKeys(input)).not.toContain("group:excuses");
+  });
+
+  it("draws every person and organisation not in the model, except private and too vague names", () => {
+    const news = newsOnlyEntities(input, matches, rows);
+    expect(news.map((item) => item.name)).toEqual(["Sarah Dobbe", "Algemene Rekenkamer", "Fons Lambie"]);
+    expect(news[0]).toMatchObject({ id: "news:person:sarah-dobbe", kind: "person", outlets: ["NOS", "NU.nl"], research: { status: "wachtrij" } });
+    // Without research everything that is not in the model is drawn
+    expect(newsOnlyEntities(input, matches, null).map((item) => item.name)).toEqual([
+      "David van Weel",
+      "Sarah Dobbe",
+      "Lisa",
+      "Henk",
+      "Algemene Rekenkamer",
+      "Fons Lambie",
+    ]);
+  });
+});
+
+describe("influence: who has influence on a party, and on whom it has influence", () => {
+  const dpg: PmSlice = {
+    meta: { version: "test", synced_at: "2026-10-03", entity_count: 10, relation_count: 9 },
+    entities: [
+      { id: 1, name: "DPG Media", type: "bedrijf", primary_filter: "eigendom", degree: 30 },
+      { id: 2, name: "Epifin", type: "bedrijf", primary_filter: "eigendom", degree: 2 },
+      // Five titles it owns: the lower the degree, the more specific
+      ...[3, 4, 5, 6, 7].map((id) => ({ id, name: `Titel ${id}`, type: "mediaorganisatie", primary_filter: "eigendom", degree: id })),
+      { id: 8, name: "Albert Heijn", type: "bedrijf", primary_filter: "advertentie", degree: 9 },
+      { id: 9, name: "Jan", type: "persoon", primary_filter: "ideologie", degree: 1 },
+      { id: 10, name: "Mediahuis", type: "bedrijf", primary_filter: "eigendom", degree: 40 },
+    ],
+    relations: [
+      { id: 200, source_id: 2, target_id: 1, relation_type: "eigendom", filter: "eigendom", filters: ["eigendom"], source_count: 2 },
+      ...[3, 4, 5, 6, 7].map((id) => ({ id: 200 + id, source_id: 1, target_id: id, relation_type: "eigendom", filter: "eigendom", filters: ["eigendom"], source_count: 1 })),
+      { id: 208, source_id: 8, target_id: 1, relation_type: "adverteerder", filter: "advertentie", filters: ["advertentie"], source_count: 1 },
+      // "Jan werkt voor DPG Media": DPG Media has the influence
+      { id: 209, source_id: 9, target_id: 1, relation_type: "personeel", filter: "ideologie", filters: ["ideologie"], source_count: 1 },
+      // Works together: both ways
+      { id: 210, source_id: 1, target_id: 10, relation_type: "alliantie", filter: "eigendom", filters: ["eigendom"], source_count: 1 },
+    ],
+    sources: {},
+    aliases: [],
+  };
+  const local = createLocalPm(dpg);
+  const relation = (id: number) => dpg.relations.find((item) => item.id === id) as PmRelation;
+  const ids = (scene: ReturnType<typeof pmScene>) =>
+    scene.nodes
+      .filter((node) => !node.isEvent)
+      .map((node) => node.id)
+      .sort();
+
+  it("reads the way of influence from the kind of relation", () => {
+    expect(influenceOf(relation(203))).toEqual({ from: 1, to: 3 }); // owner on what it owns
+    expect(influenceOf(relation(209))).toEqual({ from: 1, to: 9 }); // employer on employee
+    expect(influenceOf(relation(210))).toBeNull(); // together
+    expect(influenceOf({ ...relation(203), bidirectional: true })).toBeNull();
+    expect(directionsFrom(relation(200), 1)).toEqual(["in"]);
+    expect(directionsFrom(relation(200), 2)).toEqual(["out"]);
+    expect(directionsFrom(relation(210), 1)).toEqual(["in", "out"]);
+    expect(onSide(relation(209), 1, "out")).toBe(true);
+    expect(onSide(relation(209), 1, "in")).toBe(false);
+    expect(onSide(relation(209), 1, "any")).toBe(true);
+  });
+
+  it("counts and restricts neighbourhoods per way, like pm_neighborhood of migration 008", () => {
+    const all = local.neighborhood(1, 40)!;
+    expect(all.direction_counts).toEqual({ eigendom: { in: 2, out: 6 }, advertentie: { in: 1, out: 0 }, ideologie: { in: 0, out: 1 } });
+    expect(countDirections(dpg.relations, 1)).toEqual(all.direction_counts);
+    const owners = local.neighborhood(1, 40, ["eigendom"], "in")!;
+    expect(owners.relations.map((item) => item.id).sort()).toEqual([200, 210]);
+    expect(owners).toMatchObject({ direction: "in", total: 2, truncated: false });
+    expect(owners.breakdown?.eigendom.types).toEqual({ bedrijf: 2 }); // Epifin and Mediahuis, not the titles
+    expect(filterNeighborhood(all, ["eigendom"], "out").relations.map((item) => item.id).sort()).toEqual([203, 204, 205, 206, 207, 210]);
+  });
+
+  it("keys questions per way", () => {
+    expect(hoodKey(1, ["eigendom"], "out")).toBe("1:eigendom@out");
+    expect(hoodKeyFilters("1:eigendom@out")).toEqual(["eigendom"]);
+    expect(hoodKeyFilters("1:eigendom@out#bundle")).toEqual(["eigendom"]);
+    expect(hoodKeyDirection("1:eigendom@out#3,4")).toBe("out");
+    expect(hoodKeyDirection("1:eigendom")).toBeNull();
+    expect(expandedFiltersOf(["1", "1:eigendom@out", "1:advertentie", "1:eigendom@in#2"], [1])).toEqual(new Map([[1, new Set(["eigendom@out", "advertentie"])]]));
+    expect(bundleNodeId(1, "eigendom", "in")).toBe("bundle:1:eigendom@in");
+    expect(bundleNodeId(1, "eigendom")).toBe("bundle:1:eigendom");
+  });
+
+  it("answers one way only, with its own bundle on a line in that direction", () => {
+    const seeds = [{ id: 1, reason: "actor" as const }];
+    const outward = mergeNeighborhoods([local.neighborhood(1, 6)!, local.neighborhood(1, 12, ["eigendom"], "out")!]);
+    const titles = pmScene(outward, seeds, new Set([1]), {
+      expandedFilters: new Map([[1, new Set(["eigendom@out"])]]),
+      latest: { id: 1, filters: ["eigendom"], direction: "out" },
+    });
+    // The three most specific titles; not its owner Epifin (that is the other question)
+    expect(ids(titles)).toEqual(["bundle:1:eigendom@out", "pm:1", "pm:3", "pm:4", "pm:5"]);
+    expect(titles.bundles).toEqual([expect.objectContaining({ anchorId: 1, filter: "eigendom", side: "out", count: 3 })]);
+    expect(titles.edges.find((edge) => edge.kind === "bundle")).toMatchObject({ source: "pm:1", target: "bundle:1:eigendom@out", directed: true });
+    expect(titles.latestIds).toContain("bundle:1:eigendom@out");
+    expect(titles.reasons.get(3)).toEqual([reasonKey.group(1, "eigendom", "out")]);
+
+    // Who has influence on it via eigendom: its owner (and its partner, both ways); nothing left to bundle
+    const inward = mergeNeighborhoods([local.neighborhood(1, 6)!, local.neighborhood(1, 12, ["eigendom"], "in")!]);
+    const owners = pmScene(inward, seeds, new Set([1]), { expandedFilters: new Map([[1, new Set(["eigendom@in"])]]) });
+    expect(ids(owners)).toEqual(["pm:1", "pm:10", "pm:2"]);
+    expect(owners.bundles).toEqual([]);
+
+    // Nothing loaded yet: the bundle (its owners, counted per way) points at the party they have influence on
+    const unloaded = pmScene(mergeNeighborhoods([{ ...local.neighborhood(1, 1, ["eigendom"], "in")!, relations: [] }]), seeds, new Set([1]), {
+      expandedFilters: new Map([[1, new Set(["eigendom@in"])]]),
+    });
+    expect(unloaded.bundles).toEqual([expect.objectContaining({ side: "in", count: 2 })]);
+    expect(unloaded.edges.find((edge) => edge.kind === "bundle")).toMatchObject({ source: "bundle:1:eigendom@in", target: "pm:1", directed: true });
   });
 });

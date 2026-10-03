@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { ChevronDown, SlidersHorizontal } from "lucide-react";
 
 import { FILTERS } from "@/lib/explore/labels";
@@ -10,7 +11,7 @@ import { eventFilterSignals } from "@/lib/explore/propaganda";
 import { touchpoints } from "@/lib/explore/why";
 
 import { useExplore } from "../ExploreContext";
-import { useWhyRoutes } from "../outlet/useWhyRoutes";
+import { useWhyRoutes } from "../why/useWhyRoutes";
 import { Eyebrow, Tag } from "../ui/primitives";
 import { Sheet } from "../ui/Sheet";
 import { PmAttribution } from "./PmSection";
@@ -27,14 +28,14 @@ export function FiltersSheet() {
   // Only what is in the graph you built (not the cache)
   const merged = useMemo(() => mergeNeighborhoods(active.map((key) => neighborhoods[key]).filter(Boolean)), [active, neighborhoods]);
   const structural = useMemo(() => relationsByFilter(merged), [merged]);
-  const signals = useMemo(() => eventFilterSignals(exploration.input, exploration.clues, exploration.index), [exploration]);
+  const signals = useMemo(() => eventFilterSignals(exploration.input, exploration.findings, exploration.index), [exploration]);
+  const eventHref = `/event/${encodeURIComponent(exploration.input.event.slug ?? String(exploration.input.event.id))}`;
 
   return (
     <Sheet
       open
       onOpenChange={(open) => (!open ? panel.close() : undefined)}
       title="De filters in dit nieuws"
-      subtitle="Aanwijzingen, geen oordeel"
       icon={<SlidersHorizontal size={22} />}
     >
       <div className="space-y-5">
@@ -76,18 +77,17 @@ export function FiltersSheet() {
                 {eventSignals.length ? (
                   <ul className="space-y-1 text-sm">
                     {eventSignals.map((signal, i) => {
-                      const clueId = signal.clueIds[0];
-                      const clue = clueId ? exploration.clueById.get(clueId) : undefined;
+                      const findingId = signal.findingIds[0];
+                      const finding = findingId ? exploration.findingById.get(findingId) : undefined;
                       return (
                         <li key={i}>
-                          {clue ? (
-                            <button
-                              type="button"
-                              onClick={() => panel.open(`spoor:${clue.spoor}`, { c: clue.id })}
-                              className="min-h-[36px] w-full text-left text-ink-800 hover:underline"
+                          {finding ? (
+                            <Link
+                              href={`${eventHref}?f=${encodeURIComponent(finding.id)}`}
+                              className="flex min-h-[36px] w-full items-center text-left text-ink-800 hover:underline"
                             >
                               {signal.text}
-                            </button>
+                            </Link>
                           ) : (
                             <span className="text-ink-800">{signal.text}</span>
                           )}
@@ -96,16 +96,12 @@ export function FiltersSheet() {
                     })}
                   </ul>
                 ) : (
-                  <p className="text-sm text-ink-500">Geen signalen gevonden — dat betekent niet dat dit filter geen rol speelt.</p>
+                  <p className="text-sm text-ink-500">Geen signalen.</p>
                 )}
               </div>
             </section>
           );
         })}
-        <p className="text-xs text-ink-500">
-          Structurele verbanden komen uit het propagandamodel, signalen uit de AI-analyse van dit nieuws. Samen zijn het
-          aanwijzingen om verder te onderzoeken, geen meting of beschuldiging.
-        </p>
         <PmAttribution />
       </div>
     </Sheet>
@@ -128,14 +124,13 @@ function Touchpoints() {
     <section className="space-y-2 rounded-2xl border border-paper-300 bg-paper-50 p-3" aria-labelledby="raakvlakken">
       <div>
         <p id="raakvlakken" className="font-semibold text-ink-900">
-          Raakvlakken met dit nieuws
+          Media verbonden met dit nieuws
         </p>
-        <p className="text-xs text-ink-500">Media die in het propagandamodel binnen twee stappen verbonden zijn met partijen uit dit nieuws.</p>
       </div>
       {why.loading ? <p className="text-sm text-ink-500">Zoeken…</p> : null}
       {!why.loading && why.noActors ? <p className="text-sm text-ink-500">Geen partijen uit dit nieuws in het propagandamodel.</p> : null}
       {!why.loading && !why.noActors && list.length === 0 ? (
-        <p className="text-sm text-ink-500">Geen raakvlakken binnen twee stappen. Dat is ook een uitkomst.</p>
+        <p className="text-sm text-ink-500">Geen raakvlakken binnen twee stappen.</p>
       ) : null}
       <ul className="space-y-1">
         {list.map((item) => {

@@ -1,17 +1,14 @@
 import { biasByOutlet, biasCards, objectivity } from "@/lib/explore/bias";
-import { cluesBySpoor, deriveClues } from "@/lib/explore/clues";
+import { deriveFindings, findingsByTab, legacyFindingId } from "@/lib/explore/findings";
 import { contradictionsBetween, outletProfileView } from "@/lib/explore/compare";
 import { DEMO_EVENT, isDemoIdentifier } from "@/lib/explore/fixtures/demo-event";
 
 import { SECOND_EVENT } from "./fixtures/second-event";
-import { buildGraph } from "@/lib/explore/graph";
-import { outletNode } from "@/lib/explore/ids";
 import { ArticleIndex, buildExploreInput, type RawExploration } from "@/lib/explore/input";
 import { biasTypeLabel, fallacyLabel, frameLabel, toneLabel } from "@/lib/explore/labels";
 import { findOutletByName, findOutletByUrl } from "@/lib/explore/media-landscape";
 import { eventFilterSignals } from "@/lib/explore/propaganda";
 import { splitLlmSummary, stripMarkdown, truncate } from "@/lib/explore/summary";
-import { spoorProgress, visibleGraph } from "@/lib/explore/visibility";
 
 function clone(raw: RawExploration): RawExploration {
   return JSON.parse(JSON.stringify(raw));
@@ -58,7 +55,9 @@ describe("buildExploreInput", () => {
     expect(input.event.title).toBe("Windpark Dijkerhoven splijt dorp en Den Haag");
     expect(input.event.isDemo).toBe(true);
     expect(isDemoIdentifier("demo")).toBe(true);
-    expect(isDemoIdentifier("demo-2")).toBe(false); // exactly one demo
+    expect(isDemoIdentifier("demo-vervolg")).toBe(true);
+    expect(isDemoIdentifier(-3)).toBe(true);
+    expect(isDemoIdentifier("demo-2")).toBe(false);
     expect(isDemoIdentifier("windpark")).toBe(false);
   });
 
@@ -104,58 +103,44 @@ describe("buildExploreInput", () => {
   });
 });
 
-describe("deriveClues", () => {
+describe("deriveFindings", () => {
   const input = buildExploreInput(DEMO_EVENT);
-  const clues = deriveClues(input);
-  const bySpoor = cluesBySpoor(clues);
+  const findings = deriveFindings(input);
+  const byTab = findingsByTab(findings);
 
-  it("creates clues in every spoor for a rich event", () => {
-    for (const spoor of ["wie-zegt-wat", "wat-klopt-niet", "wie-heeft-belang", "hoe-gebracht", "wat-zie-je-niet", "hoe-liep-het", "buitenland"] as const) {
-      expect(bySpoor.get(spoor)?.length ?? 0).toBeGreaterThan(0);
+  it("fills every tab for a rich event", () => {
+    for (const tab of ["invalshoeken", "klopt", "stemmen", "ontbreekt", "gebracht", "tijdlijn"] as const) {
+      expect(byTab.get(tab)?.length ?? 0).toBeGreaterThan(0);
     }
   });
 
   it("covers every insight field", () => {
-    const types = new Set(clues.map((clue) => clue.type));
-    for (const type of ["perspective", "voices", "contradiction", "claim", "statistic", "fallacy", "authority", "timing", "ownership", "frame", "tone", "bias", "gap", "questions", "science", "first", "timeline", "country"]) {
+    const types = new Set(findings.map((finding) => finding.type));
+    for (const type of ["perspective", "voices", "contradiction", "claim", "statistic", "fallacy", "authority", "timing", "frame", "tone", "bias", "gap", "questions", "science", "first", "timeline"]) {
       expect(types.has(type as never)).toBe(true);
     }
-    expect(clues.filter((clue) => clue.type === "contradiction")).toHaveLength(2);
-    expect(clues.filter((clue) => clue.type === "authority")).toHaveLength(3);
+    expect(findings.filter((finding) => finding.type === "contradiction")).toHaveLength(2);
+    expect(findings.filter((finding) => finding.type === "authority")).toHaveLength(4);
   });
 
-  it("has unique and stable ids", () => {
-    const ids = clues.map((clue) => clue.id);
+  it("has unique and stable ids, the old clue ids without their spoor", () => {
+    const ids = findings.map((finding) => finding.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(deriveClues(buildExploreInput(DEMO_EVENT)).map((clue) => clue.id)).toEqual(ids);
-  });
-
-  it("does not give away findings in face-down teasers", () => {
-    for (const clue of clues) {
-      if (clue.body.type === "perspective") {
-        expect(clue.teaser.title).not.toContain(clue.body.cluster.label);
-        for (const stance of clue.body.stances) {
-          if (stance.stance) expect(clue.teaser.hint ?? "").not.toContain(stance.stance);
-        }
-      }
-      if (clue.body.type === "contradiction") {
-        expect(clue.teaser.title).not.toContain(clue.body.contradiction.topic);
-      }
-      if (clue.body.type === "frame") {
-        expect(clue.teaser.title).not.toContain(frameLabel(clue.body.frame.frame_type));
-      }
-    }
+    expect(deriveFindings(buildExploreInput(DEMO_EVENT)).map((finding) => finding.id)).toEqual(ids);
+    expect(ids.every((id) => /^[a-z]+:[0-9a-z]+(-\d+)?$/.test(id))).toBe(true);
+    const claim = findings.find((finding) => finding.type === "claim")!;
+    expect(legacyFindingId(`wat-klopt-niet:${claim.id}`)).toBe(claim.id);
+    expect(legacyFindingId(claim.id)).toBe(claim.id);
   });
 
   it("links contradiction sides to outlets", () => {
-    const turbines = clues.find((clue) => clue.body.type === "contradiction" && clue.body.contradiction.topic.includes("turbines"));
+    const turbines = findings.find((finding) => finding.body.type === "contradiction" && finding.body.contradiction.topic.includes("turbines"));
     expect(turbines?.body.type === "contradiction" && turbines.body.outletsA).toEqual(["ad"]);
     expect(turbines?.body.type === "contradiction" && turbines.body.outletsB).toEqual(["nos", "nu-nl"]);
-    expect(turbines?.teaser.hint).toBe("AD vs NOS, NU.nl");
   });
 
   it("orders first reporters", () => {
-    const first = clues.find((clue) => clue.body.type === "first");
+    const first = findings.find((finding) => finding.body.type === "first");
     expect(first?.body.type === "first" && first.body.order[0].outletKey).toBe("nu-nl");
     expect(first?.body.type === "first" && first.body.order[1].lagMinutes).toBe(39);
   });
@@ -173,75 +158,23 @@ describe("deriveClues", () => {
       involved_countries: undefined,
     };
     raw.bias = [];
-    const oldClues = deriveClues(buildExploreInput(raw));
-    const types = new Set(oldClues.map((clue) => clue.type));
+    const old = deriveFindings(buildExploreInput(raw));
+    const types = new Set(old.map((finding) => finding.type));
     expect(types.has("authority")).toBe(false);
     expect(types.has("perspective")).toBe(true);
 
     const none = clone(DEMO_EVENT);
     none.insight = null;
     none.bias = [];
-    const derived = deriveClues(buildExploreInput(none));
-    expect(derived.every((clue) => ["ownership", "first"].includes(clue.type))).toBe(true);
-  });
-
-  it("adds a consensus clue when all outlets share one perspective", () => {
-    const raw = clone(DEMO_EVENT);
-    raw.insight!.clusters = [raw.insight!.clusters[0]];
-    expect(deriveClues(buildExploreInput(raw)).some((clue) => clue.type === "consensus")).toBe(true);
-  });
-});
-
-describe("graph and fog-of-war", () => {
-  const input = buildExploreInput(DEMO_EVENT);
-  const clues = deriveClues(input);
-  const graph = buildGraph(input, clues);
-
-  it("contains outlets as baseline and findings behind clues", () => {
-    expect(graph.nodeById.get(outletNode("nos"))?.baseline).toBe(true);
-    const frame = graph.nodes.find((node) => node.kind === "frame");
-    expect(frame?.baseline).toBe(false);
-    expect(frame?.clueIds.length).toBeGreaterThan(0);
-    // one demo: no related event there; a fixture with a relation gets a related node
-    expect(graph.nodes.some((node) => node.kind === "related")).toBe(false);
-    const second = buildExploreInput(SECOND_EVENT);
-    expect(buildGraph(second, deriveClues(second)).nodes.some((node) => node.kind === "related")).toBe(true);
-  });
-
-  it("merges actors with matching NER entities", () => {
-    const nordvind = graph.nodes.filter((node) => node.label === "NordVind");
-    expect(nordvind).toHaveLength(1);
-    expect(nordvind[0].kind).toBe("entity");
-  });
-
-  it("reveals nodes as clues are revealed", () => {
-    const hidden = visibleGraph(graph, clues, new Set());
-    expect(hidden.nodes.some((node) => node.kind === "contradiction")).toBe(false);
-    expect(hidden.hiddenCount).toBeGreaterThan(0);
-    expect(hidden.hiddenBySpoor.get("wat-klopt-niet")).toBeGreaterThan(0);
-
-    const contradiction = clues.find((clue) => clue.type === "contradiction")!;
-    const after = visibleGraph(graph, clues, new Set([contradiction.id]));
-    expect(after.nodes.some((node) => node.kind === "contradiction")).toBe(true);
-    expect(after.edges.some((edge) => edge.kind === "contradicts")).toBe(true);
-
-    const all = visibleGraph(graph, clues, new Set(), { revealAll: true });
-    expect(all.nodes).toHaveLength(graph.nodes.length);
-    expect(all.hiddenCount).toBe(0);
-  });
-
-  it("computes progress per spoor", () => {
-    const first = clues[0];
-    const progress = spoorProgress(clues, new Set([first.id]));
-    expect(progress.get(first.spoor)?.revealed).toBe(1);
-    expect(progress.get(first.spoor)?.total).toBe(clues.filter((clue) => clue.spoor === first.spoor).length);
+    const derived = deriveFindings(buildExploreInput(none));
+    expect(derived.every((finding) => finding.type === "first")).toBe(true);
   });
 });
 
 describe("propaganda filter signals", () => {
   const input = buildExploreInput(DEMO_EVENT);
-  const clues = deriveClues(input);
-  const evidence = eventFilterSignals(input, clues);
+  const findings = deriveFindings(input);
+  const evidence = eventFilterSignals(input, findings);
   const byFilter = Object.fromEntries(evidence.map((entry) => [entry.filter, entry.signals]));
 
   it("returns all six filters without levels or scores", () => {
@@ -256,16 +189,16 @@ describe("propaganda filter signals", () => {
     expect(byFilter.flak.some((signal: { text: string }) => signal.text.includes("Op de man spelen"))).toBe(true);
   });
 
-  it("finds sourcing, ideology, advertising and counter-power signals linked to clues", () => {
+  it("finds sourcing, ideology, advertising and counter-power signals linked to findings", () => {
     expect(byFilter.sourcing.some((signal: { text: string }) => signal.text.includes("persberichten"))).toBe(true);
     expect(byFilter.ideologie.some((signal: { text: string }) => signal.text.includes("Angst"))).toBe(true);
     expect(byFilter.advertentie.some((signal: { text: string }) => signal.text.includes("Sensationeel"))).toBe(true);
     expect(byFilter.tegenmacht.some((signal: { text: string }) => signal.text.includes("Kritische toon"))).toBe(true);
-    expect(byFilter.sourcing.every((signal: { clueIds: string[] }) => signal.clueIds.length > 0)).toBe(true);
+    expect(byFilter.sourcing.every((signal: { findingIds: string[] }) => signal.findingIds.length > 0)).toBe(true);
   });
 
   it("returns empty signal lists (not a verdict) when there is nothing to report", () => {
-    const empty = eventFilterSignals(buildExploreInput(SECOND_EVENT), deriveClues(buildExploreInput(SECOND_EVENT)));
+    const empty = eventFilterSignals(buildExploreInput(SECOND_EVENT), deriveFindings(buildExploreInput(SECOND_EVENT)));
     const flak = empty.find((entry) => entry.filter === "flak");
     expect(flak?.signals).toEqual([]);
   });
@@ -273,7 +206,7 @@ describe("propaganda filter signals", () => {
 
 describe("compare and bias", () => {
   const input = buildExploreInput(DEMO_EVENT);
-  const clues = deriveClues(input);
+  const clues = deriveFindings(input);
 
   it("builds an outlet profile view", () => {
     const view = outletProfileView("telegraaf", input, clues);

@@ -294,6 +294,7 @@ Currently, schema changes are applied manually:
 | `005_propagandamodel.sql` | `pm_entities`, `pm_relations`, `pm_sources`, `pm_aliases`, `pm_meta` (RLS without policies, no anon grants) + RPC functions `pm_meta_info`, `pm_match`, `pm_search`, `pm_neighborhood`, `pm_details` (Epic 11, Story 11.17) |
 | `006_entity_research.sql` | `entity_research` (RLS without policies) + RPC functions `request_entity_research`, `entity_research_status`, `entity_cooccurrence`; converts `event_entities.aliases` to `TEXT[]` when `create_all()` made it `VARCHAR[]` (Epic 12) |
 | `007_waarom_zo.sql` | RPC function `pm_paths` (routes between entities of the propaganda model; Epic 13, Story 13.1) |
+| `009_stemmen_zoeken.sql` | `access_codes`, `voice_searches` (RLS without policies) + RPC functions `access_code_role`, `request_voice_search`, `voice_searches_for_event`, `review_voice_candidate` ("Zoek met AI" for missing voices; Epic 14, Story 14.10) |
 
 ```bash
 # plain postgresql:// connection string (not the postgresql+asyncpg:// SQLAlchemy URL)
@@ -379,6 +380,16 @@ questions per filter keep working).
 ```bash
 psql "postgresql://postgres:<password>@<host>:5432/postgres" \
   -f database/migrations/007_waarom_zo.sql
+```
+
+**009 - "Zoek met AI" (Epic 14, Story 14.10).** Adds two tables (no access for anon: only the
+functions) and four SECURITY DEFINER functions; safe to re-run. Then make an access code (only its
+hash is stored; the code is printed once) and enter it on /admin → Toegangscode:
+
+```bash
+psql "postgresql://postgres:<password>@<host>:5432/postgres" \
+  -f database/migrations/009_stemmen_zoeken.sql
+PYTHONPATH=. .venv/bin/python scripts/access_code.py create --role admin --label Eigenaar
 ```
 
 **Future**: Alembic migrations for version-controlled schema evolution.

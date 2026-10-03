@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { ArrowLeftRight, Scale } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 
@@ -49,7 +49,7 @@ function OutletPicker({ exclude, onPick }: { exclude: (string | null)[]; onPick:
 }
 
 export function CompareSheet() {
-  const { exploration, panel, reveal, eventId } = useExplore();
+  const { exploration, panel, eventId } = useExplore();
   const { compare, setCompareSlot, swapCompare, clearCompare } = useExploreStore(
     useShallow((state) => ({
       compare: state.compare,
@@ -60,16 +60,9 @@ export function CompareSheet() {
   );
   const a = compare.eventId === eventId ? compare.a : null;
   const b = compare.eventId === eventId ? compare.b : null;
-  const viewA = a ? outletProfileView(a, exploration.input, exploration.clues, exploration.index) : null;
-  const viewB = b ? outletProfileView(b, exploration.input, exploration.clues, exploration.index) : null;
-  const between = a && b ? contradictionsBetween(a, b, exploration.clues) : [];
-
-  // Comparing two outlets reveals what the comparison shows
-  const revealIds = [...(viewA?.clueIds ?? []), ...(viewB?.clueIds ?? []), ...between.map((clue) => clue.id)].join("|");
-  useEffect(() => {
-    if (viewA && viewB) reveal(revealIds.split("|").filter(Boolean));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revealIds]);
+  const viewA = a ? outletProfileView(a, exploration.input, exploration.findings, exploration.index) : null;
+  const viewB = b ? outletProfileView(b, exploration.input, exploration.findings, exploration.index) : null;
+  const between = a && b ? contradictionsBetween(a, b, exploration.findings) : [];
 
   const differ = (pick: (view: OutletProfileView) => unknown) =>
     viewA && viewB ? JSON.stringify(pick(viewA)) !== JSON.stringify(pick(viewB)) : false;
@@ -78,8 +71,7 @@ export function CompareSheet() {
     <Sheet
       open
       onOpenChange={(open) => (!open ? panel.close() : undefined)}
-      title="Bronvergelijker"
-      subtitle="Twee bronnen, hetzelfde nieuws"
+      title="Vergelijk"
       icon={<Scale size={22} />}
     >
       {!viewA || !viewB ? (
@@ -107,10 +99,10 @@ export function CompareSheet() {
           {between.length ? (
             <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">
               <Eyebrow className="text-red-700">Ze spreken elkaar tegen</Eyebrow>
-              {between.map((clue) =>
-                clue.body.type === "contradiction" ? (
-                  <p key={clue.id} className="mt-1 font-semibold">
-                    {clue.body.contradiction.topic}
+              {between.map((finding) =>
+                finding.body.type === "contradiction" ? (
+                  <p key={finding.id} className="mt-1 font-semibold">
+                    {finding.body.contradiction.topic}
                   </p>
                 ) : null,
               )}

@@ -63,7 +63,7 @@ describe("research API in the demo", () => {
     const together = await api.getEntityCooccurrence(["anouk-verbeek", "verbeek"], { demo: true });
     expect(together.map((row) => row.name)).toContain("NordVind");
     const appearances = await api.getEntityAppearances(["nordvind"], 0, "org", { demo: true });
-    expect(appearances.map((row) => row.event_slug)).toEqual(["demo"]); // one demo
+    expect(appearances.map((row) => row.event_slug).sort()).toEqual(["demo", "demo-aanloop", "demo-vervolg"]);
   });
 });
 

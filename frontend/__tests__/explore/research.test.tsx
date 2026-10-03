@@ -114,7 +114,10 @@ describe("research keys and actor pages", () => {
     expect(names).toEqual(expect.arrayContaining(["NordVind", "Nationale Adviesraad Windenergie", "Stichting Stille Polder"]));
     expect(names).not.toContain("Anouk Verbeek");
     expect(names).not.toContain("Henk de Boer");
-    expect(demoCooccurrence(["nordvind"]).find((item) => item.name === "Anouk Verbeek")?.last_event_slug).toBe("demo");
+    // The latest demo news in which both appear: the later episode
+    const verbeek = demoCooccurrence(["nordvind"]).find((item) => item.name === "Anouk Verbeek");
+    expect(verbeek?.last_event_slug).toBe("demo-vervolg");
+    expect(verbeek?.shared_events).toBe(3);
   });
 });
 

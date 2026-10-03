@@ -247,6 +247,58 @@ tegen gevalideerd op het echte model.
 - [x] Gebruiker: migratie `007_waarom_zo.sql` in Supabase draaien (na 004 → 005 → 006) — gedraaid 2026-10-01,
       verificatieblok geslaagd; als `anon` geeft Marjolein Moorman (505) → NOS (11) 2 routes van 3 stappen
       (via Tweede Kamer → CIDI en via Tweede Kamer → Radboud Universiteit); `pm_*`-tabellen blijven dicht voor `anon`
+- [ ] Gebruiker: migratie `008_invloed_richting.sql` in Supabase draaien (na 007). Tot die tijd toont het netwerk de
+      vragen zonder richting (zoals voorheen); de demo heeft de richting al
+
+## Story 13.10: Kiezen wat blijft, alle namen, invloed per richting
+
+**Status**: ✅ Done (2026-10-03, wacht op migratie 008 in Supabase) · **Prioriteit**: Must Have · **Depends on**: 13.2
+
+Wensen van de gebruiker (2026-10-03):
+- "Maak de nieuwe dingen doorzichtig en dan klik je de gene aan die blijven en de nodes weg die weer weg mogen,
+  anders worden het teveel nodes soms."
+- "Die bol met +n erin gaat niet meer weg."
+- "Voeg sowieso ook alle entiteiten in het evenement die ontdekt zijn toe aan het netwerk."
+- "Wie heeft invloed op DPG Media en op wie heeft DPG Media invloed."
+
+### Acceptatiecriteria
+- [x] Wat een stap toevoegt is doorzichtig: een vraag, "Verbind met beeld", "Zoek verband met…" of de zoekbalk.
+      Het gaat om partijen en de "+N"-bundel. Een partij die je zelf kiest (zoekbalk, uit een bundel) is meteen vast.
+- [x] Aantikken = houden (en openen). Wat je niet aantikt gaat weg bij de volgende stap, met "Rest weg"/"Alles weg"
+      of met "Houd alle".
+- [x] Houd je niets van een vraag, dan wordt de vraag ingetrokken: het beeld is zoals ervoor en je kunt hem opnieuw
+      stellen.
+- [x] Opnieuw vragen brengt het weggehaalde antwoord terug, als voorstel.
+- [x] Weggehaalde partijen rekenen mee in de bundel en schuiven geen volgende partij naar voren.
+- [x] "Weghalen" in de tooltip werkt voor partijen die niet van het nieuws zelf zijn en voor bundels.
+- [x] Alles is één stap om ongedaan te maken. Weghalen beweegt het beeld niet.
+- [x] Het netwerk krijgt alle partijen van het nieuws, zonder maximum van 12:
+  - bronnen, personen, organisaties en groepen uit het model (exacte alias);
+  - wat "Wie is dit?" vond (`pm_entity_id`);
+  - personen en organisaties die er (nog) niet in staan, als grijze gestippelde knoop aan "Dit nieuws" met "Meer
+    weten". Niet de namen die het onderzoek privé of te vaag vond.
+- [x] Per knoop een tabel met per filter twee vragen: *Invloed op X* en *Invloed van X* (aantallen naast elkaar).
+  - Een vraag in één richting heeft eigen antwoorden en een eigen bundel.
+  - De lijn naar die bundel wijst van wie invloed heeft naar wie die ondergaat.
+
+### Implementatiedetails
+- **Richting:** `influenceOf` in `pm-graph.ts`. Meestal heeft de bron invloed op het doel.
+  - Omgekeerd: `personeel`, `dienstverband`, `woordvoerder_van`, `lidmaatschap` en `citeert`.
+  - Beide kanten: `alliantie`, `oppositie`, `draaideur` en `bidirectional`.
+  - Dezelfde regels staan als `pm_influence_side` in migratie `008_invloed_richting.sql`.
+- **Migratie 008:** `pm_neighborhood(p_entity_id, p_limit, p_filters, p_direction)` met `direction_counts`.
+  - Validatie in een wegwerp-Postgres op de demoslice: 6000 aanroepen, 0 verschillen met `pm-local.ts`.
+  - Zonder 008 geeft `pmNeighborhood` dezelfde antwoorden (ophalen + filteren in de app) en toont de tooltip de oude
+    vragen.
+- **Voorstellen:** `pm-store.ts` houdt de lopende stap bij (`pending`: basis, gehouden, beeld ervoor) en
+  `dismissed`/`dismissedBundles`.
+  - `pmScene` geeft per knoop de redenen (`reasonKey`). Een weggehaalde knoop komt pas terug als er een nieuwe reden
+    is (een nieuwe route, een andere vraag).
+  - `proposalsOf` bepaalt wat doorzichtig is.
+- **Namen:** `pm-seeds.ts` (`researchKeys`, `researchedIds`, `newsOnlyEntities`). Startroutes worden in batches van
+  12 opgevraagd (`pm_paths` neemt 12 startpunten).
+- **Tests:** Jest `pm.test.ts`. Playwright `netwerk-bord.spec.ts` (voorstellen, alle namen, invloed per richting)
+  is groen op desktop, Pixel 7 en iPhone 13.
 
 ---
 

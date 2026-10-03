@@ -15,8 +15,8 @@ const KIND_LABELS: Record<DossierItem["kind"], string> = {
   outlet: "Bron",
   actor: "Actor",
   entity: "Entiteit",
-  clue: "Aanwijzing",
-  event: "Event",
+  finding: "Bevinding",
+  event: "Nieuws",
   pm: "Propagandamodel",
   note: "Notitie",
   bias: "Bias",
@@ -78,21 +78,21 @@ export function DossierSheet() {
     <Sheet
       open
       onOpenChange={(open) => (!open ? panel.close() : undefined)}
-      title="Je dossier"
-      subtitle={`${list.length} ${list.length === 1 ? "kaart" : "kaarten"} · alleen op dit apparaat`}
+      title="Bewaard"
+      subtitle={`${list.length} bewaard · alleen op dit apparaat`}
       icon={<FolderOpen size={22} />}
       footer={
         <Link
           href="/onderzoek"
           className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-full bg-ink-900 text-sm font-semibold text-white"
         >
-          <LayoutDashboard size={16} /> Open het onderzoeksbord
+          <LayoutDashboard size={16} /> Open het bord
         </Link>
       }
     >
       <div className="space-y-6">
         <section className="space-y-2 rounded-2xl border border-dashed border-paper-300 p-3">
-          <Eyebrow>Context toevoegen</Eyebrow>
+          <Eyebrow>Notitie</Eyebrow>
           <textarea
             value={note}
             onChange={(event) => setNote(event.target.value)}
@@ -118,20 +118,16 @@ export function DossierSheet() {
           </button>
         </section>
 
-        {list.length === 0 ? (
-          <p className="text-sm text-ink-500">
-            Nog leeg. Houd een ballon of kaart ingedrukt en sleep hem naar het dossier, of tik op 📌.
-          </p>
-        ) : null}
+        {list.length === 0 ? <p className="text-sm text-ink-500">Nog niets bewaard</p> : null}
         {here.length ? (
           <section className="space-y-2">
-            <Eyebrow>Uit dit event</Eyebrow>
+            <Eyebrow>Uit dit nieuws</Eyebrow>
             <ul className="space-y-2">{here.map(renderItem)}</ul>
           </section>
         ) : null}
         {elsewhere.length ? (
           <section className="space-y-2">
-            <Eyebrow>Eerder verzameld</Eyebrow>
+            <Eyebrow>Uit ander nieuws</Eyebrow>
             <ul className="space-y-2">{elsewhere.map(renderItem)}</ul>
           </section>
         ) : null}

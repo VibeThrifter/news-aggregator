@@ -3,20 +3,24 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 
-import { pmMatch, pmNeighborhood, pmPaths } from "@/lib/api";
+import { getEntityResearch, pmMatch, pmNeighborhood, pmPaths } from "@/lib/api";
 import type { Exploration } from "@/lib/explore/exploration";
 import {
+  bundleKey,
   expansionFilters,
   filterNeighborhood,
   hoodKey,
-  hoodKeyFilters,
-  mergeNeighborhoods,
-  routeParts,
+  pmScene,
+  proposalsOf,
+  reasonKey,
+  viewGraph,
+  type PmDirection,
   type PmSeed,
 } from "@/lib/explore/pm-graph";
-import { pickRoutes } from "@/lib/explore/pm-paths";
-import { eventActorAliases, eventOutletSeeds, matchActorIds } from "@/lib/explore/pm-seeds";
+import { PATH_LIMITS, pickRoutes } from "@/lib/explore/pm-paths";
+import { eventActorAliases, eventOutletSeeds, matchActorIds, newsOnlyEntities, researchedIds, researchKeys } from "@/lib/explore/pm-seeds";
 import { usePmStore } from "@/lib/explore/pm-store";
+import type { PmPaths } from "@/lib/types";
 
 const SEED_LIMIT = 6;
 /** Epic 13: the start shows only what connects the outlets and actors of the news (routes of <= 2 steps) */
@@ -32,7 +36,32 @@ export const EXPAND_LIMIT = 12;
 export const BUNDLE_LIMIT = 60;
 
 /** Store key of the full list behind a bundle: cache only, never part of the graph as a whole */
-export const bundleHoodKey = (id: number, filter: string) => `${hoodKey(id, [filter])}#bundle`;
+export const bundleHoodKey = (id: number, filter: string, direction: PmDirection | null = null) => `${hoodKey(id, [filter], direction)}#bundle`;
+
+/** Routes among all parties of the news: pm_paths takes 12 starting points per call, so ask in batches. */
+async function routesAmong(ids: number[], demo: boolean): Promise<PmPaths | null> {
+  const targets = ids.slice(0, PATH_LIMITS.to);
+  const batches: number[][] = [];
+  for (let i = 0; i < targets.length; i += PATH_LIMITS.from) batches.push(targets.slice(i, i + PATH_LIMITS.from));
+  const results = (await Promise.all(batches.map((from) => pmPaths(from, targets, { demo, maxHops: 2, limit: 1 }).catch(() => null)))).filter(
+    (result): result is PmPaths => Boolean(result?.routes.length),
+  );
+  if (results.length === 0) return null;
+  const byId = <T extends { id: number }>(lists: T[][]) => Array.from(new Map(lists.flat().map((item) => [item.id, item])).values());
+  return {
+    ...results[0],
+    routes: results.flatMap((result) => result.routes),
+    entities: byId(results.map((result) => result.entities)),
+    relations: byId(results.map((result) => result.relations)),
+    truncated: results.some((result) => result.truncated),
+  };
+}
+
+/** A load that finishes after an undo/redo, or after its step ended, is cached but does not change the graph */
+function stale(epoch: number, token?: number): boolean {
+  const now = usePmStore.getState();
+  return now.epoch !== epoch || (token !== undefined && now.pending?.token !== token);
+}
 
 /** Seeds the propaganda-model graph with this event's outlets and actors, and explores nodes on demand. */
 export function usePmExplorer(exploration: Exploration, focusPmId: number | null) {
@@ -43,6 +72,7 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
       eventId: store.eventId,
       seeds: store.seeds,
       seeded: store.seeded,
+      news: store.news,
       neighborhoods: store.neighborhoods,
       active: store.active,
       expanded: store.expanded,
@@ -53,6 +83,9 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
       routeSets: store.routeSets,
       activeRoutes: store.activeRoutes,
       latestRoutes: store.latestRoutes,
+      dismissed: store.dismissed,
+      dismissedBundles: store.dismissedBundles,
+      pending: store.pending,
       canUndo: store.past.length > 0,
       canRedo: store.future.length > 0,
     })),
@@ -69,7 +102,12 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
       showFilter: store.showFilter,
       setLatest: store.setLatest,
       putRoutes: store.putRoutes,
-      record: store.record,
+      begin: store.begin,
+      keep: store.keep,
+      keepAll: store.keepAll,
+      dropRest: store.dropRest,
+      remove: store.remove,
+      recall: store.recall,
       undo: store.undo,
       redo: store.redo,
     })),
@@ -77,18 +115,26 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
 
   /**
    * Fetch a neighbourhood. Seeds and expansions go into the graph, peeks only into the cache. A load
-   * that finishes after an undo/redo (or another event) is cached but does not change the graph.
+   * that finishes after an undo/redo (or another event, or after its step ended) is cached but does
+   * not change the graph.
    */
   const load = useCallback(
-    async (id: number, limit: number, mode: "seed" | "expand" | "peek", filters: string[] | null = null, cacheKey?: string) => {
-      const key = cacheKey ?? hoodKey(id, filters);
+    async (
+      id: number,
+      limit: number,
+      mode: "seed" | "expand" | "peek",
+      filters: string[] | null = null,
+      options: { cacheKey?: string; token?: number; direction?: PmDirection | null } = {},
+    ) => {
+      const { cacheKey, token, direction = null } = options;
+      const key = cacheKey ?? hoodKey(id, filters, direction);
       const epoch = usePmStore.getState().epoch;
       actions.setLoading(key, true);
       try {
-        const hood = await pmNeighborhood(id, { demo, limit, filters });
+        const hood = await pmNeighborhood(id, { demo, limit, filters, direction });
         if (!hood) return;
-        if (mode === "peek" || cacheKey || usePmStore.getState().epoch !== epoch) actions.cacheNeighborhood(hood, filters, key);
-        else actions.putNeighborhood(hood, mode === "expand", filters);
+        if (mode === "peek" || cacheKey || stale(epoch, token)) actions.cacheNeighborhood(hood, filters, key);
+        else actions.putNeighborhood(hood, mode === "expand", filters, direction);
       } finally {
         actions.setLoading(key, false);
       }
@@ -104,21 +150,29 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
     actions.reset(eventId);
     (async () => {
       const seeds: PmSeed[] = eventOutletSeeds(input).map((seed) => ({ ...seed, reason: "outlet" as const }));
-      // Actors: NER entities (people/organisations) and authorities from the analysis — exact aliases only
+      // Actors: NER entities (people/organisations/groups) and authorities from the analysis — exact
+      // aliases only — plus what "Wie is dit?" research found in the model for the news' names
       const actors = eventActorAliases(input);
-      const matches = await pmMatch(actors.flatMap((item) => item.aliases), { demo }).catch(() => []);
-      for (const id of matchActorIds(actors, matches, new Set(seeds.map((seed) => seed.id)))) {
+      const [matches, research] = await Promise.all([
+        pmMatch(actors.flatMap((item) => item.aliases), { demo }).catch(() => []),
+        getEntityResearch(researchKeys(input), { demo }).catch(() => null),
+      ]);
+      const taken = new Set(seeds.map((seed) => seed.id));
+      for (const id of [...matchActorIds(actors, matches, taken), ...researchedIds(research, taken)]) {
+        if (taken.has(id)) continue;
+        taken.add(id);
         seeds.push({ id, reason: "actor" });
       }
       if (usePmStore.getState().eventId !== eventId) return;
-      const chosen = seeds.slice(0, 12);
-      actions.setSeeds(chosen);
-      const ids = chosen.map((seed) => seed.id);
+      // Every party of the news is in the network, and so is every person or organisation that is not
+      // in the model (yet)
+      actions.setSeeds(seeds, newsOnlyEntities(input, matches, research));
+      const ids = seeds.map((seed) => seed.id);
       // The seeds themselves (counts, the node itself) and only what connects them: no fan of
       // neighbours around every outlet (Epic 13: the network between things, not around one)
       const [routes] = await Promise.all([
-        ids.length > 1 ? pmPaths(ids, ids, { demo, maxHops: 2, limit: 1 }).catch(() => null) : Promise.resolve(null),
-        ...chosen.map((seed) => load(seed.id, SEED_LIMIT, "seed")),
+        ids.length > 1 ? routesAmong(ids, demo) : Promise.resolve(null),
+        ...seeds.map((seed) => load(seed.id, SEED_LIMIT, "seed")),
       ]);
       if (routes?.routes.length && usePmStore.getState().eventId === eventId) {
         actions.putRoutes("start", pickRoutes(routes, START_ROUTES), { glide: false });
@@ -126,18 +180,20 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
     })();
   }, [actions, demo, input, load]);
 
-  /** Expand along one filter; anything fetched before (also before an undo, or behind a bundle) is reused. */
+  /** Expand along one filter (one way, or either); anything fetched before (also before an undo, or behind a bundle) is reused. */
   const expandVia = useCallback(
-    async (id: number, filter: string) => {
+    async (id: number, filter: string, direction: PmDirection | null, token?: number) => {
       const { neighborhoods } = usePmStore.getState();
       const complete = (hood: (typeof neighborhoods)[string] | undefined) => hood && (!hood.truncated || hood.relations.length >= EXPAND_LIMIT);
-      const own = neighborhoods[hoodKey(id, [filter])];
-      if (complete(own)) return actions.putNeighborhood(own, true, [filter]);
-      const behindBundle = neighborhoods[bundleHoodKey(id, filter)];
-      if (complete(behindBundle)) return actions.putNeighborhood(behindBundle, true, [filter]);
-      const all = neighborhoods[hoodKey(id, null)];
-      if (all && !all.truncated) return actions.putNeighborhood(filterNeighborhood(all, [filter]), true, [filter]);
-      await load(id, EXPAND_LIMIT, "expand", [filter]);
+      const own = neighborhoods[hoodKey(id, [filter], direction)];
+      if (complete(own)) return actions.putNeighborhood(own, true, [filter], direction);
+      const behindBundle = neighborhoods[bundleHoodKey(id, filter, direction)];
+      if (complete(behindBundle)) return actions.putNeighborhood(behindBundle, true, [filter], direction);
+      // Everything of this filter (or of the node) loaded before: take this way out of it
+      for (const all of [neighborhoods[hoodKey(id, [filter])], neighborhoods[hoodKey(id, null)]]) {
+        if (all && !all.truncated) return actions.putNeighborhood(filterNeighborhood(all, [filter], direction), true, [filter], direction);
+      }
+      await load(id, EXPAND_LIMIT, "expand", [filter], { token, direction });
     },
     [actions, load],
   );
@@ -145,34 +201,37 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
   /**
    * Ask a question about a node (Epic 13): its neighbours via one filter ("Wie betaalt?"), which is
    * switched on in the legend. The graph draws the three most specific and bundles the rest ("+84").
+   * They are proposals: see-through until you tap them; the next step takes the rest away (and the
+   * question too when you keep none). Asking again brings back what you took away of the answer.
    * One undoable step.
    */
   const ask = useCallback(
-    async (id: number, filter: string) => {
-      actions.record();
+    async (id: number, filter: string, direction: PmDirection | null = null) => {
+      const token = actions.begin("ask");
+      actions.recall(id, filter, direction ?? "any");
       actions.showFilter(filter);
-      actions.setLatest({ id, filters: [filter] });
-      await expandVia(id, filter);
+      actions.setLatest({ id, filters: [filter], direction });
+      await expandVia(id, filter, direction, token);
     },
     [actions, expandVia],
   );
 
   /**
    * Routes from one node to others, added to the graph (and glided to). Returns how many were found;
-   * nothing changes when there are none (with `record`, the undo step is only made when something is
-   * added). A load that finishes after an undo/redo is dropped.
+   * nothing changes when there are none (with `begin`, the step is only made when something is
+   * added). A load that finishes after an undo/redo, or after its step ended, is dropped.
    */
   const addRoutes = useCallback(
-    async (key: string, from: number, to: number[], options: { maxHops: number; limit: number; max: number; record?: boolean }) => {
+    async (key: string, from: number, to: number[], options: { maxHops: number; limit: number; max: number; begin?: boolean; token?: number }) => {
       const targets = Array.from(new Set(to.filter((id) => id !== from))).slice(0, 40);
       if (targets.length === 0) return 0;
       const epoch = usePmStore.getState().epoch;
       actions.setLoading(key, true);
       try {
         const result = await pmPaths([from], targets, { demo, maxHops: options.maxHops, limit: options.limit });
-        if (!result?.routes.length || usePmStore.getState().epoch !== epoch) return 0;
+        if (!result?.routes.length || stale(epoch, options.token)) return 0;
         const picked = pickRoutes(result, options.max);
-        if (options.record) actions.record();
+        if (options.begin) actions.begin("routes");
         actions.putRoutes(key, picked);
         return picked.routes.length;
       } finally {
@@ -189,18 +248,18 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
         maxHops: 3,
         limit: 1,
         max: CONNECT_ROUTES,
-        record: true,
+        begin: true,
       }),
     [addRoutes],
   );
 
-  /** "Zoek verband met …": the other party joins the graph with only the routes in between. One undoable step. */
+  /** "Zoek verband met …": the other party joins the graph with only the routes in between (proposals). One undoable step. */
   const connectTo = useCallback(
     async (id: number, targetId: number) => {
-      actions.record();
+      const token = actions.begin("party");
       actions.addSeed({ id: targetId, reason: "focus" });
       const [found] = await Promise.all([
-        addRoutes(`pair:${id}:${targetId}`, id, [targetId], { maxHops: 3, limit: PAIR_ROUTES, max: PAIR_ROUTES }),
+        addRoutes(`pair:${id}:${targetId}`, id, [targetId], { maxHops: 3, limit: PAIR_ROUTES, max: PAIR_ROUTES, token }),
         load(targetId, SEED_LIMIT, "seed"),
       ]);
       return found;
@@ -208,13 +267,13 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
     [actions, addRoutes, load],
   );
 
-  /** A party from the search bar: it joins the graph with only its routes to what is on screen. One undoable step. */
+  /** A party from the search bar: it joins the graph with only its routes to what is on screen (proposals). One undoable step. */
   const addAndConnect = useCallback(
     async (id: number, onScreen: number[]) => {
-      actions.record();
+      const token = actions.begin("party");
       actions.addSeed({ id, reason: "focus" });
       const [found] = await Promise.all([
-        addRoutes(`connect:${id}:${onScreen.slice().sort((a, b) => a - b).join(",")}`, id, onScreen, { maxHops: 3, limit: 1, max: CONNECT_ROUTES }),
+        addRoutes(`connect:${id}:${onScreen.slice().sort((a, b) => a - b).join(",")}`, id, onScreen, { maxHops: 3, limit: 1, max: CONNECT_ROUTES, token }),
         load(id, SEED_LIMIT, "seed"),
       ]);
       return found;
@@ -234,13 +293,14 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
 
   /** The full list behind a bundle (cache only: opening a bundle does not change the graph). */
   const loadBundle = useCallback(
-    async (id: number, filter: string) => {
+    async (id: number, filter: string, direction: PmDirection | null = null) => {
       const { neighborhoods } = usePmStore.getState();
-      if (neighborhoods[bundleHoodKey(id, filter)]) return;
-      const own = neighborhoods[hoodKey(id, [filter])];
-      const all = neighborhoods[hoodKey(id, null)];
-      if ((own && !own.truncated) || (all && !all.truncated)) return;
-      await load(id, BUNDLE_LIMIT, "peek", [filter], bundleHoodKey(id, filter));
+      if (neighborhoods[bundleHoodKey(id, filter, direction)]) return;
+      const complete = [hoodKey(id, [filter], direction), hoodKey(id, [filter]), hoodKey(id, null)].some(
+        (key) => neighborhoods[key] && !neighborhoods[key].truncated,
+      );
+      if (complete) return;
+      await load(id, BUNDLE_LIMIT, "peek", [filter], { cacheKey: bundleHoodKey(id, filter, direction), direction });
     },
     [load],
   );
@@ -257,46 +317,85 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
     [load],
   );
 
-  const routeResults = useMemo(
-    () => state.activeRoutes.map((key) => state.routeSets[key]).filter(Boolean),
-    [state.activeRoutes, state.routeSets],
+  const graph = useMemo(
+    () =>
+      viewGraph(
+        {
+          active: state.active,
+          expanded: state.expanded,
+          seeds: state.seeds,
+          hiddenFilters: state.hiddenFilters,
+          latest: state.latest,
+          revealed: state.revealed,
+          activeRoutes: state.activeRoutes,
+          dismissed: state.dismissed,
+          dismissedBundles: state.dismissedBundles,
+        },
+        { neighborhoods: state.neighborhoods, routeSets: state.routeSets },
+      ),
+    [
+      state.active,
+      state.expanded,
+      state.seeds,
+      state.hiddenFilters,
+      state.latest,
+      state.revealed,
+      state.activeRoutes,
+      state.dismissed,
+      state.dismissedBundles,
+      state.neighborhoods,
+      state.routeSets,
+    ],
   );
-  const merged = useMemo(
-    () => mergeNeighborhoods(state.active.map((key) => state.neighborhoods[key]).filter(Boolean), routeResults),
-    [state.active, state.neighborhoods, routeResults],
-  );
-  const routes = useMemo(() => routeParts(routeResults), [routeResults]);
   /** Nodes of the routes added last: the view glides to them */
   const latestRouteNodes = useMemo(() => {
     const result = state.latestRoutes ? state.routeSets[state.latestRoutes] : null;
     return result ? Array.from(new Set(result.routes.flatMap((route) => route.nodes))) : null;
   }, [state.latestRoutes, state.routeSets]);
 
-  /** Per expanded node the filters it was expanded along (from the neighbourhoods in the graph) */
-  const expandedFilters = useMemo(() => {
-    const map = new Map<number, Set<string>>();
-    for (const key of state.active) {
-      const filters = key.includes("#") ? null : hoodKeyFilters(key);
-      const id = Number(key.split(":")[0]);
-      if (!filters || !state.expanded.includes(id)) continue;
-      const set = map.get(id) ?? new Set<string>();
-      filters.forEach((filter) => set.add(filter));
-      map.set(id, set);
-    }
-    return map;
-  }, [state.active, state.expanded]);
+  const expanded = useMemo(() => new Set(state.expanded), [state.expanded]);
+  const revealed = useMemo(() => new Set(state.revealed), [state.revealed]);
+  const hiddenFilters = useMemo(() => new Set(state.hiddenFilters), [state.hiddenFilters]);
+
+  /** What the network draws (the store settles proposals on the same scene) */
+  const scene = useMemo(
+    () =>
+      pmScene(graph.merged, state.seeds, expanded, {
+        hiddenFilters,
+        expandedFilters: graph.expandedFilters,
+        revealed,
+        routeNodes: graph.routeNodes,
+        routeRelations: graph.routeRelations,
+        routeKeys: graph.routeKeys,
+        dismissed: state.dismissed,
+        dismissedBundles: state.dismissedBundles,
+        newsNodes: state.news.map((item) => ({ id: item.id, label: item.name })),
+        eventLabel: "Dit nieuws",
+        latest: state.latest,
+      }),
+    [graph, state.seeds, expanded, hiddenFilters, revealed, state.dismissed, state.dismissedBundles, state.news, state.latest],
+  );
+  const proposals = useMemo(() => proposalsOf(scene, state.pending, state.revealed), [scene, state.pending, state.revealed]);
 
   const loading = useMemo(() => new Set(state.loading), [state.loading]);
-  const hiddenFilters = useMemo(() => new Set(state.hiddenFilters), [state.hiddenFilters]);
   const visibleFilters = useMemo(() => expansionFilters(state.hiddenFilters), [state.hiddenFilters]);
 
   return {
     seeds: state.seeds,
-    merged,
+    /** People and organisations of the news that are not in the model */
+    news: state.news,
+    merged: graph.merged,
+    scene,
+    /** The step in progress: its new nodes, which of them are see-through, and whether moving on withdraws a question */
+    proposals,
+    /** A question whose answer you took (partly) away: asking it again brings that back */
+    recallable: (id: number, filter: string, direction: PmDirection | null = null) =>
+      state.dismissedBundles.includes(bundleKey(id, filter, direction ?? "any")) ||
+      Object.values(state.dismissed).some((reasons) => reasons.includes(reasonKey.group(id, filter, direction ?? "any"))),
     neighborhoods: state.neighborhoods,
-    expanded: useMemo(() => new Set(state.expanded), [state.expanded]),
-    expandedFilters,
-    revealed: useMemo(() => new Set(state.revealed), [state.revealed]),
+    expanded,
+    expandedFilters: graph.expandedFilters,
+    revealed,
     loading,
     isLoading: (id: number) => state.loading.some((key) => key === String(id) || key.startsWith(`${id}:`)),
     hiddenFilters,
@@ -304,8 +403,8 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
     visibleFilters,
     latest: state.latest,
     /** Epic 13: nodes and relations on the routes in the graph (always drawn) */
-    routeNodes: routes.nodes,
-    routeRelations: routes.relations,
+    routeNodes: graph.routeNodes,
+    routeRelations: graph.routeRelations,
     latestRouteNodes,
     ask,
     connect,
@@ -314,6 +413,10 @@ export function usePmExplorer(exploration: Exploration, focusPmId: number | null
     peek,
     loadBundle,
     reveal: actions.reveal,
+    keep: actions.keep,
+    keepAll: actions.keepAll,
+    dropRest: actions.dropRest,
+    remove: actions.remove,
     canUndo: state.canUndo,
     canRedo: state.canRedo,
     undo: actions.undo,

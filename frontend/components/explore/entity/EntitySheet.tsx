@@ -2,13 +2,13 @@
 
 import { Pin, UserRound } from "lucide-react";
 
-import { CLUE_TYPE_LABELS } from "@/lib/explore/clues";
 import { actorKeys } from "@/lib/explore/normalize";
 import type { EventEntity } from "@/lib/types";
 
-import { SPOOR_COLORS, dossierIds, useExplore } from "../ExploreContext";
+import { dossierIds, useExplore } from "../ExploreContext";
+import { SpeakerCard } from "../map/PeopleCards";
 import { PmSection } from "../network/PmSection";
-import { Eyebrow, Tag } from "../ui/primitives";
+import { Eyebrow } from "../ui/primitives";
 import { Sheet } from "../ui/Sheet";
 import { ArticleSearch, EntityCoverage, MentionsByOutlet } from "./ArticleMentions";
 import { WikipediaBlock } from "./Wikipedia";
@@ -29,17 +29,17 @@ function findEntity(entities: EventEntity[], key: string): EventEntity | undefin
 }
 
 export function EntitySheet({ entityKey }: { entityKey: string }) {
-  const { exploration, panel, pin, isRevealed, eventId } = useExplore();
-  const { input, clues, index } = exploration;
+  const { exploration, panel, pin, eventId } = useExplore();
+  const { input } = exploration;
   const entity = findEntity(input.entities, entityKey);
   const name = entity?.name ?? panel.param("n") ?? entityKey.replace(/-/g, " ");
   const keys = actorKeys(name, { person: entity?.kind === "person" });
   const aliases = Array.from(new Set([...(entity?.aliases ?? []), ...keys.aliases, entityKey]));
 
-  const related = clues.filter((clue) =>
-    clue.links.some(
-      (link) => link === `actor:${entityKey}` || aliases.some((alias) => link === `actor:${alias}`) || (entity && link === `entity:${entity.entity_key}`),
-    ),
+  // Where this person or organisation speaks in this news (one entry per outlet)
+  const speaking = exploration.speakers.speakers.filter(
+    (speaker) =>
+      (entity && speaker.entityKey === entity.entity_key) || speaker.slug === entityKey || aliases.includes(speaker.slug),
   );
 
   return (
@@ -47,7 +47,7 @@ export function EntitySheet({ entityKey }: { entityKey: string }) {
       open
       onOpenChange={(open) => (!open ? panel.close() : undefined)}
       title={name}
-      subtitle={entity ? KIND_LABELS[entity.kind] : "In dit nieuws"}
+      subtitle={entity ? KIND_LABELS[entity.kind] : undefined}
       icon={<UserRound size={22} />}
       footer={
         <button
@@ -66,29 +66,19 @@ export function EntitySheet({ entityKey }: { entityKey: string }) {
           }
           className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-full bg-ink-900 text-sm font-semibold text-white"
         >
-          <Pin size={16} /> Bewaar in dossier
+          <Pin size={16} /> Bewaar
         </button>
       }
     >
       <div className="space-y-6">
-        {related.length ? (
-          <section className="space-y-2">
-            <Eyebrow>Rol in dit nieuws</Eyebrow>
-            <ul className="space-y-1">
-              {related.map((clue) => (
-                <li key={clue.id}>
-                  <button
-                    type="button"
-                    onClick={() => panel.open(`spoor:${clue.spoor}`, { c: clue.id })}
-                    className="flex min-h-[44px] w-full items-center gap-2 rounded-xl border border-paper-300 px-3 text-left text-sm hover:bg-paper-100"
-                  >
-                    <span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ backgroundColor: SPOOR_COLORS[clue.spoor] }} />
-                    <span className="flex-1">{clue.teaser.title}</span>
-                    <Tag>{isRevealed(clue.id) ? CLUE_TYPE_LABELS[clue.type] : "?"}</Tag>
-                  </button>
-                </li>
-              ))}
-            </ul>
+        {speaking.length ? (
+          <section className="space-y-3">
+            <Eyebrow>In dit nieuws</Eyebrow>
+            {speaking.map((speaker) => (
+              <div key={speaker.id} className="rounded-2xl border border-paper-300 p-3">
+                <SpeakerCard speakerId={speaker.id} inSheet />
+              </div>
+            ))}
           </section>
         ) : null}
 
@@ -105,9 +95,6 @@ export function EntitySheet({ entityKey }: { entityKey: string }) {
 
         <ArticleSearch key={name} initialQuery={name} />
 
-        {index && !entity && related.length === 0 ? (
-          <p className="text-sm text-ink-500">Over {name} is in deze analyse verder niets bekend.</p>
-        ) : null}
       </div>
     </Sheet>
   );

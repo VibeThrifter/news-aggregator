@@ -13,7 +13,6 @@ import type {
   EventRelation,
   Fallacy,
   Frame,
-  InvolvedCountry,
   MediaAnalysis,
   ScientificPlurality,
   StatisticalIssue,
@@ -23,14 +22,8 @@ import type {
 } from "@/lib/types";
 import type { SplitSummary } from "./summary";
 
-export type SpoorId =
-  | "wie-zegt-wat"
-  | "wat-klopt-niet"
-  | "wie-heeft-belang"
-  | "hoe-gebracht"
-  | "wat-zie-je-niet"
-  | "hoe-liep-het"
-  | "buitenland";
+/** The tabs under "Wie zegt wat?" (Epic 14): one per question you can ask the news. */
+export type TabId = "invalshoeken" | "klopt" | "stemmen" | "ontbreekt" | "gebracht" | "tijdlijn";
 
 export type OwnershipType = "public" | "corporate" | "independent" | "state" | "cooperative" | "trust" | "unknown";
 
@@ -67,6 +60,21 @@ export interface ArticleDigest {
   basis: "text" | "title";
 }
 
+/**
+ * A voice that was missing and that an AI search found here (Story 14.10): approved by the admin,
+ * the article was added to the event for this voice.
+ */
+export interface FoundVoice {
+  /** The missing voice it was searched for ("Boeren op de polder") */
+  perspective: string;
+  /** Who speaks in the article ("LTO Noord") */
+  who: string | null;
+  /** What they say, in the words of the check (never the article text) */
+  gist: string | null;
+  /** The missing voice in the app it answers: `gap:<hash>` or `own:<id>` */
+  gapKey: string | null;
+}
+
 export interface ExploreArticle {
   id: number;
   /** Article title — only as link text to the article itself */
@@ -81,6 +89,8 @@ export interface ExploreArticle {
   sourceCountry: string | null;
   /** Dutch gist of a foreign article (backend job "Article Digest"), or null */
   digest: ArticleDigest | null;
+  /** Added because a missing voice speaks here (AI search, approved), or null */
+  foundVoice: FoundVoice | null;
 }
 
 export interface ExploreOutlet {
@@ -99,6 +109,8 @@ export interface ExploreOutlet {
   articleIds: number[];
   firstPublishedAt: string | null;
   profile: OutletProfile | null;
+  /** One of its articles was added for a missing voice: in the picture by default, also from abroad */
+  foundVoice?: boolean;
 }
 
 export interface ExploreEventMeta {
@@ -153,56 +165,7 @@ export type NodeKind =
 
 export type NodeId = `${NodeKind}:${string}`;
 
-export interface GraphNode {
-  id: NodeId;
-  kind: NodeKind;
-  label: string;
-  /** Shown instead of label while the node is not yet discovered */
-  maskedLabel?: string;
-  /** Clues that reveal this node */
-  clueIds: string[];
-  /** Always visible (event, outlets) */
-  baseline: boolean;
-  /** Relative importance, used for sizing */
-  weight: number;
-  outletKey?: string;
-  iso?: string;
-  entityKey?: string;
-  relatedEventId?: number;
-  relatedSlug?: string | null;
-}
-
-export type EdgeKind =
-  | "perspective"
-  | "quotes"
-  | "mentions"
-  | "frames"
-  | "claims"
-  | "publishes_claim"
-  | "contradicts"
-  | "fallacy"
-  | "statistic"
-  | "involves"
-  | "related"
-  | "reports";
-
-export interface GraphEdge {
-  id: string;
-  source: NodeId;
-  target: NodeId;
-  kind: EdgeKind;
-  label?: string;
-  clueIds: string[];
-  attribution?: "eigen_framing" | "geciteerd" | null;
-}
-
-export interface ExploreGraph {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  nodeById: Map<NodeId, GraphNode>;
-}
-
-// --- Clues -----------------------------------------------------------------------------------
+// --- Findings --------------------------------------------------------------------------------
 
 export interface StanceEntry {
   outletKey: string;
@@ -216,7 +179,7 @@ export interface OutletRef {
   lagMinutes: number;
 }
 
-export type ClueBody =
+export type FindingBody =
   | { type: "perspective"; cluster: Cluster; index: number; stances: StanceEntry[] }
   | { type: "voices"; outletKey: string; actors: { name: string; key: string; role: string | null }[]; sourcingPattern: string | null }
   | { type: "contradiction"; contradiction: Contradiction; outletsA: string[]; outletsB: string[] }
@@ -225,7 +188,6 @@ export type ClueBody =
   | { type: "fallacy"; fallacy: Fallacy }
   | { type: "authority"; authority: AuthorityAnalysis; outletKey: string | null; actorKey: string }
   | { type: "timing"; timing: TimingAnalysis }
-  | { type: "ownership"; outletKeys: string[] }
   | { type: "frame"; frame: Frame }
   | { type: "tone"; analysis: MediaAnalysis; outletKey: string | null }
   | {
@@ -239,23 +201,47 @@ export type ClueBody =
   | { type: "gap"; gap: CoverageGap }
   | { type: "questions"; analysis: MediaAnalysis; outletKey: string | null }
   | { type: "science"; plurality: ScientificPlurality }
-  | { type: "consensus"; clusterLabel: string }
   | { type: "first"; order: OutletRef[] }
   | { type: "timeline"; item: TimelineEvent; timeLabel: string; historic: boolean }
-  | { type: "country"; country: InvolvedCountry };
+  | { type: "own"; entry: OwnEntry };
 
-export type ClueType = ClueBody["type"];
+export type FindingType = FindingBody["type"];
+/** What the analysis found (everything but the reader's own entries) */
+export type AnalysisBody = Exclude<FindingBody, { type: "own" }>;
+export type AnalysisType = AnalysisBody["type"];
 
-export interface Clue {
+/** What a reader can add to the picture themselves: their own answer to the questions under it. */
+export type OwnKind = "claim" | "speaker" | "gap" | "question" | "note" | "moment";
+
+export interface OwnEntry {
+  /** `own:<random>`, also the id of its finding */
   id: string;
-  spoor: SpoorId;
-  type: ClueType;
-  /** Shown while the card is face down */
-  teaser: { title: string; hint?: string };
-  /** Outlets shown as favicons on the card */
+  kind: OwnKind;
+  /** The claim, the name, the missing voice, the question, the remark or what happened */
+  text: string;
+  /** Why you doubt it, a role or organisation, why it matters */
+  detail?: string;
+  /** Speaker: what they say */
+  quote?: string;
+  /** Who says it, who should answer, or with which outlet: `outlet:<key>` or `speaker:<id>` */
+  anchor?: string;
+  /** The reader's source */
+  url?: string;
+  /** Moment: YYYY-MM-DD */
+  date?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface Finding {
+  /** `<type>:<hash>` (stable; the old clue id without its spoor prefix) */
+  id: string;
+  tab: TabId;
+  type: FindingType;
+  /** Outlets this finding is about */
   outletKeys: string[];
-  /** Graph nodes this clue reveals / links to */
+  /** Keys for links on the board ("outlet:nos", "actor:mark-rutte", ...) */
   links: NodeId[];
   order: number;
-  body: ClueBody;
+  body: FindingBody;
 }

@@ -280,6 +280,8 @@ $$;
 -- exist and pm_neighborhood(id) would be ambiguous).
 DROP FUNCTION IF EXISTS pm_neighborhood(integer, integer);
 DROP FUNCTION IF EXISTS pm_neighborhood(integer, integer, text);
+-- Migration 008 (direction) replaces this function; re-running 005 puts this version back, so run 008 again afterwards
+DROP FUNCTION IF EXISTS pm_neighborhood(integer, integer, text[], text);
 
 CREATE OR REPLACE FUNCTION pm_neighborhood(
     p_entity_id integer, p_limit integer DEFAULT 40, p_filters text[] DEFAULT NULL

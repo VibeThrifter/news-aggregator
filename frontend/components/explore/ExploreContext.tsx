@@ -1,61 +1,46 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, type ReactNode } from "react";
-import {
-  Coins,
-  EyeOff,
-  Globe2,
-  History,
-  Megaphone,
-  MessagesSquare,
-  SearchCheck,
-  type LucideIcon,
-} from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 
 import type { Exploration } from "@/lib/explore/exploration";
+import { numberFindings, type FigureModel } from "@/lib/explore/figure";
+import { useFocusStore } from "@/lib/explore/focus";
 import { useUrlPanel } from "@/lib/explore/hooks";
-import { SPOOR_BY_ID } from "@/lib/explore/labels";
-import { useExploreStore, type DossierItem } from "@/lib/explore/store";
-import type { SpoorId } from "@/lib/explore/types";
+import { newOwnId, OWN_KINDS, OWN_LIMITS, withOwn } from "@/lib/explore/own";
+import { useExploreStore, type DossierItem, type OwnPatch } from "@/lib/explore/store";
+import { truncate } from "@/lib/explore/summary";
+import type { OwnEntry, OwnKind } from "@/lib/explore/types";
 
 import { useToast } from "./ui/Toast";
 
-export const SPOOR_ICONS: Record<SpoorId, LucideIcon> = {
-  "wie-zegt-wat": MessagesSquare,
-  "wat-klopt-niet": SearchCheck,
-  "wie-heeft-belang": Coins,
-  "hoe-gebracht": Megaphone,
-  "wat-zie-je-niet": EyeOff,
-  "hoe-liep-het": History,
-  buitenland: Globe2,
-};
-
-/** Accent colour per spoor (Tailwind-independent so SVG can use it too). */
-export const SPOOR_COLORS: Record<SpoorId, string> = {
-  "wie-zegt-wat": "#1F75CE",
-  "wat-klopt-niet": "#E30613",
-  "wie-heeft-belang": "#b7791f",
-  "hoe-gebracht": "#7c3aed",
-  "wat-zie-je-niet": "#0f766e",
-  "hoe-liep-het": "#475569",
-  buitenland: "#0369a1",
-};
-
 export type PinInput = Omit<DossierItem, "addedAt" | "eventId" | "eventSlug" | "eventTitle"> & { eventId?: number | null };
 
+/** A sheet closes before a jump: vaul keeps the page fixed while it is open. */
+const SHEET_CLOSE_MS = 350;
+
 interface ExploreContextValue {
+  /** The analysis plus what the reader added themselves (own.ts) */
   exploration: Exploration;
   eventId: number;
-  revealed: ReadonlySet<string>;
-  /** Speurmodus off: everything visible */
-  revealAll: boolean;
-  isRevealed: (clueId: string | null | undefined) => boolean;
-  reveal: (clueIds: string[]) => void;
+  /** Numbers of the findings drawn on the picture (fixed per event) */
+  numbers: FigureModel["numbers"];
+  anchorOf: FigureModel["anchorOf"];
   panel: ReturnType<typeof useUrlPanel>;
+  /** Open the tab of a finding and ring its row */
+  toFinding: (findingId: string) => void;
+  /** Scroll the picture to a balloon (`outlet:<key>`, `speaker:<id>`, `gap:<findingId>`) and ring it */
+  toAnchor: (anchor: string) => void;
   pin: (item: PinInput) => void;
   isPinned: (id: string) => boolean;
   dossierCount: number;
+  /** Add an entry of your own; null when it could not be added */
+  addOwn: (entry: Omit<OwnEntry, "id" | "createdAt">) => OwnEntry | null;
+  updateOwn: (id: string, patch: OwnPatch) => void;
+  /** Remove an own entry, with undo */
+  removeOwn: (id: string) => void;
+  /** Open the form for an own entry in its tab, hanging on `anchor` (from a popover or sheet) */
+  compose: (kind: OwnKind, anchor?: string | null) => void;
 }
 
 const ExploreContext = createContext<ExploreContextValue | null>(null);
@@ -68,24 +53,27 @@ export function useExplore(): ExploreContextValue {
   return value;
 }
 
-export function ExploreProvider({ exploration, children }: { exploration: Exploration; children: ReactNode }) {
-  const { input } = exploration;
+export function ExploreProvider({ exploration: analysis, children }: { exploration: Exploration; children: ReactNode }) {
+  const { input } = analysis;
   const eventId = input.event.id;
-  const eventKey = String(eventId);
   const toast = useToast();
   const panel = useUrlPanel();
+  const focus = useFocusStore((state) => state.focus);
+  const requestCompose = useFocusStore((state) => state.requestCompose);
 
-  const { revealedList, questMode, dossierItems, touchEvent, revealStore, addItem, removeItem, markSpoorCompleted } =
+  const { dossierItems, ownEntries, touchEvent, addItem, removeItem, setPref, storeAddOwn, storeUpdateOwn, storeRemoveOwn, restoreOwn } =
     useExploreStore(
       useShallow((state) => ({
-        revealedList: state.events[eventKey]?.revealed,
-        questMode: state.prefs.questMode,
         dossierItems: state.dossier.items,
+        ownEntries: state.own[String(eventId)],
         touchEvent: state.touchEvent,
-        revealStore: state.reveal,
         addItem: state.addItem,
         removeItem: state.removeItem,
-        markSpoorCompleted: state.markSpoorCompleted,
+        setPref: state.setPref,
+        storeAddOwn: state.addOwn,
+        storeUpdateOwn: state.updateOwn,
+        storeRemoveOwn: state.removeOwn,
+        restoreOwn: state.restoreOwn,
       })),
     );
 
@@ -93,32 +81,35 @@ export function ExploreProvider({ exploration, children }: { exploration: Explor
     touchEvent(eventId, { slug: input.event.slug, title: input.event.title });
   }, [eventId, input.event.slug, input.event.title, touchEvent]);
 
-  const revealed = useMemo(() => new Set(revealedList ?? []), [revealedList]);
-  const revealAll = !questMode;
+  // What the reader added is part of the picture, the tabs and the numbering
+  const exploration = useMemo(() => withOwn(analysis, ownEntries), [analysis, ownEntries]);
+  const numbered = useMemo(() => numberFindings(exploration), [exploration]);
 
-  const isRevealed = useCallback(
-    (clueId: string | null | undefined) => revealAll || (clueId ? revealed.has(clueId) : false),
-    [revealAll, revealed],
-  );
-
-  const reveal = useCallback(
-    (clueIds: string[]) => {
-      const fresh = clueIds.filter((id) => !revealed.has(id));
-      if (fresh.length === 0) return;
-      revealStore(eventId, fresh);
-      // Toast when a spoor gets completed
-      const after = new Set([...Array.from(revealed), ...fresh]);
-      const spoorsTouched = new Set(fresh.map((id) => exploration.clueById.get(id)?.spoor).filter(Boolean) as SpoorId[]);
-      for (const spoor of Array.from(spoorsTouched)) {
-        const all = exploration.bySpoor.get(spoor) ?? [];
-        if (all.length > 0 && all.every((clue) => after.has(clue.id))) {
-          markSpoorCompleted(eventId, spoor);
-          toast(`Spoor "${SPOOR_BY_ID[spoor].question}" onderzocht`);
-        }
+  const afterSheet = useCallback(
+    (run: () => void) => {
+      if (panel.panel) {
+        panel.close();
+        window.setTimeout(run, SHEET_CLOSE_MS);
+      } else {
+        run();
       }
     },
-    [eventId, exploration.bySpoor, exploration.clueById, markSpoorCompleted, revealStore, revealed, toast],
+    [panel],
   );
+
+  const toFinding = useCallback(
+    (findingId: string) => {
+      const finding = exploration.findingById.get(findingId);
+      if (!finding) return;
+      afterSheet(() => {
+        setPref("findingsTab", finding.tab);
+        focus("finding", findingId);
+      });
+    },
+    [afterSheet, exploration.findingById, focus, setPref],
+  );
+
+  const toAnchor = useCallback((anchor: string) => afterSheet(() => focus("anchor", anchor)), [afterSheet, focus]);
 
   const pin = useCallback(
     (item: PinInput) => {
@@ -129,11 +120,11 @@ export function ExploreProvider({ exploration, children }: { exploration: Explor
         eventTitle: input.event.title,
       });
       if (result === "added") {
-        toast(`Bewaard in je dossier: ${item.title}`, { actionLabel: "Ongedaan maken", onAction: () => removeItem(item.id) });
+        toast(`Bewaard: ${item.title}`, { actionLabel: "Ongedaan maken", onAction: () => removeItem(item.id) });
       } else if (result === "exists") {
-        toast("Staat al in je dossier");
+        toast("Al bewaard");
       } else {
-        toast("Je dossier is vol (300 kaarten). Ruim wat op of exporteer het.");
+        toast("Je hebt 300 dingen bewaard, het maximum. Ruim wat op of exporteer het.");
       }
     },
     [addItem, eventId, input.event.slug, input.event.title, removeItem, toast],
@@ -141,20 +132,57 @@ export function ExploreProvider({ exploration, children }: { exploration: Explor
 
   const isPinned = useCallback((id: string) => Boolean(dossierItems[id]), [dossierItems]);
 
+  const addOwn = useCallback(
+    (fields: Omit<OwnEntry, "id" | "createdAt">) => {
+      const entry: OwnEntry = { ...fields, id: newOwnId(), createdAt: new Date().toISOString() };
+      const result = storeAddOwn(eventId, entry);
+      if (result === "full") toast(`Je hebt ${OWN_LIMITS.perEvent} dingen toegevoegd aan dit nieuws, het maximum.`);
+      return result === "added" ? entry : null;
+    },
+    [eventId, storeAddOwn, toast],
+  );
+
+  const updateOwn = useCallback((id: string, patch: OwnPatch) => storeUpdateOwn(eventId, id, patch), [eventId, storeUpdateOwn]);
+
+  const removeOwn = useCallback(
+    (id: string) => {
+      const removed = storeRemoveOwn(eventId, id);
+      if (!removed) return;
+      toast(`Verwijderd: ${truncate(removed.entry.text, 40)}`, {
+        actionLabel: "Ongedaan maken",
+        onAction: () => restoreOwn(eventId, removed.entry, removed.index),
+      });
+    },
+    [eventId, restoreOwn, storeRemoveOwn, toast],
+  );
+
+  const compose = useCallback(
+    (kind: OwnKind, anchor: string | null = null) =>
+      afterSheet(() => {
+        setPref("findingsTab", OWN_KINDS[kind].tab);
+        requestCompose(kind, anchor);
+      }),
+    [afterSheet, requestCompose, setPref],
+  );
+
   const value = useMemo<ExploreContextValue>(
     () => ({
       exploration,
       eventId,
-      revealed,
-      revealAll,
-      isRevealed,
-      reveal,
+      numbers: numbered.numbers,
+      anchorOf: numbered.anchorOf,
       panel,
+      toFinding,
+      toAnchor,
       pin,
       isPinned,
       dossierCount: Object.keys(dossierItems).length,
+      addOwn,
+      updateOwn,
+      removeOwn,
+      compose,
     }),
-    [dossierItems, eventId, exploration, isPinned, isRevealed, panel, pin, reveal, revealAll, revealed],
+    [addOwn, compose, dossierItems, eventId, exploration, isPinned, numbered, panel, pin, removeOwn, toAnchor, toFinding, updateOwn],
   );
 
   return <ExploreContext.Provider value={value}>{children}</ExploreContext.Provider>;
@@ -162,7 +190,7 @@ export function ExploreProvider({ exploration, children }: { exploration: Explor
 
 /** Stable dossier ids per kind. */
 export const dossierIds = {
-  clue: (eventId: number, clueId: string) => `clue:${eventId}:${clueId}`,
+  finding: (eventId: number, findingId: string) => `clue:${eventId}:${findingId}`,
   outlet: (outletKey: string) => `outlet:${outletKey}`,
   actor: (slug: string) => `actor:${slug}`,
   entity: (entityKey: string) => `entity:${entityKey}`,

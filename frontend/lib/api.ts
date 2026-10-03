@@ -27,6 +27,7 @@ import type {
 } from "@/lib/types";
 import { getSupabase } from "@/lib/supabase";
 import type { RawExploration, RawExploreArticle } from "@/lib/explore/input";
+import { filterNeighborhood } from "@/lib/explore/pm-graph";
 import { createLocalPm, extendSlice, type PmSlice } from "@/lib/explore/pm-local";
 import {
   parseWikiSearch,
@@ -1010,11 +1011,12 @@ function isMissingTable(error: { code?: string; message?: string } | null): bool
 
 async function loadDemo(identifier: string | number): Promise<RawExploration | null> {
   if (!DEMO_ENABLED) return null;
-  const { DEMO_EVENTS, isDemoIdentifier } = await import('@/lib/explore/fixtures/demo-event');
-  if (!isDemoIdentifier(identifier)) return null;
-  const key = typeof identifier === 'number' ? (identifier === -1 ? 'demo' : `demo-${-identifier}`) : identifier;
-  const fixture = DEMO_EVENTS[key];
-  return fixture ? (JSON.parse(JSON.stringify(fixture)) as RawExploration) : null;
+  const { findDemoEvent } = await import('@/lib/explore/fixtures/demo-event');
+  const fixture = findDemoEvent(identifier);
+  if (!fixture) return null;
+  // Sources approved in the simulated "Stemmen zoeken" join the demo like they join a real event
+  const { applyDemoVoices } = await import('@/lib/explore/fixtures/demo-voices');
+  return applyDemoVoices(JSON.parse(JSON.stringify(fixture)) as RawExploration);
 }
 
 /**
@@ -1031,6 +1033,7 @@ export async function getExploration(identifier: string | number): Promise<RawEx
     .select(`
       id, slug, event_type, article_count, first_seen_at, last_updated_at, archived_at,
       event_articles (
+        found:scoring_breakdown->found_voice,
         articles ( id, title, url, source_name, published_at, is_international, source_country,
                    spectrum:source_metadata->spectrum, digest:source_metadata->digest )
       ),
@@ -1050,9 +1053,8 @@ export async function getExploration(identifier: string | number): Promise<RawEx
 
   const row = event as any;
   const articles: RawExploreArticle[] = (row.event_articles ?? [])
-    .map((link: any) => link.articles)
-    .filter(Boolean)
-    .map((article: any) => ({
+    .filter((link: any) => link.articles)
+    .map(({ articles: article, found }: any) => ({
       id: article.id,
       title: article.title,
       url: article.url,
@@ -1062,6 +1064,8 @@ export async function getExploration(identifier: string | number): Promise<RawEx
       source_country: article.source_country ?? null,
       spectrum: article.spectrum ?? null,
       digest: article.digest ?? null,
+      // Added for a missing voice (Story 14.10): what was found, on the link of this event
+      found: found ?? null,
     }));
   const insightRow = Array.isArray(row.llm_insights) ? row.llm_insights[0] : row.llm_insights;
 
@@ -1334,17 +1338,27 @@ export async function pmSearch(query: string, options: { demo?: boolean; limit?:
   return (await pmRpc<PmEntity[]>('pm_search', { p_query: query, p_limit: options.limit ?? 10 })) ?? [];
 }
 
-/** Neighbours of one entity, optionally only via some filters (with counts per filter either way). */
+/**
+ * Neighbours of one entity, optionally only via some filters and one way of influence ("in": on the
+ * entity, "out": the entity's), with counts per filter (and per direction, migration 008) either way.
+ */
 export async function pmNeighborhood(
   entityId: number,
-  options: { demo?: boolean; limit?: number; filters?: string[] | null } = {},
+  options: { demo?: boolean; limit?: number; filters?: string[] | null; direction?: 'in' | 'out' | null } = {},
 ): Promise<PmNeighborhood | null> {
   const filters = options.filters?.length ? options.filters : null;
-  if (isDemoPm(options.demo)) return (await localPm()).neighborhood(entityId, options.limit, filters);
+  const direction = options.direction ?? null;
+  if (isDemoPm(options.demo)) return (await localPm()).neighborhood(entityId, options.limit, filters, direction);
   const args: Record<string, unknown> = { p_entity_id: entityId, p_limit: options.limit ?? 40 };
   if (filters) args.p_filters = filters;
-  const result = await pmRpc<PmNeighborhood>('pm_neighborhood', args);
-  return result && result.center ? result : null;
+  if (direction) args.p_direction = direction;
+  const { missing, data } = await rpcCall<PmNeighborhood>('pm_neighborhood', args);
+  if (missing && direction) {
+    // Before migration 008: fetch either way and keep the relations that go this way
+    const both = await pmNeighborhood(entityId, { limit: 60, filters });
+    return both ? { ...filterNeighborhood(both, filters ?? [], direction), filters, truncated: both.truncated } : null;
+  }
+  return data && data.center ? data : null;
 }
 
 export async function pmDetails(kind: 'entity' | 'relation', id: number, options: { demo?: boolean } = {}): Promise<PmDetails | null> {

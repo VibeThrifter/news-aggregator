@@ -17,7 +17,7 @@ const dateFormatter = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: 
  */
 export function ArticleSheet({ articleId }: { articleId: number }) {
   const { exploration, panel } = useExplore();
-  const { index, clues, input } = exploration;
+  const { index, findings, input } = exploration;
   const article = index.article(articleId);
   const outlet = article ? index.outlet(article.outletKey) : null;
   const onOpenChange = (open: boolean) => (!open ? panel.close() : undefined);
@@ -33,12 +33,12 @@ export function ArticleSheet({ articleId }: { articleId: number }) {
   const published = parseIsoDate(article.publishedAt);
   const ownership = outlet.profile?.ownershipType;
   // The perspectives the analysis put this article in, with its core message
-  const perspectives = clues.flatMap((clue) => {
-    const body = clue.body;
+  const perspectives = findings.flatMap((finding) => {
+    const body = finding.body;
     if (body.type !== "perspective") return [];
     return body.stances
       .filter((stance) => stance.articleId === article.id)
-      .map((stance) => ({ id: clue.id, label: body.cluster.label, stance: stance.stance }));
+      .map((stance) => ({ id: finding.id, label: body.cluster.label, stance: stance.stance }));
   });
 
   return (

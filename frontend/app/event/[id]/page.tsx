@@ -15,7 +15,7 @@ export const revalidate = 0;
 /** Epic 11: the Onderzoeksmodus replaces the old page when enabled, and always for demo events. */
 function shouldUseExploreUi(identifier: string): boolean {
   if (process.env.NEXT_PUBLIC_EXPLORE_UI === "1") return true;
-  return process.env.NEXT_PUBLIC_ENABLE_DEMO === "true" && identifier === "demo";
+  return process.env.NEXT_PUBLIC_ENABLE_DEMO === "true" && (identifier === "demo" || identifier.startsWith("demo-"));
 }
 
 export default function EventDetailPage({ params }: DetailPageProps) {

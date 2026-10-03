@@ -9,6 +9,7 @@ import {
   type NewsSource,
 } from "@/lib/api";
 import { getSpectrumLabel, isAlternativeSource } from "@/lib/format";
+import { AccessCodeForm } from "@/components/admin/AccessCodeForm";
 
 function SpectrumBadge({ spectrum }: { spectrum: string | number | null }) {
   if (spectrum === null || spectrum === undefined) return null;
@@ -200,6 +201,8 @@ export default function AdminPage() {
           {updating ? "Bezig..." : "Bronnen initialiseren"}
         </button>
       </div>
+
+      <AccessCodeForm />
 
       {/* Quick Links */}
       <div className="grid gap-4 sm:grid-cols-2">

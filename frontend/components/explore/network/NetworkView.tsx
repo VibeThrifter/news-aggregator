@@ -8,7 +8,6 @@ import useSWR from "swr";
 import { ArrowLeft, Check, ChevronDown, Info, Loader2, Pin, Plus, Redo2, Search, SlidersHorizontal, Undo2, X } from "lucide-react";
 
 import { pmSearch } from "@/lib/api";
-import { revealedTitle } from "@/lib/explore/clues";
 import { nameAliases } from "@/lib/explore/coverage";
 import {
   FILTERS,
@@ -22,7 +21,6 @@ import {
   pmTypeLabel,
 } from "@/lib/explore/labels";
 import { layoutNetwork, type Positions } from "@/lib/explore/layout/network";
-import { eventLensScene, type EventLens, type SceneEdge, type SceneNode } from "@/lib/explore/network-scene";
 import {
   bundleNodeId,
   bySpecificity,
@@ -30,26 +28,29 @@ import {
   displayFilter,
   isHistoric,
   isRelationVisible,
+  newsEdgeId,
   otherEnd,
   pickHood,
   pmNodeId,
-  pmScene,
   PM_EVENT_NODE,
   PM_OTHER,
   relationFilterKeys,
   relationFilters,
   relationsOf,
   specificityOf,
+  bundleEdgeId,
+  onSide,
   type PmBundle,
+  type PmDirection,
   type PmSceneNode,
 } from "@/lib/explore/pm-graph";
+import type { NewsEntity } from "@/lib/explore/pm-seeds";
 import { usePmStore } from "@/lib/explore/pm-store";
-import { useExploreStore, type NetworkLens } from "@/lib/explore/store";
+import { researchCopy } from "@/lib/explore/research";
 import type { PmEntity, PmRelation } from "@/lib/types";
 import { exploreAuxSwrOptions } from "@/lib/swr-config";
 
-import { SPOOR_COLORS, dossierIds, useExplore } from "../ExploreContext";
-import { OutletCard } from "../outlet/OutletCard";
+import { dossierIds, useExplore } from "../ExploreContext";
 import { Chip, Eyebrow, Tag } from "../ui/primitives";
 import { useToast } from "../ui/Toast";
 import type { CanvasEdge, CanvasNode } from "./NetworkCanvas";
@@ -64,63 +65,6 @@ const NetworkCanvas = dynamic(() => import("./NetworkCanvas"), {
   ssr: false,
   loading: () => <div className="flex h-full items-center justify-center text-sm text-ink-500">Netwerk laden…</div>,
 });
-
-const LENSES: { id: NetworkLens; label: string }[] = [
-  { id: "propaganda", label: "Propagandamodel" },
-  { id: "actoren", label: "Actoren" },
-  { id: "frames", label: "Frames" },
-  { id: "tegenspraak", label: "Tegenspraak" },
-  { id: "gerelateerd", label: "Gerelateerd" },
-];
-
-const KIND_STYLE: Record<string, { color: string; glyph: string }> = {
-  event: { color: "#1a1a1a", glyph: "★" },
-  outlet: { color: "#1F75CE", glyph: "" },
-  actor: { color: "#b7791f", glyph: "A" },
-  entity: { color: "#0f766e", glyph: "E" },
-  frame: { color: "#7c3aed", glyph: "F" },
-  contradiction: { color: "#E30613", glyph: "⚡" },
-  claim: { color: "#E30613", glyph: "!" },
-  fallacy: { color: "#f59e0b", glyph: "↯" },
-  statistic: { color: "#f59e0b", glyph: "%" },
-  gap: { color: "#0f766e", glyph: "∅" },
-  country: { color: "#0369a1", glyph: "🌍" },
-  related: { color: "#475569", glyph: "↗" },
-  ghost: { color: "#94a3b8", glyph: "?" },
-};
-
-const EDGE_COLORS: Record<string, string> = {
-  contradicts: "#E30613",
-  frames: "#7c3aed",
-  quotes: "#1F75CE",
-  mentions: "#94a3b8",
-  claims: "#f87171",
-  publishes_claim: "#f87171",
-  related: "#475569",
-  involves: "#0f766e",
-  reports: "#cbd5e1",
-  fallacy: "#f59e0b",
-  statistic: "#f59e0b",
-};
-
-/** Event-lens edges whose direction means something (outlet → what it quotes, claims, frames) */
-const DIRECTED_KINDS = new Set(["perspective", "quotes", "frames", "claims", "publishes_claim", "fallacy", "statistic"]);
-
-/** How an edge of an event lens reads: "source … target" */
-const EDGE_LABELS: Record<string, string> = {
-  perspective: "brengt de invalshoek",
-  contradicts: "spreekt tegen",
-  frames: "gebruikt het frame",
-  quotes: "citeert",
-  mentions: "noemt",
-  claims: "beweert",
-  publishes_claim: "publiceert de bewering",
-  related: "hangt samen met",
-  involves: "betreft",
-  reports: "bericht over",
-  fallacy: "bevat de drogreden",
-  statistic: "gebruikt de statistiek",
-};
 
 function initials(name: string): string {
   const words = name.replace(/\(.*?\)/g, "").trim().split(/\s+/).filter(Boolean);
@@ -143,51 +87,61 @@ function shortName(name: string): string {
   return name.replace(/\s*\(.*?\)\s*/g, " ").trim() || name;
 }
 
+/** "Nog 12 via Eigendom", for a question one way "Nog 12 via Eigendom · invloed op DPG Media" */
+function bundleTitle(bundle: Pick<PmBundle, "count" | "filter" | "side">, anchorName: string): string {
+  const base = `Nog ${bundle.count} via ${filterLabel(bundle.filter)}`;
+  return bundle.side === "any" ? base : `${base} · invloed ${bundle.side === "in" ? "op" : "van"} ${shortName(anchorName)}`;
+}
+
 function period(relation: Pick<PmRelation, "active_from" | "active_until">): string {
   if (!relation.active_from && !relation.active_until) return "";
   return `${relation.active_from ?? "?"}–${relation.active_until ?? "nu"}`;
 }
 
+/** Outline of a person or organisation of the news that is not in the model */
+const NEWS_COLOR = "#9ca3af";
+
 type Pmx = ReturnType<typeof usePmExplorer>;
 
 export function NetworkView() {
-  const { exploration, revealed, revealAll } = useExplore();
-  const { input, graph, clues, index } = exploration;
+  const { exploration } = useExplore();
+  const { input, index } = exploration;
   const params = useSearchParams();
-  const lens = useExploreStore((state) => state.prefs.networkLens);
-  const setPref = useExploreStore((state) => state.setPref);
+  // The network is the propaganda model only (Epic 14): the event lenses live on the event page
+  const lens = "propaganda";
   const selected = usePmStore((state) => state.selected);
-  const select = usePmStore((state) => state.select);
+  const selectNode = usePmStore((state) => state.select);
   const positionsRef = useRef<Record<string, Positions>>({});
   const [center, setCenter] = useState<{ id: string; nonce: number } | null>(null);
 
-  // Lens and focus from the URL (e.g. links from balloons)
-  const focusParam = params?.get("focus") ?? null;
-  useEffect(() => {
-    const fromUrl = params?.get("lens") as NetworkLens | null;
-    if (fromUrl && LENSES.some((item) => item.id === fromUrl)) setPref("networkLens", fromUrl);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Focus from the URL: `pm:<id>`, or `outlet:<key>` of an outlet that is in the model
+  const rawFocus = params?.get("focus") ?? null;
+  const focusParam = rawFocus?.startsWith("outlet:")
+    ? (() => {
+        const pmId = index.outlet(rawFocus.slice("outlet:".length))?.profile?.pmEntityId;
+        return pmId ? `pm:${pmId}` : null;
+      })()
+    : rawFocus;
   const focusPmId = focusParam?.startsWith("pm:") ? Number(focusParam.slice(3)) || null : null;
 
   const pmx = usePmExplorer(exploration, focusPmId);
 
+  /** Tapping a proposal keeps it (and opens it like any node) */
+  const select = (nodeId: string | null) => {
+    if (nodeId && pmx.proposals.nodes.includes(nodeId)) pmx.keep(nodeId);
+    selectNode(nodeId);
+  };
+
   // --- Build the scene for the current lens ---
+  const ghosts = pmx.proposals.ghosts;
   const scene = useMemo(() => {
-    if (lens === "propaganda") {
-      const pm = pmScene(pmx.merged, pmx.seeds, pmx.expanded, {
-        hiddenFilters: pmx.hiddenFilters,
-        expandedFilters: pmx.expandedFilters,
-        revealed: pmx.revealed,
-        routeNodes: pmx.routeNodes,
-        routeRelations: pmx.routeRelations,
-        eventLabel: "Dit nieuws",
-        latest: pmx.latest,
-      });
+    {
+      const pm = pmx.scene;
       const drawnIds = new Set(pm.nodes.map((node) => node.id));
       const outletBySeed = new Map(pmx.seeds.filter((seed) => seed.outletKey).map((seed) => [pmNodeId(seed.id), seed.outletKey as string]));
       const parentOf = (node: PmSceneNode): string | undefined => {
         if (node.bundle) return pmNodeId(node.bundle.anchorId);
+        if (node.news) return PM_EVENT_NODE;
         if (node.pmId === null) return undefined;
         for (const edge of pm.edges) {
           if (edge.target === node.id && pmx.expanded.has(Number(edge.source.slice(3)))) return edge.source;
@@ -197,9 +151,11 @@ export function NetworkView() {
       };
       return {
         labels: new Map(
-          pm.nodes.map((node) => [node.id, node.bundle ? `Nog ${node.bundle.count} via ${filterLabel(node.bundle.filter)}` : node.label]),
+          pm.nodes.map((node) => [
+            node.id,
+            node.bundle ? bundleTitle(node.bundle, pmx.merged.entities.get(node.bundle.anchorId)?.name ?? "") : node.label,
+          ]),
         ),
-        eventEdges: null,
         bundles: pm.bundles,
         // After a question the view glides to that node, its new neighbours and bundles; after a
         // route search to the route
@@ -221,7 +177,17 @@ export function NetworkView() {
                 color: filterColor(node.filter),
                 glyph: `+${node.bundle.count}`,
                 ghost: true,
+                pending: ghosts.has(node.id),
               },
+            };
+          }
+          if (node.news) {
+            return {
+              id: node.id,
+              weight: node.weight,
+              parent: parentOf(node),
+              pin: undefined,
+              data: { label: node.label, size: 34, color: NEWS_COLOR, glyph: initials(node.label), dashed: true },
             };
           }
           const outletKey = outletBySeed.get(node.id);
@@ -238,6 +204,7 @@ export function NetworkView() {
               favicon: outlet ? { name: outlet.name, domain: outlet.domain } : undefined,
               glyph: node.isEvent ? "★" : initials(node.label),
               ring: node.expanded && !node.isEvent ? "#1a1a1a22" : undefined,
+              pending: ghosts.has(node.id),
             },
           };
         }),
@@ -245,63 +212,15 @@ export function NetworkView() {
           id: edge.id,
           source: edge.source,
           target: edge.target,
-          color: edge.kind === "seed" ? "#cbd5e1" : filterColor(edge.filter),
-          dashed: edge.historic || edge.kind === "bundle",
+          color: edge.kind === "seed" || edge.kind === "news" ? "#cbd5e1" : filterColor(edge.filter),
+          dashed: edge.historic || edge.kind === "bundle" || edge.kind === "news",
           width: edge.kind === "relation" ? 2.5 : 1.5,
           arrow: edge.directed ? ("end" as const) : null,
+          faded: ghosts.has(edge.source) || ghosts.has(edge.target),
         })),
       };
     }
-    const eventScene = eventLensScene(graph, clues, revealed, lens as EventLens, { revealAll });
-    return {
-      labels: new Map(eventScene.nodes.map((node) => [node.id, node.kind === "frame" ? frameLabel(node.label) : node.label])),
-      eventEdges: new Map(eventScene.edges.map((edge) => [edge.id, edge])),
-      bundles: [] as PmBundle[],
-      fitIds: null,
-      nodes: eventScene.nodes.map((node: SceneNode) => {
-        const style = KIND_STYLE[node.kind] ?? KIND_STYLE.entity;
-        const outlet = node.kind === "outlet" && node.graphNode?.outletKey ? index.outlet(node.graphNode.outletKey) : null;
-        return {
-          id: node.id,
-          weight: node.weight,
-          pin: node.kind === "event" ? { x: 0, y: 0 } : undefined,
-          data: {
-            label: node.label,
-            size: node.kind === "ghost" ? 40 : nodeSize(node.weight),
-            color: node.ghost ? SPOOR_COLORS[node.ghost.spoor] : style.color,
-            favicon: outlet ? { name: outlet.name, domain: outlet.domain } : undefined,
-            glyph: node.kind === "entity" || node.kind === "actor" ? initials(node.label) : style.glyph,
-            ghost: node.kind === "ghost",
-          },
-        };
-      }),
-      edges: eventScene.edges.map((edge) => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        color: EDGE_COLORS[edge.kind] ?? "#94a3b8",
-        dashed: edge.attribution === "geciteerd" || edge.source.startsWith("ghost") || edge.target.startsWith("ghost"),
-        arrow: DIRECTED_KINDS.has(edge.kind) && !edge.source.startsWith("ghost") && !edge.target.startsWith("ghost") ? ("end" as const) : null,
-      })),
-    };
-  }, [
-    lens,
-    pmx.merged,
-    pmx.seeds,
-    pmx.expanded,
-    pmx.expandedFilters,
-    pmx.revealed,
-    pmx.routeNodes,
-    pmx.routeRelations,
-    pmx.hiddenFilters,
-    pmx.latest,
-    pmx.latestRouteNodes,
-    graph,
-    clues,
-    revealed,
-    revealAll,
-    index,
-  ]);
+  }, [pmx.scene, pmx.merged.entities, pmx.seeds, pmx.expanded, pmx.latest, pmx.latestRouteNodes, ghosts, index]);
 
   const canvasNodes = useMemo<CanvasNode[]>(() => {
     const previous = positionsRef.current[lens];
@@ -321,12 +240,15 @@ export function NetworkView() {
   const canvasEdges: CanvasEdge[] = scene.edges;
   const sceneIds = useMemo(() => new Set(scene.nodes.map((node) => node.id)), [scene]);
   const toast = useToast();
-  /** Propaganda-model ids on screen, the news' own outlets and actors first (targets for routes) */
+  /** Propaganda-model ids on screen (not the proposals you did not keep), the news' own outlets and actors first (targets for routes) */
   const screenIds = useMemo(() => {
-    const onScreen = scene.nodes.map((node) => node.id).filter((id) => id.startsWith("pm:")).map((id) => Number(id.slice(3)));
+    const onScreen = scene.nodes
+      .map((node) => node.id)
+      .filter((id) => id.startsWith("pm:") && !ghosts.has(id))
+      .map((id) => Number(id.slice(3)));
     const seeds = pmx.seeds.map((seed) => seed.id).filter((id) => onScreen.includes(id));
     return Array.from(new Set([...seeds, ...onScreen]));
-  }, [scene, pmx.seeds]);
+  }, [scene, ghosts, pmx.seeds]);
 
   /** A party from the search bar: in the graph with only its routes to what is on screen */
   const addFromSearch = (id: number, name: string) => {
@@ -346,18 +268,22 @@ export function NetworkView() {
 
   const renderNodeTip = (nodeId: string, close: () => void): [string, ReactNode] | null => {
     const label = scene.labels.get(nodeId) ?? "Knoop";
-    if (lens === "propaganda") {
+    {
       if (nodeId === PM_EVENT_NODE) {
         return [
-          label,
+          input.event.title,
           <p key="event" className="text-sm text-ink-700">
-            Dit nieuws, met de bronnen en actoren die in het propagandamodel staan, en alleen wat hen verbindt. Tik op een knoop om een vraag te
-            stellen of een verband te zoeken.
+            {pmx.seeds.length} {pmx.seeds.length === 1 ? "bron of partij" : "bronnen en partijen"} uit dit nieuws in het propagandamodel
+            {pmx.news.length ? `, ${pmx.news.length} ${pmx.news.length === 1 ? "naam" : "namen"} nog niet` : ""}.
           </p>,
         ];
       }
+      if (nodeId.startsWith("news:")) {
+        const news = pmx.news.find((item) => item.id === nodeId);
+        return news ? [news.name, <NewsNodeTip key={nodeId} news={news} />] : null;
+      }
       if (nodeId.startsWith("bundle:")) {
-        const bundle = scene.bundles.find((item) => bundleNodeId(item.anchorId, item.filter) === nodeId);
+        const bundle = scene.bundles.find((item) => bundleNodeId(item.anchorId, item.filter, item.side) === nodeId);
         if (!bundle || !pmx.merged.entities.has(bundle.anchorId)) return null;
         return [label, <PmBundleTip key={nodeId} bundle={bundle} pmx={pmx} sceneIds={sceneIds} goTo={goTo} close={close} />];
       }
@@ -366,12 +292,10 @@ export function NetworkView() {
       const bundles = scene.bundles.filter((item) => item.anchorId === pmId);
       return [label, <PmNodeTip key={nodeId} pmId={pmId} pmx={pmx} sceneIds={sceneIds} screenIds={screenIds} bundles={bundles} goTo={goTo} close={close} />];
     }
-    const content = <EventNodeTip nodeId={nodeId} close={close} />;
-    return [label, content];
   };
 
   const renderEdgeTip = (edgeId: string, pinned: boolean, close: () => void): [string, ReactNode] | null => {
-    if (lens === "propaganda") {
+    {
       if (edgeId.startsWith("seed:")) {
         const id = Number(edgeId.slice(5));
         const seed = pmx.seeds.find((item) => item.id === id);
@@ -383,15 +307,37 @@ export function NetworkView() {
           </p>,
         ];
       }
+      if (edgeId.startsWith("news-edge:")) {
+        const news = pmx.news.find((item) => newsEdgeId(item.id) === edgeId);
+        if (!news) return null;
+        return [
+          `${news.name} en dit nieuws`,
+          <p key={edgeId} className="text-sm text-ink-700">
+            <span className="font-semibold text-ink-900">{news.name}</span> komt voor in dit nieuws{mentionText(news)}.
+          </p>,
+        ];
+      }
       if (edgeId.startsWith("bundle-edge:")) {
-        const bundle = scene.bundles.find((item) => `bundle-edge:${item.anchorId}:${item.filter}` === edgeId);
+        const bundle = scene.bundles.find((item) => bundleEdgeId(item.anchorId, item.filter, item.side) === edgeId);
         const name = bundle ? pmx.merged.entities.get(bundle.anchorId)?.name ?? "" : "";
         if (!bundle) return null;
+        const via = filterLabel(bundle.filter).toLowerCase();
         return [
-          `Nog ${bundle.count} via ${filterLabel(bundle.filter)}`,
+          bundleTitle(bundle, name),
           <p key={edgeId} className="text-sm text-ink-700">
-            <span className="font-semibold text-ink-900">{name}</span> heeft nog {bundle.count} verbanden via {filterLabel(bundle.filter).toLowerCase()}. Tik op de bundel
-            om te zien met wie.
+            {bundle.side === "in" ? (
+              <>
+                Nog {bundle.count} met invloed op <span className="font-semibold text-ink-900">{name}</span> via {via}.
+              </>
+            ) : bundle.side === "out" ? (
+              <>
+                Nog {bundle.count} waarop <span className="font-semibold text-ink-900">{name}</span> invloed heeft via {via}.
+              </>
+            ) : (
+              <>
+                <span className="font-semibold text-ink-900">{name}</span> heeft nog {bundle.count} verbanden via {via}.
+              </>
+            )}
           </p>,
         ];
       }
@@ -402,27 +348,29 @@ export function NetworkView() {
         <PmEdgeTip key={edgeId} relation={relation} pmx={pmx} pinned={pinned} goTo={(id) => { close(); goTo(id); }} />,
       ];
     }
-    const edge = scene.eventEdges?.get(edgeId);
-    if (!edge) return null;
-    return [EDGE_LABELS[edge.kind] ?? edge.kind, <EventEdgeTip key={edgeId} edge={edge} labels={scene.labels} pinned={pinned} />];
   };
 
   return (
     <div data-explore className="fixed inset-0 z-40 flex flex-col bg-paper-100">
-      <NetworkHeader lens={lens} onLens={(id) => { setPref("networkLens", id); select(null); }} onPick={addFromSearch} />
+      <NetworkHeader onPick={addFromSearch} />
 
       <div className="relative min-h-0 flex-1">
-        {lens === "propaganda" ? <HistoryControls pmx={pmx} /> : null}
-        {lens === "propaganda" && pmx.ready && pmx.seeds.length === 0 && pmx.loading.size === 0 ? (
+        <HistoryControls pmx={pmx} />
+        {pmx.ready && pmx.seeds.length === 0 && pmx.loading.size === 0 ? (
           <div className="absolute inset-x-4 top-16 z-10 rounded-2xl border border-paper-300 bg-paper-50 p-4 text-sm text-ink-700">
-            Geen bronnen of actoren van dit nieuws gevonden in het propagandamodel. Zoek hierboven naar een actor om te beginnen.
+            Geen bronnen of partijen van dit nieuws in het propagandamodel.
           </div>
         ) : null}
-        {pmx.loading.size > 0 && lens === "propaganda" ? (
-          <div className="absolute bottom-3 left-3 z-10 flex items-center gap-2 rounded-full bg-paper-50 px-3 py-1.5 text-xs text-ink-600 shadow">
-            <Loader2 size={14} className="animate-spin" /> Laden…
-          </div>
-        ) : null}
+        <div className="pointer-events-none absolute inset-x-3 bottom-3 z-10 flex flex-wrap items-end justify-between gap-2">
+          {pmx.loading.size > 0 ? (
+            <div className="flex items-center gap-2 rounded-full bg-paper-50 px-3 py-1.5 text-xs text-ink-600 shadow">
+              <Loader2 size={14} className="animate-spin" /> Laden…
+            </div>
+          ) : (
+            <span />
+          )}
+          <ProposalControls pmx={pmx} />
+        </div>
         <NetworkCanvas
           nodes={canvasNodes}
           edges={canvasEdges}
@@ -433,21 +381,18 @@ export function NetworkView() {
           center={center}
           renderNodeTip={renderNodeTip}
           renderEdgeTip={renderEdgeTip}
-          tipInsetTop={lens === "propaganda" ? 56 : 0}
+          tipInsetTop={56}
         />
       </div>
 
-      {lens === "propaganda" ? (
-        <div className="space-y-1 border-t border-paper-300 bg-paper-50 px-4 pb-[calc(env(safe-area-inset-bottom)+8px)] pt-2">
-          <p className="text-xs text-ink-600">Tik op een knoop: stel een vraag, verbind met wat je ziet of zoek een verband.</p>
-          <PmAttribution />
-        </div>
-      ) : null}
+      <div className="border-t border-paper-300 bg-paper-50 px-4 pb-[calc(env(safe-area-inset-bottom)+8px)] pt-2">
+        <PmAttribution />
+      </div>
     </div>
   );
 }
 
-function NetworkHeader({ lens, onLens, onPick }: { lens: NetworkLens; onLens: (lens: NetworkLens) => void; onPick: (id: number, name: string) => void }) {
+function NetworkHeader({ onPick }: { onPick: (id: number, name: string) => void }) {
   const { exploration, panel } = useExplore();
   const { input } = exploration;
   return (
@@ -461,19 +406,17 @@ function NetworkHeader({ lens, onLens, onPick }: { lens: NetworkLens; onLens: (l
           <ArrowLeft size={20} />
         </Link>
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Netwerk</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Wie zit erachter?</p>
           <p className="truncate text-sm font-semibold text-ink-900">{input.event.title}</p>
         </div>
-        {lens === "propaganda" ? (
-          <button
-            type="button"
-            onClick={() => panel.open("filters")}
-            className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-paper-200"
-            aria-label="De vijf filters in dit nieuws"
-          >
-            <SlidersHorizontal size={18} />
-          </button>
-        ) : null}
+        <button
+          type="button"
+          onClick={() => panel.open("filters")}
+          className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-paper-200"
+          aria-label="De vijf filters in dit nieuws"
+        >
+          <SlidersHorizontal size={18} />
+        </button>
         <button
           type="button"
           onClick={() => panel.open("model")}
@@ -483,24 +426,8 @@ function NetworkHeader({ lens, onLens, onPick }: { lens: NetworkLens; onLens: (l
           <Info size={18} />
         </button>
       </div>
-      <div role="radiogroup" aria-label="Lens" className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-1">
-        {LENSES.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            role="radio"
-            aria-checked={lens === item.id}
-            onClick={() => onLens(item.id)}
-            className={`min-h-[40px] shrink-0 rounded-full px-4 text-sm font-semibold ${
-              lens === item.id ? "bg-ink-900 text-white" : "border border-paper-300 bg-paper-50 text-ink-600"
-            }`}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-      {lens === "propaganda" ? <PmSearchBar onPick={onPick} /> : null}
-      {lens === "propaganda" ? <FilterLegend /> : null}
+      <PmSearchBar onPick={onPick} />
+      <FilterLegend />
     </header>
   );
 }
@@ -526,6 +453,61 @@ function FilterLegend() {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * What a step added is see-through: tap what stays. "Rest weg" (or any next step) takes the rest
+ * away, "Houd alle" keeps everything. Shown while there is something see-through.
+ */
+function ProposalControls({ pmx }: { pmx: Pmx }) {
+  const { ghosts, kept, withdraws } = pmx.proposals;
+  if (ghosts.size === 0) return null;
+  const button = "flex min-h-[44px] items-center rounded-full px-4 text-sm font-semibold";
+  return (
+    <div role="group" aria-label="Nieuw in het netwerk" className="pointer-events-auto ml-auto flex items-center gap-1 rounded-full border border-paper-300 bg-paper-50/95 p-1 shadow">
+      <button type="button" onClick={pmx.keepAll} className={`${button} text-ink-800 hover:bg-paper-200`}>
+        Houd alle
+      </button>
+      <button type="button" onClick={pmx.dropRest} className={`${button} bg-ink-900 text-white hover:bg-ink-700`}>
+        {kept > 0 && !withdraws ? "Rest weg" : "Alles weg"}
+      </button>
+    </div>
+  );
+}
+
+/** "· 4× genoemd door NOS en NU.nl" */
+function mentionText(news: NewsEntity): string {
+  const outlets = news.outlets.slice(0, 3);
+  const by = outlets.length ? ` door ${outlets.length > 1 ? `${outlets.slice(0, -1).join(", ")} en ${outlets[outlets.length - 1]}` : outlets[0]}` : "";
+  return news.mentions > 1 ? ` (${news.mentions}× genoemd${by})` : by ? ` (genoemd${by})` : "";
+}
+
+/**
+ * Tooltip of a person or organisation of the news that is not in the propaganda model (yet): who it
+ * is, what "Wie is dit?" found out so far, and the way to everything about it.
+ */
+function NewsNodeTip({ news }: { news: NewsEntity }) {
+  const { panel } = useExplore();
+  const research = news.research ? researchCopy({ ...news.research, name: news.research.name || news.name }) : null;
+  return (
+    <div className="space-y-2">
+      <div className="space-y-0.5">
+        <p className="font-serif text-base font-bold leading-snug text-ink-900">{news.name}</p>
+        <p className="text-xs text-ink-500">
+          {news.kind === "person" ? "Persoon" : "Organisatie"} · niet in het propagandamodel{research ? ` · ${research.title.toLowerCase()}` : ""}
+        </p>
+        <WikiDescription name={news.name} />
+      </div>
+      <p className="text-sm text-ink-700">
+        Komt voor in dit nieuws{mentionText(news)}.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Chip tone="blue" onClick={() => panel.open(`entiteit:${news.panelKey}`, { n: news.name })}>
+          Meer weten
+        </Chip>
+      </div>
     </div>
   );
 }
@@ -668,11 +650,33 @@ function PmNodeTip({
     void peek(pmId, null);
   }, [peek, pmId]);
 
-  const counts = Object.values(pmx.neighborhoods).find((hood) => hood.center.id === pmId && hood.filter_counts)?.filter_counts ?? {};
+  const ownHoods = Object.values(pmx.neighborhoods).filter((hood) => hood.center.id === pmId);
+  const counts = ownHoods.find((hood) => hood.filter_counts)?.filter_counts ?? {};
+  // Per filter how many relations go each way (migration 008): two questions instead of one
+  const directionCounts = ownHoods.find((hood) => hood.direction_counts)?.direction_counts ?? null;
   const asked = pmx.expandedFilters.get(pmId);
-  const questions = [...FILTERS.map((filter) => ({ id: filter.id as string, color: filter.color })), { id: PM_OTHER, color: "#94a3b8" }]
-    .map((filter) => ({ ...filter, count: counts[filter.id] ?? 0, done: pmx.expanded.has(pmId) && Boolean(asked?.has(filter.id)) }))
-    .filter((filter) => filter.count > 0);
+  const questionsFor = (direction: PmDirection | null) =>
+    [...FILTERS.map((filter) => ({ id: filter.id as string, color: filter.color })), { id: PM_OTHER, color: "#94a3b8" }]
+      .map((filter) => ({
+        ...filter,
+        direction,
+        count: (direction ? directionCounts?.[filter.id]?.[direction] : counts[filter.id]) ?? 0,
+        // Asked, and nothing of the answer taken away (asking again brings that back)
+        done:
+          pmx.expanded.has(pmId) &&
+          Boolean(asked?.has(direction ? `${filter.id}@${direction}` : filter.id)) &&
+          !pmx.recallable(pmId, filter.id, direction),
+      }))
+      .filter((filter) => filter.count > 0);
+  const short = shortName(entity.name);
+  const plain = questionsFor(null);
+  // One row per filter with both ways side by side: the difference at a glance
+  const ways = questionsFor("in").concat(questionsFor("out"));
+  const wayRows = plain
+    .map((filter) => ({ ...filter, in: ways.find((item) => item.id === filter.id && item.direction === "in"), out: ways.find((item) => item.id === filter.id && item.direction === "out") }))
+    .filter((row) => row.in || row.out);
+  const questionLabel = (id: string, direction: PmDirection) =>
+    direction === "in" ? `Wie heeft invloed op ${short} via ${filterLabel(id)}?` : `Op wie heeft ${short} invloed via ${filterLabel(id)}?`;
   const loading = pmx.isLoading(pmId);
   const inView = relationsOf(pmx.merged, pmId).filter(
     (relation) =>
@@ -680,6 +684,8 @@ function PmNodeTip({
   );
   const bundled = bundles.reduce((sum, bundle) => sum + bundle.count, 0);
   const others = screenIds.filter((id) => id !== pmId);
+  // The news' own parties and the nodes you asked about stay; anything else can go
+  const removable = !pmx.scene.anchors.has(pmId);
 
   const connect = async () => {
     setConnecting(true);
@@ -744,6 +750,16 @@ function PmNodeTip({
           Zoek verband met…
         </Chip>
         <Chip onClick={() => panel.open(`pm:entity:${pmId}`)}>Meer weten</Chip>
+        {removable ? (
+          <Chip
+            onClick={() => {
+              close();
+              pmx.remove(pmNodeId(pmId));
+            }}
+          >
+            Weghalen
+          </Chip>
+        ) : null}
       </div>
       {message ? <p className="text-xs text-ink-500">{message}</p> : null}
       {finding ? (
@@ -752,24 +768,81 @@ function PmNodeTip({
 
       <div className="space-y-1.5">
         <Eyebrow>Of stel een vraag</Eyebrow>
-        <div role="group" aria-label="Vragen" className="flex flex-wrap gap-1.5">
-          {questions.length === 0 ? <p className="text-xs text-ink-500">{loading ? "Tellen…" : "Geen verbanden in het model."}</p> : null}
-          {questions.map((question) => (
-            <button
-              key={question.id}
-              type="button"
-              disabled={question.done}
-              onClick={() => {
-                close();
-                void pmx.ask(pmId, question.id);
-              }}
-              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-paper-300 px-2.5 text-xs font-semibold text-ink-800 hover:bg-paper-100 disabled:border-transparent disabled:bg-paper-100 disabled:text-ink-500"
-            >
-              {question.done ? <Check size={12} aria-hidden="true" /> : <span className="h-2 w-2 rounded-full" style={{ backgroundColor: question.color }} aria-hidden="true" />}
-              {filterAsk(question.id)} · {question.count}
-            </button>
-          ))}
-        </div>
+        {(directionCounts ? wayRows.length : plain.length) === 0 ? (
+          <p className="text-xs text-ink-500">{loading ? "Tellen…" : "Geen verbanden in het model."}</p>
+        ) : directionCounts ? (
+          <table className="w-full border-separate border-spacing-y-1 text-xs" aria-label="Vragen">
+            <thead>
+              <tr className="align-bottom text-[11px] leading-tight text-ink-500">
+                <th scope="col" className="text-left font-normal">
+                  <span className="sr-only">Filter</span>
+                </th>
+                <th scope="col" className="w-[31%] px-1 font-semibold">
+                  Invloed op {short}
+                </th>
+                <th scope="col" className="w-[31%] px-1 font-semibold">
+                  Invloed van {short}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {wayRows.map((row) => (
+                <tr key={row.id}>
+                  <th scope="row" className="text-left font-semibold text-ink-800">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: row.color }} aria-hidden="true" />
+                      {filterLabel(row.id)}
+                    </span>
+                  </th>
+                  {(["in", "out"] as const).map((direction) => {
+                    const question = row[direction];
+                    return (
+                      <td key={direction} className="text-center">
+                        {question ? (
+                          <button
+                            type="button"
+                            disabled={question.done}
+                            aria-label={`${questionLabel(row.id, direction)} ${question.count}`}
+                            onClick={() => {
+                              close();
+                              void pmx.ask(pmId, row.id, direction);
+                            }}
+                            className="inline-flex min-h-[36px] min-w-[52px] items-center justify-center gap-1 rounded-full border border-paper-300 px-2.5 font-semibold text-ink-800 hover:bg-paper-100 disabled:border-transparent disabled:bg-paper-100 disabled:text-ink-500"
+                          >
+                            {question.done ? <Check size={12} aria-hidden="true" /> : null}
+                            {question.count}
+                          </button>
+                        ) : (
+                          <span className="text-ink-300" aria-label="geen">
+                            –
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div role="group" aria-label="Vragen" className="flex flex-wrap gap-1.5">
+            {plain.map((question) => (
+              <button
+                key={question.id}
+                type="button"
+                disabled={question.done}
+                onClick={() => {
+                  close();
+                  void pmx.ask(pmId, question.id);
+                }}
+                className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-paper-300 px-2.5 text-xs font-semibold text-ink-800 hover:bg-paper-100 disabled:border-transparent disabled:bg-paper-100 disabled:text-ink-500"
+              >
+                {question.done ? <Check size={12} aria-hidden="true" /> : <span className="h-2 w-2 rounded-full" style={{ backgroundColor: question.color }} aria-hidden="true" />}
+                {filterAsk(question.id)} · {question.count}
+              </button>
+            ))}
+          </div>
+        )}
         <p className="text-[11px] text-ink-400">Per vraag de drie meest specifieke; de rest in een bundel.</p>
       </div>
 
@@ -820,10 +893,10 @@ function PmNodeTip({
                 );
               })}
               {bundles.map((bundle) => (
-                <li key={bundle.filter}>
+                <li key={bundleNodeId(bundle.anchorId, bundle.filter, bundle.side)}>
                   <button
                     type="button"
-                    onClick={() => goTo(bundleNodeId(bundle.anchorId, bundle.filter))}
+                    onClick={() => goTo(bundleNodeId(bundle.anchorId, bundle.filter, bundle.side))}
                     className="flex min-h-[44px] w-full items-center gap-2 rounded-xl px-1 text-left text-sm hover:bg-paper-100"
                   >
                     <span
@@ -833,9 +906,7 @@ function PmNodeTip({
                     >
                       +{bundle.count}
                     </span>
-                    <span className="font-semibold text-ink-900">
-                      Nog {bundle.count} via {filterLabel(bundle.filter)}
-                    </span>
+                    <span className="font-semibold text-ink-900">{bundleTitle(bundle, entity.name)}</span>
                   </button>
                 </li>
               ))}
@@ -873,14 +944,15 @@ function PmBundleTip({
   const { panel } = useExplore();
   const [family, setFamily] = useState<string | null>(null);
   const [all, setAll] = useState(false);
-  const { anchorId, filter } = bundle;
+  const { anchorId, filter, side } = bundle;
+  const direction = side === "any" ? null : side;
   const anchor = pmx.merged.entities.get(anchorId) as PmEntity;
   const { loadBundle } = pmx;
 
   // The full list behind the bundle (cache only: opening it changes nothing in the graph)
   useEffect(() => {
-    void loadBundle(anchorId, filter);
-  }, [loadBundle, anchorId, filter]);
+    void loadBundle(anchorId, filter, direction);
+  }, [loadBundle, anchorId, filter, direction]);
 
   // Everything fetched about this node: the graph, the list behind the bundle, earlier loads
   const hoods = Object.values(pmx.neighborhoods).filter((hood) => hood.center.id === anchorId);
@@ -890,7 +962,7 @@ function PmBundleTip({
     hood.entities.forEach((entity) => entities.set(entity.id, entity));
     hood.relations.forEach((relation) => relations.set(relation.id, relation));
   }
-  const viaFilter = Array.from(relations.values()).filter((relation) => relationFilterKeys(relation).includes(filter));
+  const viaFilter = Array.from(relations.values()).filter((relation) => relationFilterKeys(relation).includes(filter) && onSide(relation, anchorId, side));
 
   // Not drawn: per party with its relations, the most specific first
   const byParty = new Map<number, PmRelation[]>();
@@ -903,11 +975,14 @@ function PmBundleTip({
     .map(([id, list]) => ({ entity: entities.get(id) as PmEntity, relations: list, rank: specificityOf(entities.get(id), id, list) }))
     .sort((x, y) => bySpecificity(x.rank, y.rank));
 
-  // With whom and how, over all relations via this filter in the model (or what is loaded, on an older database)
+  // With whom and how, over all relations via this filter (and this way) in the model, or what is loaded
   const breakdown =
-    hoods.find((hood) => hood.breakdown)?.breakdown?.[filter] ??
-    countBreakdown(Array.from(relations.values()), anchorId, (id) => entities.get(id)?.type)[filter];
-  const inModel = hoods.find((hood) => hood.filter_counts)?.filter_counts?.[filter] ?? viaFilter.length;
+    hoods.find((hood) => hood.breakdown && (hood.direction ?? null) === direction)?.breakdown?.[filter] ??
+    countBreakdown(viaFilter, anchorId, (id) => entities.get(id)?.type)[filter];
+  const inModel =
+    (direction
+      ? hoods.find((hood) => hood.direction_counts)?.direction_counts?.[filter]?.[direction]
+      : hoods.find((hood) => hood.filter_counts)?.filter_counts?.[filter]) ?? viaFilter.length;
   const familyCounts = new Map<string, { id: string; label: string; color: string; count: number }>();
   for (const [type, count] of Object.entries(breakdown?.types ?? {})) {
     const item = pmTypeFamily(type);
@@ -925,7 +1000,7 @@ function PmBundleTip({
   const shown = all ? filtered : filtered.slice(0, 8);
   const listed = rows.reduce((sum, row) => sum + row.relations.length, 0);
   const unlisted = Math.max(0, bundle.count - listed);
-  const loading = pmx.loading.has(bundleHoodKey(anchorId, filter));
+  const loading = pmx.loading.has(bundleHoodKey(anchorId, filter, direction));
   const selected = families.find((item) => item.id === family);
 
   const reveal = (picked: typeof rows) => {
@@ -934,6 +1009,7 @@ function PmBundleTip({
       picked.flatMap((row) => row.relations),
       picked.map((row) => row.entity),
       filter,
+      direction,
     );
     pmx.reveal(
       picked.map((row) => row.entity.id),
@@ -945,10 +1021,11 @@ function PmBundleTip({
     <div className="space-y-3">
       <div className="space-y-0.5">
         <p className="font-serif text-base font-bold leading-snug text-ink-900">
-          {shortName(anchor.name)}: nog {bundle.count} via {filterLabel(filter)}
+          {side === "any" ? `${shortName(anchor.name)}: nog ${bundle.count} via ${filterLabel(filter)}` : bundleTitle(bundle, anchor.name)}
         </p>
         <p className="text-xs text-ink-500">
-          {inModel} verbanden via {filterLabel(filter).toLowerCase()} in het model, {Math.max(0, inModel - bundle.count)} in beeld.
+          {inModel} {side === "in" ? `met invloed op ${shortName(anchor.name)}` : side === "out" ? `waarop ${shortName(anchor.name)} invloed heeft` : "verbanden"} via{" "}
+          {filterLabel(filter).toLowerCase()} in het model, {Math.max(0, inModel - bundle.count)} in beeld.
         </p>
       </div>
 
@@ -1034,6 +1111,16 @@ function PmBundleTip({
             Zet deze {filtered.length} in het netwerk
           </Chip>
         ) : null}
+        <div>
+          <Chip
+            onClick={() => {
+              close();
+              pmx.remove(bundleNodeId(anchorId, filter, side));
+            }}
+          >
+            Weghalen
+          </Chip>
+        </div>
         {unlisted > 0 && !loading ? <p className="text-xs text-ink-400">Nog {unlisted} in het model die niet in deze lijst passen.</p> : null}
       </div>
     </div>
@@ -1082,89 +1169,3 @@ function PmEdgeTip({ relation, pmx, pinned, goTo }: { relation: PmRelation; pmx:
   );
 }
 
-function EventEdgeTip({ edge, labels, pinned }: { edge: SceneEdge; labels: ReadonlyMap<string, string>; pinned: boolean }) {
-  return (
-    <div className="space-y-1">
-      <p className="text-sm leading-snug">
-        <span className="font-semibold text-ink-900">{labels.get(edge.source) ?? "?"}</span>{" "}
-        <span className="text-ink-600">{EDGE_LABELS[edge.kind] ?? edge.kind}</span>{" "}
-        <span className="font-semibold text-ink-900">{labels.get(edge.target) ?? "?"}</span>
-      </p>
-      <div className="flex flex-wrap gap-1.5">
-        {edge.label ? <Tag>{edge.label}</Tag> : null}
-        {edge.attribution === "geciteerd" ? <Tag tone="orange">geciteerd, niet eigen framing</Tag> : null}
-        {edge.attribution === "eigen_framing" ? <Tag tone="purple">eigen framing</Tag> : null}
-      </div>
-      {!pinned ? null : <p className="text-xs text-ink-400">Tik op een knoop om verder te zoeken.</p>}
-    </div>
-  );
-}
-
-/** Tooltip of a node in the event lenses (outlets, actors, frames, clues, ghosts). */
-function EventNodeTip({ nodeId, close }: { nodeId: string; close: () => void }) {
-  const { exploration, panel } = useExplore();
-  const { graph, clues, index } = exploration;
-  const node = graph.nodeById.get(nodeId as never);
-
-  if (nodeId.startsWith("ghost:")) {
-    const spoor = nodeId.slice("ghost:".length);
-    return (
-      <div className="space-y-2">
-        <p className="text-sm text-ink-700">Hier zit nog iets verborgen. Onderzoek het spoor om het netwerk te laten groeien.</p>
-        <Chip
-          tone="blue"
-          onClick={() => {
-            close();
-            panel.open(`spoor:${spoor}`);
-          }}
-        >
-          Open het spoor
-        </Chip>
-      </div>
-    );
-  }
-  if (node?.kind === "outlet" && node.outletKey) return <OutletCard outletKey={node.outletKey} />;
-  if (node && (node.kind === "entity" || node.kind === "actor")) {
-    const key = node.entityKey
-      ? exploration.input.entities.find((entity) => entity.entity_key === node.entityKey)?.aliases[0] ?? node.id.slice(node.id.indexOf(":") + 1)
-      : node.id.slice("actor:".length);
-    return (
-      <div className="space-y-2">
-        <p className="font-serif text-base font-bold text-ink-900">{node.label}</p>
-        <Chip tone="blue" onClick={() => panel.open(`entiteit:${key}`, { n: node.label })}>
-          Meer over {node.label}
-        </Chip>
-      </div>
-    );
-  }
-  if (node?.kind === "related") {
-    return (
-      <div className="space-y-2">
-        <p className="font-serif text-base font-bold text-ink-900">{node.label}</p>
-        <Link
-          href={`/event/${encodeURIComponent(node.relatedSlug ?? String(node.relatedEventId))}`}
-          className="inline-flex min-h-[44px] items-center rounded-full bg-ink-900 px-4 text-sm font-semibold text-white"
-        >
-          Naar dit nieuws
-        </Link>
-      </div>
-    );
-  }
-  if (node) {
-    const clue = clues.find((candidate) => candidate.links.includes(node.id));
-    return (
-      <div className="space-y-2">
-        <p className="font-serif text-base font-bold text-ink-900">{node.kind === "frame" ? frameLabel(node.label) : node.label}</p>
-        {clue ? (
-          <>
-            <p className="text-sm text-ink-600">{revealedTitle(clue, index)}</p>
-            <Chip tone="blue" onClick={() => panel.open(`spoor:${clue.spoor}`, { c: clue.id })}>
-              Open de aanwijzing
-            </Chip>
-          </>
-        ) : null}
-      </div>
-    );
-  }
-  return <p className="text-sm text-ink-700">{exploration.input.event.title}</p>;
-}

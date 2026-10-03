@@ -8,7 +8,7 @@ import type { AggregationResponse, ArticleBiasAnalysis, EventEntity, EventRelati
 import { findOutletByName, findOutletByUrl } from "./media-landscape";
 import { normalizeUrl, slugify, urlFingerprint, urlHost } from "./normalize";
 import { splitLlmSummary } from "./summary";
-import type { ArticleDigest, ExploreArticle, ExploreAvailability, ExploreInput, ExploreOutlet, OutletProfile } from "./types";
+import type { ArticleDigest, ExploreArticle, ExploreAvailability, ExploreInput, ExploreOutlet, FoundVoice, OutletProfile } from "./types";
 
 export interface RawExploreArticle {
   id: number;
@@ -22,6 +22,8 @@ export interface RawExploreArticle {
   spectrum: number | string | null;
   /** source_metadata.digest: Dutch gist of a foreign article, written by the backend job */
   digest?: { nl?: unknown; basis?: unknown } | null;
+  /** event_articles.scoring_breakdown.found_voice: added for a missing voice (AI search, approved) */
+  found?: { perspective?: unknown; who?: unknown; gist?: unknown; gap_key?: unknown } | null;
 }
 
 export interface RawExploration {
@@ -56,6 +58,23 @@ function parseDigest(value: RawExploreArticle["digest"]): ArticleDigest | null {
   if (!value || typeof value !== "object") return null;
   const text = typeof value.nl === "string" ? value.nl.trim() : "";
   return text ? { text, basis: value.basis === "title" ? "title" : "text" } : null;
+}
+
+function text(value: unknown, max: number): string | null {
+  return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
+}
+
+function parseFoundVoice(value: RawExploreArticle["found"]): FoundVoice | null {
+  if (!value || typeof value !== "object") return null;
+  const perspective = text(value.perspective, 200);
+  if (!perspective) return null;
+  const gapKey = text(value.gap_key, 80);
+  return {
+    perspective,
+    who: text(value.who, 160),
+    gist: text(value.gist, 600),
+    gapKey: gapKey && /^(gap|own):[\w-]+$/.test(gapKey) ? gapKey : null,
+  };
 }
 
 function resolveProfile(article: RawExploreArticle): OutletProfile | null {
@@ -101,6 +120,8 @@ export function buildExploreInput(raw: RawExploration): ExploreInput {
       outlets.set(key, outlet);
     }
     outlet.articleIds.push(rawArticle.id);
+    const foundVoice = parseFoundVoice(rawArticle.found);
+    if (foundVoice) outlet.foundVoice = true;
 
     articles.push({
       id: rawArticle.id,
@@ -114,6 +135,7 @@ export function buildExploreInput(raw: RawExploration): ExploreInput {
       isInternational,
       sourceCountry: rawArticle.source_country ?? null,
       digest: parseDigest(rawArticle.digest),
+      foundVoice,
     });
   }
 

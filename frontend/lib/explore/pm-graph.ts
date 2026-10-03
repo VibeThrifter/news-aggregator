@@ -143,20 +143,81 @@ export function matchesFilters(relation: Pick<PmRelation, "filter" | "filters">,
   return !filters?.length || relationFilterKeys(relation).some((key) => filters.includes(key));
 }
 
-/** Store key of a neighbourhood request: entity + (sorted) filter set. */
-export const hoodKey = (id: number, filters?: readonly string[] | null) =>
-  filters?.length ? `${id}:${Array.from(new Set(filters)).sort().join(",")}` : String(id);
+// --- Direction of influence ("Wie heeft invloed op X?" / "Op wie heeft X invloed?") -------------
+
+/** "in": the other party has influence on the entity; "out": the entity has influence on the other */
+export type PmDirection = "in" | "out";
+/** A question about a node: along a filter either way ("any"), or one way */
+export type PmSide = PmDirection | "any";
+
+/** The target has the influence: "A werkt voor B" is B's influence on A (same list as migration 008) */
+const REVERSE_INFLUENCE = new Set(["personeel", "dienstverband", "woordvoerder_van", "lidmaatschap", "citeert"]);
+/** Both ways (same list as migration 008) */
+const MUTUAL_INFLUENCE = new Set(["alliantie", "oppositie", "draaideur"]);
+
+/**
+ * Who has influence on whom in a relation, or null when it goes both ways. Mostly the source on the
+ * target ("A is eigenaar van B"); for employment, membership, spokespeople and quotes the other way
+ * round. The contract of pm_influence_side in migration 008: keep them in sync.
+ */
+export function influenceOf(
+  relation: Pick<PmRelation, "source_id" | "target_id" | "relation_type" | "bidirectional">,
+): { from: number; to: number } | null {
+  if (relation.bidirectional || MUTUAL_INFLUENCE.has(relation.relation_type)) return null;
+  return REVERSE_INFLUENCE.has(relation.relation_type)
+    ? { from: relation.target_id, to: relation.source_id }
+    : { from: relation.source_id, to: relation.target_id };
+}
+
+/** The ways a relation goes seen from one of its ends: "in" (influence on it), "out" (its influence) or both. */
+export function directionsFrom(relation: Pick<PmRelation, "source_id" | "target_id" | "relation_type" | "bidirectional">, id: number): PmDirection[] {
+  const influence = influenceOf(relation);
+  if (!influence) return ["in", "out"];
+  return [influence.to === id ? "in" : "out"];
+}
+
+/** A relation is part of an answer along a side ("any" = either way). */
+export function onSide(relation: Pick<PmRelation, "source_id" | "target_id" | "relation_type" | "bidirectional">, id: number, side: PmSide): boolean {
+  return side === "any" || directionsFrom(relation, id).includes(side);
+}
+
+/** Per filter how many relations go each way (same contract as `direction_counts` of migration 008). */
+export function countDirections(
+  relations: Pick<PmRelation, "source_id" | "target_id" | "relation_type" | "bidirectional" | "filter" | "filters">[],
+  id: number,
+): Record<string, { in: number; out: number }> {
+  const counts: Record<string, { in: number; out: number }> = {};
+  for (const relation of relations) {
+    const ways = directionsFrom(relation, id);
+    for (const key of relationFilterKeys(relation)) {
+      const count = (counts[key] = counts[key] ?? { in: 0, out: 0 });
+      ways.forEach((way) => (count[way] += 1));
+    }
+  }
+  return counts;
+}
+
+/** Store key of a neighbourhood request: entity + (sorted) filter set + direction ("12:eigendom@in"). */
+export const hoodKey = (id: number, filters?: readonly string[] | null, direction?: PmDirection | null) =>
+  (filters?.length ? `${id}:${Array.from(new Set(filters)).sort().join(",")}` : String(id)) + (direction ? `@${direction}` : "");
 
 /** The filters of a store key ("12:eigendom,sourcing" → both; "12" → null = all). */
 export function hoodKeyFilters(key: string): string[] | null {
   const colon = key.indexOf(":");
-  return colon === -1 ? null : key.slice(colon + 1).split(",").filter(Boolean);
+  return colon === -1 ? null : key.slice(colon + 1).split(/[@#]/)[0].split(",").filter(Boolean);
 }
 
-/** A complete neighbourhood restricted to some filters (so a full download is reused instead of fetched again). */
-export function filterNeighborhood(hood: PmNeighborhood, filters: readonly string[]): PmNeighborhood {
-  const relations = hood.relations.filter((relation) => matchesFilters(relation, filters));
-  const ids = new Set(relations.map((relation) => otherEnd(relation, hood.center.id)));
+/** The direction of a store key ("12:eigendom@in" → "in"; null = both). */
+export function hoodKeyDirection(key: string): PmDirection | null {
+  const match = /@(in|out)(?:#|$)/.exec(key);
+  return match ? (match[1] as PmDirection) : null;
+}
+
+/** A complete neighbourhood restricted to some filters and a direction (so a full download is reused instead of fetched again). */
+export function filterNeighborhood(hood: PmNeighborhood, filters: readonly string[], direction: PmDirection | null = null): PmNeighborhood {
+  const id = hood.center.id;
+  const relations = hood.relations.filter((relation) => matchesFilters(relation, filters) && onSide(relation, id, direction ?? "any"));
+  const ids = new Set(relations.map((relation) => otherEnd(relation, id)));
   return {
     ...hood,
     entities: hood.entities.filter((entity) => ids.has(entity.id)),
@@ -164,6 +225,7 @@ export function filterNeighborhood(hood: PmNeighborhood, filters: readonly strin
     total: relations.length,
     truncated: false,
     filters: [...filters],
+    direction,
   };
 }
 
@@ -171,10 +233,16 @@ export function filterNeighborhood(hood: PmNeighborhood, filters: readonly strin
  * A small neighbourhood with only these relations of `center`: how nodes taken out of a bundle join
  * the graph without pulling in the rest of the list behind it. No counts, so it never overrides them.
  */
-export function pickHood(center: PmEntity, relations: PmRelation[], entities: PmEntity[], filter: string): [string, PmNeighborhood] {
+export function pickHood(
+  center: PmEntity,
+  relations: PmRelation[],
+  entities: PmEntity[],
+  filter: string,
+  direction: PmDirection | null = null,
+): [string, PmNeighborhood] {
   const ids = Array.from(new Set(relations.map((relation) => otherEnd(relation, center.id)))).sort((a, b) => a - b);
   return [
-    `${hoodKey(center.id, [filter])}#${ids.join(",")}`,
+    `${hoodKey(center.id, [filter], direction)}#${ids.join(",")}`,
     {
       center,
       entities: entities.filter((entity) => ids.includes(entity.id)),
@@ -190,6 +258,8 @@ export function pickHood(center: PmEntity, relations: PmRelation[], entities: Pm
 export interface PmExpansion {
   id: number;
   filters: string[] | null;
+  /** Asked one way ("Wie heeft invloed op X?"); missing = either way */
+  direction?: PmDirection | null;
 }
 
 export interface PmMerged {
@@ -199,6 +269,8 @@ export interface PmMerged {
   totals: Map<number, number>;
   /** Relations per filter for every entity whose neighbourhood was requested */
   filterCounts: Map<number, Record<string, number>>;
+  /** Relations per filter and direction (migration 008) for every entity whose neighbourhood was requested */
+  directionCounts: Map<number, Record<string, { in: number; out: number }>>;
 }
 
 /** One graph from loaded neighbourhoods plus routes (Epic 13); routes add no counts. */
@@ -207,10 +279,12 @@ export function mergeNeighborhoods(neighborhoods: PmNeighborhood[], paths: PmPat
   const relations = new Map<number, PmRelation>();
   const totals = new Map<number, number>();
   const filterCounts = new Map<number, Record<string, number>>();
+  const directionCounts = new Map<number, Record<string, { in: number; out: number }>>();
   for (const hood of neighborhoods) {
     entities.set(hood.center.id, hood.center);
-    if (!hood.filters?.length) totals.set(hood.center.id, hood.total);
+    if (!hood.filters?.length && !hood.direction) totals.set(hood.center.id, hood.total);
     if (hood.filter_counts) filterCounts.set(hood.center.id, hood.filter_counts);
+    if (hood.direction_counts) directionCounts.set(hood.center.id, hood.direction_counts);
     for (const entity of hood.entities) {
       if (!entities.has(entity.id)) entities.set(entity.id, entity);
     }
@@ -226,7 +300,7 @@ export function mergeNeighborhoods(neighborhoods: PmNeighborhood[], paths: PmPat
       relations.set(relation.id, relation);
     }
   }
-  return { entities, relations, totals, filterCounts };
+  return { entities, relations, totals, filterCounts, directionCounts };
 }
 
 /** Everything on some routes: drawn whatever the filters or bundles say, because you asked for it. */
@@ -259,13 +333,17 @@ export const otherEnd = (relation: Pick<PmRelation, "source_id" | "target_id">, 
  */
 export const SHOWN_PER_FILTER = { expanded: 3, collapsed: 0 } as const;
 
-export const bundleKey = (anchorId: number, filter: string) => `${anchorId}:${filter}`;
-export const bundleNodeId = (anchorId: number, filter: string) => `bundle:${bundleKey(anchorId, filter)}`;
+export const bundleKey = (anchorId: number, filter: string, side: PmSide = "any") =>
+  `${anchorId}:${filter}${side === "any" ? "" : `@${side}`}`;
+export const bundleNodeId = (anchorId: number, filter: string, side: PmSide = "any") => `bundle:${bundleKey(anchorId, filter, side)}`;
+export const bundleEdgeId = (anchorId: number, filter: string, side: PmSide = "any") => `bundle-edge:${bundleKey(anchorId, filter, side)}`;
 
-/** The relations of an expanded node via one filter that are not drawn, summarised as one "+N" node. */
+/** The relations of an expanded node via one filter (one way, or either) that are not drawn, summarised as one "+N" node. */
 export interface PmBundle {
   anchorId: number;
   filter: string;
+  /** The way of the question it answers ("any" = either way) */
+  side: PmSide;
   /** Relations via this filter in the model that are not drawn (loaded or not) */
   count: number;
   /** The loaded ones, most prominent first */
@@ -313,13 +391,15 @@ export interface PmSceneNode {
   expanded: boolean;
   isEvent?: boolean;
   bundle?: PmBundle;
+  /** A person or organisation of the news that is not in the model (yet) */
+  news?: boolean;
 }
 
 export interface PmSceneEdge {
   id: string;
   relationId: number | null;
-  /** A relation of the model, the line from "Dit nieuws" to a seed, or the line to a bundle */
-  kind: "relation" | "seed" | "bundle";
+  /** A relation of the model, the line from "Dit nieuws" to a seed or to a name that is not in the model, or the line to a bundle */
+  kind: "relation" | "seed" | "news" | "bundle";
   source: string;
   target: string;
   type: string;
@@ -340,6 +420,21 @@ export function isDirected(relation: Pick<PmRelation, "relation_type" | "bidirec
 
 export const pmNodeId = (id: number) => `pm:${id}`;
 export const PM_EVENT_NODE = "pm-event";
+export const newsNodeId = (entityKey: string) => `news:${entityKey}`;
+export const newsEdgeId = (nodeId: string) => `news-edge:${nodeId}`;
+
+/**
+ * Why a node is drawn. A node you take away remembers its reasons and stays away until something new
+ * points at it (another question, a new route), so dropping a proposal never brings in the next one.
+ */
+export const reasonKey = {
+  /** It links these anchors (a shared owner or source) */
+  link: (anchors: Iterable<number>) => `link:${Array.from(anchors).sort((a, b) => a - b).join(",")}`,
+  /** It is on routes of this request */
+  route: (key: string) => `route:${key}`,
+  /** One of the most specific answers to a question (anchor, filter, either way or one way) */
+  group: (anchor: number, filter: string, side: PmSide = "any") => `group:${bundleKey(anchor, filter, side)}`,
+};
 
 /** A relation that ended before this year (shown dashed as "historisch"). */
 export function isHistoric(relation: Pick<PmRelation, "active_until">, now: Date = new Date()): boolean {
@@ -366,17 +461,26 @@ export function pmScene(
     /** On a route the user asked for (Epic 13): always drawn, their relations always visible */
     routeNodes?: ReadonlySet<number>;
     routeRelations?: ReadonlySet<number>;
+    /** Per route node the requests (route keys) it came with */
+    routeKeys?: ReadonlyMap<number, readonly string[]>;
+    /** Taken away by the user, with the reasons it had then: not drawn while it has no new reason */
+    dismissed?: Readonly<Record<number, readonly string[]>>;
+    /** Bundles the user took away (bundleKey): gone until the question is asked again */
+    dismissedBundles?: readonly string[];
+    /** People and organisations of the news that are not in the model: drawn around "Dit nieuws" */
+    newsNodes?: readonly { id: string; label: string }[];
     maxNodes?: number;
     eventLabel?: string;
     now?: Date;
     /** The latest expansion: the view glides to it; its neighbours are never dropped by the node cap */
     latest?: PmExpansion | null;
   } = {},
-): { nodes: PmSceneNode[]; edges: PmSceneEdge[]; latestIds: string[]; bundles: PmBundle[] } {
+): PmScene {
   const hidden = options.hiddenFilters ?? new Set<string>();
   const revealed = options.revealed ?? new Set<number>();
   const routeNodes = options.routeNodes ?? new Set<number>();
   const routeRelations = options.routeRelations ?? new Set<number>();
+  const dismissed = options.dismissed ?? {};
   const maxNodes = options.maxNodes ?? 100;
   const at = referenceDate(null, options.now);
   const seedById = new Map(seeds.map((seed) => [seed.id, seed]));
@@ -392,17 +496,20 @@ export function pmScene(
   const anchors = new Set<number>(
     [...Array.from(seedById.keys()), ...Array.from(expanded), ...(latest ? [latest.id] : [])].filter((id) => merged.entities.has(id)),
   );
-  const expandedVia = (id: number, filter: string) => {
-    if (latest?.id === id && (!latest.filters || latest.filters.includes(filter))) return true;
+  /** Asked about along a filter, either way ("any") or one way */
+  const expandedVia = (id: number, filter: string, side: PmSide) => {
+    if (latest?.id === id && (!latest.filters || latest.filters.includes(filter)) && (latest.direction ?? "any") === side) return true;
     if (!expanded.has(id)) return false;
     const via = options.expandedFilters?.get(id);
-    return !via || via.has(filter);
+    if (!via) return side === "any";
+    return via.has(side === "any" ? filter : `${filter}@${side}`);
   };
+  const SIDES: PmSide[] = ["any", "in", "out"];
 
-  // Neighbours of anchors: which anchors each one touches, and per (anchor, filter) the relations with it
+  // Neighbours of anchors: which anchors each one touches, and per (anchor, filter, way) the relations with it
   const touches = new Map<number, Set<number>>();
   const touching = new Map<number, PmRelation[]>();
-  const groups = new Map<string, { anchor: number; filter: string; members: Map<number, PmRelation[]> }>();
+  const groups = new Map<string, { anchor: number; filter: string; side: PmSide; members: Map<number, PmRelation[]> }>();
   for (const relation of relations) {
     for (const [a, b] of [
       [relation.source_id, relation.target_id],
@@ -412,63 +519,102 @@ export function pmScene(
       touching.set(a, [...(touching.get(a) ?? []), relation]);
       if (anchors.has(b) || !merged.entities.has(b)) continue;
       touches.set(b, (touches.get(b) ?? new Set<number>()).add(a));
+      const sides: PmSide[] = ["any", ...directionsFrom(relation, a)];
       for (const filter of relationFilterKeys(relation)) {
         if (hidden.has(filter)) continue;
-        const key = bundleKey(a, filter);
-        const group = groups.get(key) ?? { anchor: a, filter, members: new Map<number, PmRelation[]>() };
-        group.members.set(b, [...(group.members.get(b) ?? []), relation]);
-        groups.set(key, group);
+        for (const side of sides) {
+          const key = bundleKey(a, filter, side);
+          const group = groups.get(key) ?? { anchor: a, filter, side, members: new Map<number, PmRelation[]>() };
+          group.members.set(b, [...(group.members.get(b) ?? []), relation]);
+          groups.set(key, group);
+        }
       }
     }
   }
+
+  // Why each node is drawn (see reasonKey)
+  const reasons = new Map<number, Set<string>>();
+  const because = (id: number, reason: string) => reasons.set(id, (reasons.get(id) ?? new Set<string>()).add(reason));
 
   // Always drawn: nodes taken out of a bundle, nodes on a route you asked for, and nodes that link two
   // anchors (a shared owner or source)
   const forced = new Set<number>();
   touches.forEach((set, id) => {
+    if (set.size >= 2) because(id, reasonKey.link(set));
     if (set.size >= 2 || revealed.has(id)) forced.add(id);
   });
   routeNodes.forEach((id) => {
-    if (merged.entities.has(id) && !anchors.has(id)) forced.add(id);
+    if (!merged.entities.has(id) || anchors.has(id)) return;
+    forced.add(id);
+    for (const key of options.routeKeys?.get(id) ?? ["*"]) because(id, reasonKey.route(key));
   });
 
   // Per anchor and filter only the most specific neighbours: none around a node you only see, a few
   // along a filter you asked about
   const shown = new Set<number>(forced);
   groups.forEach((group) => {
-    const limit = expandedVia(group.anchor, group.filter) ? SHOWN_PER_FILTER.expanded : SHOWN_PER_FILTER.collapsed;
+    const limit = expandedVia(group.anchor, group.filter, group.side) ? SHOWN_PER_FILTER.expanded : SHOWN_PER_FILTER.collapsed;
     Array.from(group.members.entries())
       .filter(([id]) => !forced.has(id))
       .map(([id, list]) => specificityOf(entityOf(id), id, list, at))
       .sort(bySpecificity)
       .slice(0, limit)
-      .forEach(({ id }) => shown.add(id));
+      .forEach(({ id }) => {
+        shown.add(id);
+        because(id, reasonKey.group(group.anchor, group.filter, group.side));
+      });
   });
 
-  /** What of an anchor's relations via a filter is not drawn: loaded ones (members) plus those not loaded (count) */
-  const leftovers = (anchor: number, filter: string) => {
-    const loaded = (touching.get(anchor) ?? []).filter((relation) => relationFilterKeys(relation).includes(filter));
+  /** What of an anchor's relations via a filter (one way, or either) is not drawn: loaded ones (members) plus those not loaded (count) */
+  const leftovers = (anchor: number, filter: string, side: PmSide) => {
+    const loaded = (touching.get(anchor) ?? []).filter((relation) => relationFilterKeys(relation).includes(filter) && onSide(relation, anchor, side));
     const members = loaded.filter((relation) => {
       const other = otherEnd(relation, anchor);
       return !anchors.has(other) && !shown.has(other) && merged.entities.has(other);
     });
     const drawn = loaded.length - members.length;
-    const inModel = merged.filterCounts.get(anchor)?.[filter] ?? loaded.length;
+    const inModel =
+      (side === "any" ? merged.filterCounts.get(anchor)?.[filter] : merged.directionCounts.get(anchor)?.[filter]?.[side]) ?? loaded.length;
     return { count: Math.max(members.length, inModel - drawn), members };
   };
 
   // A bundle of one is silly: draw it instead (a question adds at most three parties plus one more node)
   anchors.forEach((anchor) => {
     for (const filter of visibleKeys) {
-      if (!expandedVia(anchor, filter)) continue;
-      const { count, members } = leftovers(anchor, filter);
-      if (count < MIN_BUNDLE && members.length === count) members.forEach((relation) => shown.add(otherEnd(relation, anchor)));
+      for (const side of SIDES) {
+        if (!expandedVia(anchor, filter, side)) continue;
+        const { count, members } = leftovers(anchor, filter, side);
+        if (count < MIN_BUNDLE && members.length === count) {
+          members.forEach((relation) => {
+            const id = otherEnd(relation, anchor);
+            shown.add(id);
+            because(id, reasonKey.group(anchor, filter, side));
+          });
+        }
+      }
     }
+  });
+
+  // Taken away by the user: gone while nothing new points at it (it then counts in its bundle). The
+  // reasons are worked out before this, so taking a node away never moves the next one up.
+  shown.forEach((id) => {
+    const gone = dismissed[id];
+    if (!gone || revealed.has(id)) return;
+    if (Array.from(reasons.get(id) ?? []).every((reason) => gone.includes(reason))) shown.delete(id);
   });
 
   // Node cap: drop the least specific optional nodes (never forced ones or the latest expansion's neighbours)
   const latestNeighbours = new Set<number>(
-    latest ? relations.filter((relation) => (relation.source_id === latest.id || relation.target_id === latest.id) && matchesFilters(relation, latest.filters)).map((relation) => otherEnd(relation, latest.id)) : [],
+    latest
+      ? relations
+          .filter(
+            (relation) =>
+              (relation.source_id === latest.id || relation.target_id === latest.id) &&
+              matchesFilters(relation, latest.filters) &&
+              onSide(relation, latest.id, latest.direction ?? "any"),
+          )
+          .map((relation) => otherEnd(relation, latest.id))
+      : [],
   );
   const excess = anchors.size + shown.size - maxNodes;
   if (excess > 0) {
@@ -482,18 +628,21 @@ export function pmScene(
   }
   const drawn = new Set<number>([...Array.from(anchors), ...Array.from(shown)]);
 
-  // What an expanded node has more via a filter becomes one "+N" bundle
+  // What an expanded node has more via a filter becomes one "+N" bundle (unless you took it away)
   const bundles: PmBundle[] = [];
+  const goneBundles = new Set(options.dismissedBundles ?? []);
   anchors.forEach((anchor) => {
     for (const filter of visibleKeys) {
-      if (!expandedVia(anchor, filter)) continue;
-      const { count, members } = leftovers(anchor, filter);
-      if (count === 0 || (count === 1 && members.length === 0)) continue;
-      const ranked = members
-        .map((relation) => ({ relation, rank: specificityOf(entityOf(otherEnd(relation, anchor)), otherEnd(relation, anchor), [relation], at) }))
-        .sort((x, y) => bySpecificity(x.rank, y.rank))
-        .map((item) => item.relation);
-      bundles.push({ anchorId: anchor, filter, count, members: ranked });
+      for (const side of SIDES) {
+        if (!expandedVia(anchor, filter, side) || goneBundles.has(bundleKey(anchor, filter, side))) continue;
+        const { count, members } = leftovers(anchor, filter, side);
+        if (count === 0 || (count === 1 && members.length === 0)) continue;
+        const ranked = members
+          .map((relation) => ({ relation, rank: specificityOf(entityOf(otherEnd(relation, anchor)), otherEnd(relation, anchor), [relation], at) }))
+          .sort((x, y) => bySpecificity(x.rank, y.rank))
+          .map((item) => item.relation);
+        bundles.push({ anchorId: anchor, filter, side, count, members: ranked });
+      }
     }
   });
 
@@ -527,7 +676,9 @@ export function pmScene(
     }));
 
   for (const bundle of bundles) {
-    const id = bundleNodeId(bundle.anchorId, bundle.filter);
+    const id = bundleNodeId(bundle.anchorId, bundle.filter, bundle.side);
+    // One way: the line points from who has the influence to who undergoes it
+    const towardsAnchor = bundle.side === "in";
     nodes.push({
       id,
       pmId: null,
@@ -539,22 +690,24 @@ export function pmScene(
       bundle,
     });
     edges.push({
-      id: `bundle-edge:${bundleKey(bundle.anchorId, bundle.filter)}`,
+      id: bundleEdgeId(bundle.anchorId, bundle.filter, bundle.side),
       relationId: null,
       kind: "bundle",
-      source: pmNodeId(bundle.anchorId),
-      target: id,
+      source: towardsAnchor ? id : pmNodeId(bundle.anchorId),
+      target: towardsAnchor ? pmNodeId(bundle.anchorId) : id,
       type: "bundle",
       filter: bundle.filter === PM_OTHER ? null : bundle.filter,
       filters: bundle.filter === PM_OTHER ? [] : [bundle.filter],
       historic: false,
-      directed: false,
+      directed: bundle.side !== "any",
     });
   }
 
-  // "Dit nieuws" in the middle, connected to the seeds that come from this event
+  // "Dit nieuws" in the middle, connected to the seeds that come from this event and to its people and
+  // organisations that are not in the model
   const eventSeeds = seeds.filter((seed) => seed.reason !== "focus" && drawn.has(seed.id));
-  if (eventSeeds.length) {
+  const newsNodes = options.newsNodes ?? [];
+  if (eventSeeds.length || newsNodes.length) {
     nodes.push({
       id: PM_EVENT_NODE,
       pmId: null,
@@ -579,6 +732,21 @@ export function pmScene(
         directed: false,
       });
     }
+    for (const news of newsNodes) {
+      nodes.push({ id: news.id, pmId: null, label: news.label, type: "news", filter: null, weight: 1, expanded: false, news: true });
+      edges.push({
+        id: newsEdgeId(news.id),
+        relationId: null,
+        kind: "news",
+        source: PM_EVENT_NODE,
+        target: news.id,
+        type: "in het nieuws",
+        filter: null,
+        filters: [],
+        historic: false,
+        directed: false,
+      });
+    }
   }
 
   const latestIds = latest
@@ -586,11 +754,178 @@ export function pmScene(
         pmNodeId(latest.id),
         ...Array.from(latestNeighbours).filter((id) => drawn.has(id)).map(pmNodeId),
         ...bundles
-          .filter((bundle) => bundle.anchorId === latest.id && (!latest.filters || latest.filters.includes(bundle.filter)))
-          .map((bundle) => bundleNodeId(bundle.anchorId, bundle.filter)),
+          .filter(
+            (bundle) =>
+              bundle.anchorId === latest.id &&
+              (!latest.filters || latest.filters.includes(bundle.filter)) &&
+              bundle.side === (latest.direction ?? "any"),
+          )
+          .map((bundle) => bundleNodeId(bundle.anchorId, bundle.filter, bundle.side)),
       ]
     : [];
-  return { nodes, edges, latestIds, bundles };
+  return {
+    nodes,
+    edges,
+    latestIds,
+    bundles,
+    anchors,
+    reasons: new Map(Array.from(shown).map((id) => [id, Array.from(reasons.get(id) ?? [])])),
+  };
+}
+
+export interface PmScene {
+  nodes: PmSceneNode[];
+  edges: PmSceneEdge[];
+  /** The last expansion: its node, new neighbours and bundles (the view glides to them) */
+  latestIds: string[];
+  bundles: PmBundle[];
+  /** Seeds, expanded nodes and the node asked about last: their neighbours are drawn */
+  anchors: ReadonlySet<number>;
+  /** Why every other drawn node is there (see reasonKey) */
+  reasons: ReadonlyMap<number, string[]>;
+}
+
+// --- From the explorer's state to a scene --------------------------------------------------------
+
+/** The part of the explorer's state that decides what is drawn (undo/redo restores it). */
+export interface PmGraphView {
+  /** Neighbourhoods that are part of the graph (keys into the cache) */
+  active: string[];
+  expanded: number[];
+  seeds: PmSeed[];
+  hiddenFilters: string[];
+  latest: PmExpansion | null;
+  /** Nodes taken out of a bundle ("+84"): always drawn */
+  revealed: number[];
+  /** Route results that are part of the graph (keys into the cache) */
+  activeRoutes: string[];
+  /** Nodes the user took away, with the reasons they had then */
+  dismissed: Record<number, string[]>;
+  /** Bundles the user took away (bundleKey) */
+  dismissedBundles: string[];
+}
+
+/** Everything fetched: neighbourhoods by hoodKey, route results by request key. */
+export interface PmCache {
+  neighborhoods: Record<string, PmNeighborhood>;
+  routeSets: Record<string, PmPaths>;
+}
+
+/**
+ * Per expanded node the questions it was asked (from the keys of the neighbourhoods in the graph): a
+ * filter ("eigendom", either way) or a filter one way ("eigendom@in").
+ */
+export function expandedFiltersOf(active: readonly string[], expanded: readonly number[]): Map<number, Set<string>> {
+  const map = new Map<number, Set<string>>();
+  for (const key of active) {
+    const filters = key.includes("#") ? null : hoodKeyFilters(key);
+    const id = Number(key.split(/[:@]/)[0]);
+    if (!filters || !expanded.includes(id)) continue;
+    const direction = hoodKeyDirection(key);
+    const set = map.get(id) ?? new Set<string>();
+    filters.forEach((filter) => set.add(direction ? `${filter}@${direction}` : filter));
+    map.set(id, set);
+  }
+  return map;
+}
+
+/** Per node the route requests it is on. */
+export function routeKeysOf(activeRoutes: readonly string[], routeSets: Record<string, PmPaths>): Map<number, string[]> {
+  const map = new Map<number, string[]>();
+  for (const key of activeRoutes) {
+    for (const route of routeSets[key]?.routes ?? []) {
+      for (const id of route.nodes) {
+        const keys = map.get(id) ?? [];
+        if (!keys.includes(key)) map.set(id, [...keys, key]);
+      }
+    }
+  }
+  return map;
+}
+
+/** The graph a view describes: merged neighbourhoods and routes, plus what the scene needs to know about them. */
+export function viewGraph(view: PmGraphView, cache: PmCache) {
+  const results = view.activeRoutes.map((key) => cache.routeSets[key]).filter(Boolean);
+  const routes = routeParts(results);
+  return {
+    merged: mergeNeighborhoods(view.active.map((key) => cache.neighborhoods[key]).filter(Boolean), results),
+    routeNodes: routes.nodes,
+    routeRelations: routes.relations,
+    routeKeys: routeKeysOf(view.activeRoutes, cache.routeSets),
+    expandedFilters: expandedFiltersOf(view.active, view.expanded),
+  };
+}
+
+/** The scene of a view, exactly as the network draws it (the store uses it to settle proposals). */
+export function viewScene(
+  view: PmGraphView,
+  cache: PmCache,
+  options: { newsNodes?: readonly { id: string; label: string }[]; eventLabel?: string; now?: Date } = {},
+): PmScene {
+  const graph = viewGraph(view, cache);
+  return pmScene(graph.merged, view.seeds, new Set(view.expanded), {
+    hiddenFilters: new Set(view.hiddenFilters),
+    expandedFilters: graph.expandedFilters,
+    revealed: new Set(view.revealed),
+    routeNodes: graph.routeNodes,
+    routeRelations: graph.routeRelations,
+    routeKeys: graph.routeKeys,
+    dismissed: view.dismissed,
+    dismissedBundles: view.dismissedBundles,
+    latest: view.latest,
+    ...options,
+  });
+}
+
+// --- Proposals: what a step adds is see-through until you tap it ---------------------------------
+
+/** A graph step in progress: what it adds is proposed (drawn see-through) until you keep it or move on. */
+export interface PmPending {
+  /** Unique per step: loads of a step that is no longer in progress stay out of the graph */
+  token: number;
+  /** A question (withdrawn when you keep none of its answers), routes, or a party you added yourself */
+  kind: "ask" | "routes" | "party";
+  /** Scene node ids drawn before the step: the rest is new */
+  base: string[];
+  /** Proposals you tapped: they stay */
+  kept: string[];
+  /** The graph before the step: where a question of which you keep nothing goes back to */
+  before: PmGraphView & { latestRoutes: string | null };
+}
+
+export interface PmProposals {
+  /** New nodes of the step in progress: parties and bundles (what you can keep) */
+  nodes: string[];
+  /** The new parties */
+  parties: number[];
+  /** Drawn see-through: not kept (yet) */
+  ghosts: ReadonlySet<string>;
+  kept: number;
+  /** Moving on now withdraws the question: none of its answers kept */
+  withdraws: boolean;
+}
+
+const NO_PROPOSALS: PmProposals = { nodes: [], parties: [], ghosts: new Set(), kept: 0, withdraws: false };
+
+/**
+ * What the step in progress proposes: every node it added (parties and a question's "+N" bundle)
+ * except anchors (a party you added yourself, the node you asked about) and nodes you took out of a
+ * bundle. All see-through until you tap them.
+ */
+export function proposalsOf(scene: Pick<PmScene, "nodes" | "anchors">, pending: PmPending | null, revealed: readonly number[]): PmProposals {
+  if (!pending) return NO_PROPOSALS;
+  const base = new Set(pending.base);
+  const chosen = new Set(revealed);
+  const nodes = scene.nodes
+    .filter((node) => !node.isEvent && !node.news && !base.has(node.id))
+    .filter((node) => node.pmId === null || (!scene.anchors.has(node.pmId) && !chosen.has(node.pmId)))
+    .map((node) => node.id);
+  if (nodes.length === 0) return NO_PROPOSALS;
+  const parties = nodes.filter((id) => id.startsWith("pm:")).map((id) => Number(id.slice(3)));
+  const kept = nodes.filter((id) => pending.kept.includes(id)).length;
+  const withdraws = pending.kind === "ask" && parties.length > 0 && kept === 0;
+  const ghosts = new Set(nodes.filter((id) => !pending.kept.includes(id)));
+  return { nodes, parties, ghosts, kept, withdraws };
 }
 
 /** Relations of the current graph per filter (structural evidence for the five-filter panel). */

@@ -140,7 +140,8 @@ make clean             # Clean up generated files
 - **Clustering Performance**: 32.0% clustering rate (2.16x improvement from 14.78% baseline)
 - **LLM Insights**: Auto-generation working with Mistral API, narrative summaries, frames, coverage gaps
 - **REST API**: Backend endpoints for admin/trigger functions
-- **Event Detail**: Complete detail pages with timeline, clusters, contradictions, fallacies, frames
+- **Event Detail**: Epic 14 "Eén beeld": "Wie zegt wat?" as one picture (outlets, the speakers they quote, missing voices, numbered findings) with tabs Klopt het? / Wie praat? / Wat ontbreekt? / Hoe gebracht? / Tijdlijn, plus "Wie zit erachter?" (propagandamodel). Readers can add their own answers (doubt, speaker, missing voice, question, remark, moment; `lib/explore/own.ts`, marked "jij", numbered after the analysis, stored on this device only). No game mechanics. Spec: `docs/stories/active/epic-14-een-beeld.md`
+- **LLM provider per step**: `llm_config` keys `provider_<step>` (event assignment, classification, factual, critical, digest) via `backend/app/llm/providers.py`; never hard-wire a provider
 - **RSS Polling**: Automated every 15 minutes via APScheduler (backend)
 - **Insight Backfill**: Scheduled job every 30 minutes catches up on missing LLM insights
 
@@ -156,6 +157,7 @@ make clean             # Clean up generated files
 | Exploration Refresh | 24 hours (na Event Maintenance) | Event Maintenance → daarna Exploration refresh (entiteiten + gerelateerde events, Epic 11) |
 | Entity Research | 15 min | Wie is dit? (Epic 12): triage van namen in het nieuws (rol + belang), onderzoeksdoelen naar het propagandamodel, rondes van de pm-agent `nieuws-scout` starten (max 4/dag, 08–22) en resultaten ophalen (`ENTITY_RESEARCH_ENABLED`, `NIEUWS_SCOUT_*`, vereist migratie 006 + draaiende pm-server) |
 | Article Digest | 15 min | "Wat schreef …?": haalt de tekst van nieuwe buitenlandse artikelen op (Google News geeft alleen de kop) en laat de LLM een Nederlandse kern van hoogstens twee zinnen schrijven in `source_metadata.digest`; de tekst zelf wordt niet opgeslagen. Alleen artikelen van de laatste 72 uur, oudere via de admin-backfill (`ARTICLE_DIGEST_*`; provider: `llm_config.provider_digest`, anders die van de feitenanalyse) |
+| Voice Search | 1 min | "Zoek met AI" (Epic 14, Story 14.10): runs the searches for missing voices the admin queued in the app (`voice_searches`, migration 009): own articles + the same news on Google News, LLM check; the admin approves what is found and it becomes a source of the event (`VOICE_SEARCH_*`; provider `llm_config.provider_voice_search`, else that of the factual analysis) |
 | Propagandamodel Sync | 60 min | Synct het goedgekeurde propagandamodel (alleen-lezen) naar de `pm_*`-tabellen, alleen als het DB-bestand gewijzigd is (Epic 11, Story 11.17; `PROPAGANDA_SYNC_ENABLED`, `PROPAGANDA_SYNC_INTERVAL_MINUTES`, vereist migratie 005) |
 
 **Note:** Bias Analysis is disabled by default to save LLM costs. Enable with `BIAS_ANALYSIS_SCHEDULER_ENABLED=true`.
@@ -164,7 +166,18 @@ make clean             # Clean up generated files
 
 **Note (Epic 12 "Wie is dit?"):** namen in de nieuws-app zijn aantikbaar; ontbreekt een naam in het propagandamodel of heeft hij < 3 verbanden, dan zet de job "Entity Research" hem als onderzoeksdoel klaar in `~/Workspace/propaganda-model` (`POST /api/nieuws/doelen`, account `nieuws-agent`). Het onderzoek doet de pm-missie `nieuws-scout` (bestaande agent-runner + LinkedIn-tool met snelheidsrem 2/uur, 10/dag); de pm-service `nieuws_autokeur_service.py` keurt alleen neutrale structuurfeiten met bron-URL automatisch goed (eigenaarsbesluit 2026-09-30, terug te draaien met `scripts/admin.py intrekken`). Privépersonen worden nooit onderzocht. Spec: `docs/stories/active/epic-12-wie-is-dit.md`.
 
-**Note (Epic 13 "Waarom zo?"):** het propagandanetwerk toont verbanden *tussen* dingen in plaats van alles rond één knoop: RPC `pm_paths` (migratie `database/migrations/007_waarom_zo.sql`, zelfde regels als `frontend/lib/explore/pm-paths.ts`), vragen per filter (3 meest specifieke + bundel), "Verbind met beeld", "Zoek verband met…". Specifiek wint van "meeste verbanden". Spec: `docs/stories/active/epic-13-waarom-zo.md`.
+**Note (Epic 13 "Waarom zo?"):** het propagandanetwerk toont verbanden *tussen* dingen in plaats van alles rond één knoop: RPC `pm_paths` (migratie `database/migrations/007_waarom_zo.sql`, zelfde regels als `frontend/lib/explore/pm-paths.ts`), vragen per filter (3 meest specifieke + bundel), "Verbind met beeld", "Zoek verband met…". Specifiek wint van "meeste verbanden".
+
+Story 13.10:
+- Wat een stap toevoegt is doorzichtig. Aantikken = houden; de rest gaat weg bij de volgende stap of met "Rest weg".
+- Een vraag waarvan je niets houdt, wordt ingetrokken.
+- Alle personen en organisaties van het nieuws staan in het netwerk; namen die niet in het model staan, zijn grijs
+  gestippeld.
+- Elke vraag kan per richting: "Invloed op X" / "Invloed van X". Dit vereist migratie `008_invloed_richting.sql`,
+  met dezelfde regels als `influenceOf` in `frontend/lib/explore/pm-graph.ts`. Zonder die migratie zie je de vragen
+  zonder richting.
+
+Spec: `docs/stories/active/epic-13-waarom-zo.md`.
 
 ### LLM Prompts Updaten
 
@@ -229,6 +242,9 @@ print(resp.json()[0]['value'])
 # Trigger RSS polling manually
 curl -X POST "http://localhost:8000/admin/trigger/poll-feeds"
 
+# Assign enriched Dutch articles that are in no event (also runs, recent-only, in every poll cycle)
+curl -X POST "http://localhost:8000/admin/trigger/assign-events?limit=200&max_age_hours=72"
+
 # Trigger insight backfill (default 10 events)
 curl -X POST "http://localhost:8000/admin/trigger/backfill-insights"
 
@@ -289,6 +305,11 @@ curl -X POST "http://localhost:8000/admin/trigger/article-digest/{article_id}"
 
 # Gist batch for foreign articles of active news without one (leave out max_age_hours = backfill all)
 curl -X POST "http://localhost:8000/admin/trigger/article-digests?limit=50"
+
+# Zoek met AI (Story 14.10): run the queued searches for missing voices now (the job does this every minute)
+curl -X POST "http://localhost:8000/admin/trigger/voice-search?limit=2"
+# Access codes for it (admin only for now): create / list / revoke; the code is printed once
+PYTHONPATH=. .venv/bin/python scripts/access_code.py create --role admin --label Eigenaar
 
 # Check scheduler status (includes exploration_last_run, propagandamodel_last_run and article_digest_last_run)
 curl "http://localhost:8000/admin/scheduler/status"

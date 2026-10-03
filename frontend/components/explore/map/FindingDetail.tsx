@@ -1,28 +1,20 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ScanText, UserSearch } from "lucide-react";
+import { ExternalLink, ScanText, UserSearch } from "lucide-react";
 
 import { objectivity } from "@/lib/explore/bias";
-import { OWNERSHIP_TYPE_LABELS } from "@/lib/explore/media-landscape";
-import {
-  FRAME_DESCRIPTIONS,
-  PRESENTED_AS_LABELS,
-  VERIFICATION_LABELS,
-  biasTypeLabel,
-  fallacyLabel,
-  frameLabel,
-  toneLabel,
-} from "@/lib/explore/labels";
+import { FRAME_DESCRIPTIONS, VERIFICATION_LABELS, biasTypeLabel, fallacyLabel, frameLabel } from "@/lib/explore/labels";
 import { actorKeys } from "@/lib/explore/normalize";
 import { formatLag } from "@/lib/explore/timeline";
-import type { Clue } from "@/lib/explore/types";
-import { getCountryName } from "@/lib/format";
+import type { Finding, OwnEntry } from "@/lib/explore/types";
 
 import { useExplore } from "../ExploreContext";
 import { EntityText, OutletInline } from "../entity/EntityText";
 import { OutletChip } from "../outlet/OutletCard";
 import { Chip, Eyebrow, Tag } from "../ui/primitives";
+import { DETAIL_LABELS } from "./OwnForm";
+import { FoundVoices, VoiceSearchPanel } from "./VoiceSearch";
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   if (children === null || children === undefined || children === "" || children === false) return null;
@@ -75,16 +67,19 @@ export function ActorButton({ name, person = false }: { name: string; person?: b
   );
 }
 
-export function ClueBody({ clue }: { clue: Clue }) {
-  const { exploration, panel, eventId } = useExplore();
+/**
+ * The content of an opened row. The row itself already shows the title (claim, topic, frame, …),
+ * so this shows what is behind it.
+ */
+export function FindingDetail({ finding }: { finding: Finding }) {
+  const { exploration, panel } = useExplore();
   const { index } = exploration;
-  const body = clue.body;
+  const body = finding.body;
 
   switch (body.type) {
     case "perspective":
       return (
         <div className="space-y-3">
-          <p className="font-serif text-lg font-bold text-ink-900">{body.cluster.label}</p>
           <p className="text-sm text-ink-700">
             <EntityText text={body.cluster.summary} />
           </p>
@@ -98,7 +93,7 @@ export function ClueBody({ clue }: { clue: Clue }) {
                     {stance.stance ? (
                       <span className="text-ink-700">
                         {" "}
-                        — “<EntityText text={stance.stance} />”
+                        — <EntityText text={stance.stance} />
                       </span>
                     ) : null}
                   </p>
@@ -117,59 +112,34 @@ export function ClueBody({ clue }: { clue: Clue }) {
       );
 
     case "voices":
-      return (
-        <div className="space-y-3">
-          <Row label="Bronpatroon">{body.sourcingPattern}</Row>
-          {body.actors.length ? (
-            <div className="space-y-1.5">
-              <Eyebrow>Aan het woord</Eyebrow>
-              <div className="flex flex-wrap gap-1.5">
-                {body.actors.map((actor) => (
-                  <ActorButton key={actor.key} name={actor.name} person={actor.role === "wordt geciteerd"} />
-                ))}
-              </div>
-            </div>
-          ) : null}
+      return body.actors.length ? (
+        <div className="flex flex-wrap gap-1.5">
+          {body.actors.map((actor) => (
+            <ActorButton key={actor.key} name={actor.name} person={actor.role === "wordt geciteerd"} />
+          ))}
         </div>
-      );
+      ) : null;
 
-    case "contradiction": {
-      const verification = VERIFICATION_LABELS[body.contradiction.verification] ?? { label: body.contradiction.verification, tone: "neutral" as const };
+    case "contradiction":
       return (
-        <div className="space-y-3">
-          <p className="font-serif text-lg font-bold text-ink-900">{body.contradiction.topic}</p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {[
-              { side: "A", claim: body.contradiction.claim_a, outlets: body.outletsA },
-              { side: "B", claim: body.contradiction.claim_b, outlets: body.outletsB },
-            ].map(({ side, claim, outlets }) => (
-              <div key={side} className="space-y-2 rounded-xl border border-red-100 bg-red-50/60 p-3">
-                <Eyebrow className="text-red-700">Claim {side}</Eyebrow>
-                <p className="text-sm text-ink-800">
-                  <EntityText text={claim?.summary} />
-                </p>
-                <Outlets keys={outlets} />
-              </div>
-            ))}
-          </div>
-          <Tag tone={verification.tone === "good" ? "green" : verification.tone === "bad" ? "red" : "neutral"}>
-            Status: {verification.label}
-          </Tag>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {[
+            { side: "A", claim: body.contradiction.claim_a, outlets: body.outletsA },
+            { side: "B", claim: body.contradiction.claim_b, outlets: body.outletsB },
+          ].map(({ side, claim, outlets }) => (
+            <div key={side} className="space-y-2 rounded-xl border border-red-100 bg-red-50/60 p-3">
+              <p className="text-sm text-ink-800">
+                <EntityText text={claim?.summary} />
+              </p>
+              <Outlets keys={outlets} />
+            </div>
+          ))}
         </div>
       );
-    }
 
     case "claim":
       return (
         <div className="space-y-3">
-          <blockquote className="border-l-4 border-red-300 pl-3 font-serif text-base italic text-ink-900">
-            “<EntityText text={body.claim.claim} />”
-          </blockquote>
-          <div className="flex flex-wrap items-center gap-1.5 text-sm text-ink-600">
-            <span>Door</span>
-            <ActorButton name={body.claim.source_in_article} />
-            <span>{PRESENTED_AS_LABELS[body.claim.presented_as?.toLowerCase()] ?? ""}</span>
-          </div>
           <Row label="Aangedragen bewijs">{body.claim.evidence_provided}</Row>
           {body.claim.missing_context?.length ? (
             <Row label="Wat ontbreekt">
@@ -187,9 +157,6 @@ export function ClueBody({ clue }: { clue: Clue }) {
     case "statistic":
       return (
         <div className="space-y-3">
-          <blockquote className="border-l-4 border-amber-300 pl-3 font-serif italic text-ink-900">
-            “<EntityText text={body.issue.claim} />”
-          </blockquote>
           <Row label="Wat klopt er niet">{body.issue.issue}</Row>
           <Row label="Eerlijker gebracht">{body.issue.better_framing}</Row>
         </div>
@@ -197,22 +164,15 @@ export function ClueBody({ clue }: { clue: Clue }) {
 
     case "fallacy":
       return (
-        <div className="space-y-2">
-          <p className="font-serif text-lg font-bold text-ink-900">{fallacyLabel(body.fallacy.type)}</p>
-          <p className="text-sm leading-relaxed text-ink-800">
-            <EntityText text={body.fallacy.description} />
-          </p>
-        </div>
+        <p className="text-sm leading-relaxed text-ink-800">
+          <EntityText text={body.fallacy.description} />
+        </p>
       );
 
     case "authority": {
       const a = body.authority;
       return (
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <ActorButton name={a.authority} />
-            {a.authority_type ? <Tag>{a.authority_type}</Tag> : null}
-          </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <Row label="Claimt expertise in">{a.claimed_expertise}</Row>
             <Row label="Is eigenlijk">{a.actual_role}</Row>
@@ -239,10 +199,11 @@ export function ClueBody({ clue }: { clue: Clue }) {
             </div>
           ) : null}
           {a.critical_questions?.length ? (
-            <Row label="Vragen bij deze autoriteit">
+            <Row label="Vragen bij deze bron">
               <List items={a.critical_questions} />
             </Row>
           ) : null}
+          <ActorButton name={a.authority} />
         </div>
       );
     }
@@ -256,57 +217,25 @@ export function ClueBody({ clue }: { clue: Clue }) {
         </div>
       );
 
-    case "ownership":
-      return (
-        <div className="space-y-3">
-          <ul className="space-y-2">
-            {body.outletKeys.map((key) => {
-              const outlet = index.outlet(key);
-              const type = outlet?.profile?.ownershipType;
-              return (
-                <li key={key} className="flex items-center justify-between gap-2">
-                  <OutletChip outletKey={key} />
-                  {type ? <Tag tone={type === "public" ? "blue" : "neutral"}>{OWNERSHIP_TYPE_LABELS[type]}</Tag> : null}
-                </li>
-              );
-            })}
-          </ul>
-          <p className="text-xs text-ink-500">
-            Wie de eigenaren, financiers en adverteerders zijn, zie je in het netwerk (lens Propagandamodel).
-          </p>
-        </div>
-      );
-
     case "frame":
       return (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="font-serif text-lg font-bold text-ink-900">{frameLabel(body.frame.frame_type)}</p>
-            <Tag tone={body.frame.attribution === "geciteerd" ? "neutral" : "purple"}>
-              {body.frame.attribution === "geciteerd" ? "Geciteerd, niet eigen woorden" : "Eigen framing"}
-            </Tag>
-          </div>
-          {FRAME_DESCRIPTIONS[body.frame.frame_type] ? (
-            <p className="text-xs text-ink-500">{FRAME_DESCRIPTIONS[body.frame.frame_type]}</p>
-          ) : null}
-          <Row label="Techniek">{body.frame.technique}</Row>
+        <div className="space-y-2">
+          {FRAME_DESCRIPTIONS[body.frame.frame_type] ? <p className="text-xs text-ink-500">{FRAME_DESCRIPTIONS[body.frame.frame_type]}</p> : null}
           <p className="text-sm leading-relaxed text-ink-800">
             <EntityText text={body.frame.description} />
           </p>
+          <Outlets keys={finding.outletKeys} />
         </div>
       );
 
     case "tone":
       return (
         <div className="space-y-3">
-          <p className="font-serif text-lg font-bold text-ink-900">{toneLabel(body.analysis.tone)}</p>
           <div className="flex flex-wrap gap-1.5">
             {body.analysis.copy_paste_score ? <Tag tone="orange">Kopieergedrag: {body.analysis.copy_paste_score}</Tag> : null}
-            {body.analysis.anonymous_source_count ? (
-              <Tag tone="orange">{body.analysis.anonymous_source_count} anonieme bronnen</Tag>
-            ) : null}
+            {body.analysis.anonymous_source_count ? <Tag tone="orange">{body.analysis.anonymous_source_count} anonieme bronnen</Tag> : null}
           </div>
-          <Row label="Past in een narratief">{body.analysis.narrative_alignment}</Row>
+          <Row label="Past in het verhaal van">{body.analysis.narrative_alignment}</Row>
           <Row label="Wat als ze ongelijk hebben?">{body.analysis.what_if_wrong}</Row>
         </div>
       );
@@ -325,7 +254,7 @@ export function ClueBody({ clue }: { clue: Clue }) {
             ))}
           </div>
           <Chip tone="purple" icon={<ScanText size={14} />} onClick={() => panel.open(`bias:${body.outletKey}`)}>
-            Swipe door de zinnen
+            Bekijk de zinnen
           </Chip>
         </div>
       );
@@ -333,20 +262,26 @@ export function ClueBody({ clue }: { clue: Clue }) {
     case "gap":
       return (
         <div className="space-y-3">
-          <p className="font-serif text-lg font-bold text-ink-900">{body.gap.perspective}</p>
           <p className="text-sm leading-relaxed text-ink-800">
             <EntityText text={body.gap.description} />
           </p>
           <Row label="Waarom dit ertoe doet">{body.gap.relevance}</Row>
           {body.gap.potential_sources?.length ? (
-            <div className="flex flex-wrap gap-1.5">
-              {body.gap.potential_sources.map((source) => (
-                <Tag key={source}>
-                  <EntityText text={source} />
-                </Tag>
-              ))}
-            </div>
+            <Row label="Wie had het kunnen zeggen">
+              <div className="flex flex-wrap gap-1.5">
+                {body.gap.potential_sources.map((source) => (
+                  <Tag key={source}>{source}</Tag>
+                ))}
+              </div>
+            </Row>
           ) : null}
+          <FoundVoices findingId={finding.id} label={body.gap.perspective} />
+          <VoiceSearchPanel
+            findingId={finding.id}
+            perspective={body.gap.perspective}
+            context={[body.gap.description, body.gap.relevance].filter(Boolean).join(" ")}
+            origin="analyse"
+          />
         </div>
       );
 
@@ -370,7 +305,6 @@ export function ClueBody({ clue }: { clue: Clue }) {
     case "science":
       return (
         <div className="space-y-3">
-          <p className="font-serif text-lg font-bold text-ink-900">{body.plurality.topic}</p>
           <Row label="Gepresenteerde visie">{body.plurality.presented_view}</Row>
           <Tag tone={body.plurality.alternative_views_mentioned ? "green" : "orange"}>
             {body.plurality.alternative_views_mentioned ? "Andere visies genoemd" : "Andere visies niet genoemd"}
@@ -383,14 +317,6 @@ export function ClueBody({ clue }: { clue: Clue }) {
           <Row label="Afwijkende wetenschappers">{body.plurality.notable_dissenters}</Row>
           <Row label="Beoordeling">{body.plurality.assessment}</Row>
         </div>
-      );
-
-    case "consensus":
-      return (
-        <p className="text-sm leading-relaxed text-ink-800">
-          Alle bronnen vallen onder één invalshoek: <strong>{body.clusterLabel}</strong>. Dat kan betekenen dat het verhaal
-          eenduidig is — of dat andere invalshoeken niemand bereikten.
-        </p>
       );
 
     case "first":
@@ -410,27 +336,126 @@ export function ClueBody({ clue }: { clue: Clue }) {
       );
 
     case "timeline":
-      return (
-        <div className="space-y-2">
-          <Eyebrow>{body.timeLabel}</Eyebrow>
-          <p className="font-serif text-base font-bold text-ink-900">
-            <EntityText text={body.item.headline} />
-          </p>
-          <Outlets keys={clue.outletKeys} />
-        </div>
-      );
+      return <Outlets keys={finding.outletKeys} />;
 
-    case "country":
+    case "own":
       return (
-        <div className="space-y-1">
-          <p className="font-serif text-lg font-bold text-ink-900">{getCountryName(body.country.iso_code)}</p>
-          <p className="text-sm text-ink-800">
-            <EntityText text={body.country.relevance} />
-          </p>
+        <div className="space-y-3">
+          <OwnDetail entry={body.entry} />
+          {body.entry.kind === "gap" ? (
+            <>
+              <FoundVoices findingId={finding.id} label={body.entry.text} />
+              <VoiceSearchPanel findingId={finding.id} perspective={body.entry.text} context={body.entry.detail ?? null} origin="eigen" />
+            </>
+          ) : null}
         </div>
       );
 
     default:
-      return <p className="text-sm text-ink-500">Onbekende aanwijzing ({String(eventId)})</p>;
+      return null;
   }
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+const dayFormat = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short", year: "numeric" });
+
+/** "12 mrt 2024" for a YYYY-MM-DD date. */
+export function formatOwnDate(date: string | undefined): string | null {
+  if (!date) return null;
+  const parsed = new Date(`${date}T12:00:00`);
+  return Number.isNaN(parsed.getTime()) ? date : dayFormat.format(parsed);
+}
+
+/** What the reader wrote besides the title: why, what the speaker says, their source. */
+function OwnDetail({ entry }: { entry: OwnEntry }) {
+  if (!entry.detail && !entry.quote && !entry.url) return null;
+  return (
+    <div className="space-y-3">
+      {entry.quote ? <p className="text-sm italic leading-relaxed text-ink-800">{entry.quote}</p> : null}
+      {entry.detail ? (
+        <div className="space-y-0.5">
+          <Eyebrow>{DETAIL_LABELS[entry.kind] ?? "Toelichting"}</Eyebrow>
+          <p className="whitespace-pre-line text-sm leading-relaxed text-ink-800">{entry.detail}</p>
+        </div>
+      ) : null}
+      {entry.url ? (
+        <a
+          href={entry.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex min-h-[36px] items-center gap-1.5 text-sm font-semibold text-accent-blue"
+        >
+          Bron: {hostOf(entry.url)} <ExternalLink size={14} aria-hidden="true" />
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+/** The one-line summary a row shows while closed. */
+export function findingHeadline(finding: Finding): { title: string; meta: string | null } {
+  const body = finding.body;
+  switch (body.type) {
+    case "perspective":
+      return { title: body.cluster.label, meta: null };
+    case "voices":
+      return { title: body.sourcingPattern ?? "Wie aan het woord is", meta: null };
+    case "contradiction":
+      return { title: body.contradiction.topic, meta: VERIFICATION_LABELS[body.contradiction.verification]?.label ?? null };
+    case "claim":
+      return {
+        title: body.claim.claim,
+        meta: [body.claim.presented_as ? `gebracht als ${body.claim.presented_as.toLowerCase()}` : null, body.claim.evidence_provided && body.claim.evidence_provided !== "geen" ? null : "geen bewijs"]
+          .filter(Boolean)
+          .join(" · "),
+      };
+    case "statistic":
+      return { title: body.issue.claim, meta: null };
+    case "fallacy":
+      return { title: fallacyLabelText(body.fallacy.type), meta: null };
+    case "authority":
+      return { title: body.authority.authority, meta: body.authority.authority_type ?? null };
+    case "timing":
+      return { title: "Waarom nu?", meta: null };
+    case "frame":
+      return {
+        title: frameLabel(body.frame.frame_type),
+        meta: [body.frame.attribution === "geciteerd" ? "geciteerd" : "eigen woorden", body.frame.technique].filter(Boolean).join(" · "),
+      };
+    case "tone":
+      return { title: body.analysis.tone ?? "Toon", meta: null };
+    case "bias":
+      return { title: `${body.sentenceCount} gekleurde ${body.sentenceCount === 1 ? "zin" : "zinnen"}`, meta: null };
+    case "gap":
+      return { title: body.gap.perspective, meta: null };
+    case "questions":
+      return {
+        title: `${body.analysis.questions_not_asked?.length ?? 0} niet gestelde vragen`,
+        meta: body.analysis.perspectives_omitted?.length ? `${body.analysis.perspectives_omitted.length} weggelaten perspectieven` : null,
+      };
+    case "science":
+      return { title: body.plurality.topic, meta: body.plurality.alternative_views_mentioned ? null : "andere visies niet genoemd" };
+    case "first":
+      return { title: "Wie was er het eerst?", meta: null };
+    case "timeline":
+      return { title: body.item.headline, meta: body.timeLabel };
+    case "own":
+      return {
+        title: body.entry.text,
+        meta: body.entry.kind === "moment" ? formatOwnDate(body.entry.date) : body.entry.url ? `bron: ${hostOf(body.entry.url)}` : null,
+      };
+    default:
+      return { title: "", meta: null };
+  }
+}
+
+function fallacyLabelText(type: string): string {
+  return fallacyLabel(type);
 }

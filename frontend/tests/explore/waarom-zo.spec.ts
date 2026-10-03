@@ -13,17 +13,14 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe("Waarom zo?", () => {
-  test("the outlet balloon shows its routes to the parties of the news, or honestly none", async ({ page }) => {
-    await page.goto("/event/demo?p=bronnen");
-    const sheet = page.getByRole("dialog").filter({ hasText: "Bronnen en artikelen" });
-    await sheet.getByRole("button", { name: "NU.nl", exact: true }).click();
-    const balloon = page.getByRole("dialog", { name: "Over NU.nl" });
-    await expect(balloon.getByText("Waarom zo? Verbanden met dit nieuws")).toBeVisible({ timeout: 20_000 });
-    const routes = balloon.getByRole("list", { name: "Verbanden van NU.nl met dit nieuws" });
-    const none = balloon.getByText(/^Geen route binnen twee stappen tussen NU.nl/);
-    await expect(routes.or(none)).toBeVisible();
+  test("Wie zit erachter? shows the most specific routes of the news, or honestly none", async ({ page }) => {
+    await page.goto("/event/demo");
+    const block = page.locator('section[aria-labelledby="behind-title"]');
+    await block.scrollIntoViewIfNeeded();
+    const routes = block.getByRole("list", { name: "Routes tussen de bronnen en de partijen van dit nieuws" });
+    const none = block.getByText(/^Geen verband binnen twee stappen|^Geen partij uit dit nieuws/);
+    await expect(routes.or(none)).toBeVisible({ timeout: 20_000 });
     if (await routes.isVisible()) {
-      // Each step can be opened for its sources
       await routes.getByRole("button", { name: /^Bronnen van / }).first().click();
       await expect(page.getByRole("dialog").filter({ hasText: /Bron: Propagandamodel/ }).first()).toBeVisible();
     }
@@ -32,8 +29,8 @@ test.describe("Waarom zo?", () => {
   test("the network lists which outlets are linked to the news, also those that did not bring it", async ({ page }) => {
     await page.goto("/event/demo/netwerk?p=filters");
     const sheet = page.getByRole("dialog").filter({ hasText: "De filters in dit nieuws" });
-    await expect(sheet.getByText("Raakvlakken met dit nieuws")).toBeVisible({ timeout: 20_000 });
-    const outlets = sheet.getByRole("region", { name: "Raakvlakken met dit nieuws" }).getByRole("button", { expanded: false });
+    await expect(sheet.getByText("Media verbonden met dit nieuws")).toBeVisible({ timeout: 20_000 });
+    const outlets = sheet.getByRole("region", { name: "Media verbonden met dit nieuws" }).getByRole("button", { expanded: false });
     const none = sheet.getByText(/^Geen raakvlakken binnen twee stappen/);
     await expect(outlets.first().or(none)).toBeVisible();
     if (await outlets.count()) {
@@ -42,12 +39,11 @@ test.describe("Waarom zo?", () => {
     }
   });
 
-  test("Toon in netwerk opens the network focused on the outlet with its routes", async ({ page }) => {
-    await page.goto("/event/demo?p=bronnen");
-    const sheet = page.getByRole("dialog").filter({ hasText: "Bronnen en artikelen" });
-    await sheet.getByRole("button", { name: "NU.nl", exact: true }).click();
+  test("Wie zit erachter? in an outlet balloon opens the network focused on that outlet", async ({ page }) => {
+    await page.goto("/event/demo");
+    await page.locator('[data-anchor="outlet:nu-nl"] > button').first().click();
     const balloon = page.getByRole("dialog", { name: "Over NU.nl" });
-    await balloon.getByRole("link", { name: "Toon in netwerk" }).click();
+    await balloon.getByRole("link", { name: "Wie zit erachter?" }).click();
     await expect(page).toHaveURL(/\/event\/demo\/netwerk\?focus=pm%3A7|\/event\/demo\/netwerk\?focus=pm:7/);
     await expect(page.getByText("Dit nieuws", { exact: true })).toBeVisible({ timeout: 20_000 });
   });

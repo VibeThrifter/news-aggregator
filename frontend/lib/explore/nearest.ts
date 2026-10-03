@@ -5,7 +5,7 @@
  */
 
 import type { ArticleIndex } from "./input";
-import type { Clue, ExploreInput } from "./types";
+import type { Finding, ExploreInput } from "./types";
 
 const STOPWORDS = new Set(
   (
@@ -79,17 +79,17 @@ export function nearestPerspective(titles: string[], perspectives: PerspectiveTe
 }
 
 /** Label, summary, stances and member headlines of each perspective of the event. */
-export function perspectiveTexts(clues: Clue[]): PerspectiveText[] {
-  return clues.flatMap((clue) =>
-    clue.body.type === "perspective"
+export function perspectiveTexts(findings: Finding[]): PerspectiveText[] {
+  return findings.flatMap((finding) =>
+    finding.body.type === "perspective"
       ? [
           {
-            index: clue.body.index,
-            label: clue.body.cluster.label,
+            index: finding.body.index,
+            label: finding.body.cluster.label,
             text: [
-              clue.body.cluster.summary ?? "",
-              ...clue.body.stances.map((stance) => stance.stance ?? ""),
-              ...(clue.body.cluster.sources ?? []).map((source) => source.title ?? ""),
+              finding.body.cluster.summary ?? "",
+              ...finding.body.stances.map((stance) => stance.stance ?? ""),
+              ...(finding.body.cluster.sources ?? []).map((source) => source.title ?? ""),
             ].join(" "),
           },
         ]
@@ -97,14 +97,14 @@ export function perspectiveTexts(clues: Clue[]): PerspectiveText[] {
   );
 }
 
-const cache = new WeakMap<Clue[], Map<string, PerspectiveEstimate>>();
+const cache = new WeakMap<Finding[], Map<string, PerspectiveEstimate>>();
 
 /** For every outlet the analysis did not put in a perspective: the perspective it leans to (if clear). */
-export function perspectiveEstimates(input: ExploreInput, clues: Clue[], index: ArticleIndex): Map<string, PerspectiveEstimate> {
-  const cached = cache.get(clues);
+export function perspectiveEstimates(input: ExploreInput, findings: Finding[], index: ArticleIndex): Map<string, PerspectiveEstimate> {
+  const cached = cache.get(findings);
   if (cached) return cached;
-  const perspectives = perspectiveTexts(clues);
-  const covered = new Set(clues.flatMap((clue) => (clue.body.type === "perspective" ? clue.body.stances.map((stance) => stance.outletKey) : [])));
+  const perspectives = perspectiveTexts(findings);
+  const covered = new Set(findings.flatMap((finding) => (finding.body.type === "perspective" ? finding.body.stances.map((stance) => stance.outletKey) : [])));
   const estimates = new Map<string, PerspectiveEstimate>();
   for (const outlet of input.outlets) {
     if (covered.has(outlet.key)) continue;
@@ -112,6 +112,6 @@ export function perspectiveEstimates(input: ExploreInput, clues: Clue[], index: 
     const estimate = nearestPerspective(titles, perspectives);
     if (estimate) estimates.set(outlet.key, estimate);
   }
-  cache.set(clues, estimates);
+  cache.set(findings, estimates);
   return estimates;
 }

@@ -1,106 +1,144 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
-import { ArrowLeft, Network, Settings2 } from "lucide-react";
+import { ArrowLeft, BookOpen, FolderOpen } from "lucide-react";
 
 import { getCategoryForEventType } from "@/lib/categories";
-import { formatEventTimeframe } from "@/lib/format";
+import { newsStart, storyThread } from "@/lib/explore/chronology";
+import { useFocusStore } from "@/lib/explore/focus";
 import { useExploreStore } from "@/lib/explore/store";
+import { truncate } from "@/lib/explore/summary";
+import { formatEventTimeframe, getCountryFlag, getCountryName } from "@/lib/format";
 
 import { useExplore } from "./ExploreContext";
+import { EntityText } from "./entity/EntityText";
 import { Balloon } from "./ui/Balloon";
-import { ProgressRing } from "./ui/primitives";
+
+function outletsLine(dutch: string[], foreign: number): string {
+  const names = dutch.length === 0 ? "" : dutch.length <= 2 ? dutch.join(" en ") : `${dutch.length} Nederlandse bronnen`;
+  const abroad = foreign ? `${foreign} buitenlandse` : "";
+  if (names && abroad) return `${names} + ${abroad}`;
+  return names || (foreign ? `${foreign} buitenlandse bronnen` : "");
+}
 
 export function ExploreHeader() {
-  const { exploration, revealed, revealAll } = useExplore();
-  const { input, clues } = exploration;
-  const questMode = useExploreStore((state) => state.prefs.questMode);
+  const { exploration, panel, dossierCount } = useExplore();
+  const { input } = exploration;
   const setPref = useExploreStore((state) => state.setPref);
+  const focus = useFocusStore((state) => state.focus);
 
   const category = getCategoryForEventType(input.event.eventType);
-  const dutchOutlets = input.outlets.filter((outlet) => !outlet.isInternational).length;
-  const found = revealAll ? clues.length : clues.filter((clue) => revealed.has(clue.id)).length;
-  const networkHref = `/event/${encodeURIComponent(input.event.slug ?? String(input.event.id))}/netwerk`;
+  const dutch = input.outlets.filter((outlet) => !outlet.isInternational).map((outlet) => outlet.name);
+  const foreign = input.outlets.filter((outlet) => outlet.isInternational).length;
+  const thread = useMemo(() => storyThread(input), [input]);
+  const sameStory = thread.earlier.length + thread.alongside.length + thread.later.length;
+  const first = exploration.findings.find((finding) => finding.body.type === "first");
+  const countries = (input.insight?.involved_countries ?? []).filter((country) => country.iso_code);
+  // From the first Dutch article: an old foreign article can make the event's own start far too early
+  const startMs = newsStart(input);
+  const start = Number.isNaN(startMs) ? input.event.firstSeenAt : new Date(startMs).toISOString();
 
   return (
     <header className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <Link
-          href="/"
-          className="-ml-2 inline-flex min-h-[44px] items-center gap-1 rounded-full px-2 text-sm text-ink-500 hover:text-ink-900"
-        >
+        <Link href="/" className="-ml-2 inline-flex min-h-[44px] items-center gap-1 rounded-full px-2 text-sm text-ink-500 hover:text-ink-900">
           <ArrowLeft size={16} /> Nieuws
         </Link>
-        <Balloon
-          label="Instellingen onderzoeksmodus"
-          placement="bottom-end"
-          width={280}
-          content={
-            <div className="space-y-3">
-              <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3">
-                <span>
-                  <span className="block font-semibold text-ink-900">Speurmodus</span>
-                  <span className="text-xs text-ink-500">Aanwijzingen eerst verborgen</span>
-                </span>
-                <input
-                  type="checkbox"
-                  className="h-5 w-5 accent-accent-blue"
-                  checked={questMode}
-                  onChange={(event) => setPref("questMode", event.target.checked)}
-                />
-              </label>
-              <p className="text-xs text-ink-500">Je voortgang en dossier staan alleen op dit apparaat.</p>
-            </div>
-          }
+        <button
+          type="button"
+          onClick={() => panel.open("dossier")}
+          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-ink-700 hover:bg-paper-200"
         >
-          {({ ref, props }) => (
-            <button
-              ref={ref}
-              {...props}
-              type="button"
-              className="flex h-11 w-11 items-center justify-center rounded-full text-ink-500 hover:bg-paper-200 hover:text-ink-900"
-              aria-label="Instellingen"
-            >
-              <Settings2 size={18} />
-            </button>
-          )}
-        </Balloon>
+          <FolderOpen size={16} /> Bewaard
+          {dossierCount ? <span className="rounded-full bg-ink-900 px-1.5 text-xs text-white">{dossierCount}</span> : null}
+        </button>
       </div>
 
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-500">
-        <span className={`rounded-full border px-2 py-0.5 font-semibold ${category.color} ${category.bgColor} ${category.borderColor}`}>
-          {category.label}
-        </span>
-        <span>{formatEventTimeframe(input.event.firstSeenAt, input.event.lastUpdatedAt)}</span>
+        {input.event.eventType && input.event.eventType !== "other" ? (
+          <span className={`rounded-full border px-2 py-0.5 font-semibold ${category.color} ${category.bgColor} ${category.borderColor}`}>{category.label}</span>
+        ) : null}
+        <span>{formatEventTimeframe(start, input.event.lastUpdatedAt)}</span>
+        {outletsLine(dutch, foreign) ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span>{outletsLine(dutch, foreign)}</span>
+          </>
+        ) : null}
         <span aria-hidden="true">·</span>
         <span>
-          {dutchOutlets} {dutchOutlets === 1 ? "bron" : "bronnen"}
+          {input.articles.length} {input.articles.length === 1 ? "artikel" : "artikelen"}
         </span>
-        <span aria-hidden="true">·</span>
-        <span>{input.articles.length} artikelen</span>
       </div>
 
       <h1 className="font-serif text-2xl font-bold leading-tight text-ink-900 sm:text-3xl">{input.event.title}</h1>
 
-      <div className="flex items-center justify-between gap-3 rounded-2xl border border-paper-300 bg-paper-50 p-3">
-        <div className="flex items-center gap-3">
-          <ProgressRing value={found} total={clues.length} size={44} />
-          <div className="text-sm">
-            <p className="font-semibold text-ink-900">
-              {revealAll ? "Speurmodus uit" : found === 0 ? "Begin je onderzoek" : `${found} van ${clues.length} aanwijzingen`}
-            </p>
-            <p className="text-xs text-ink-500">
-              {revealAll ? "Alle aanwijzingen zijn zichtbaar" : "Tik op ballonnen en sporen om te ontdekken"}
-            </p>
-          </div>
-        </div>
-        <Link
-          href={networkHref}
-          className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-ink-900 px-4 text-sm font-semibold text-white hover:bg-ink-800"
+      {sameStory ? (
+        <button
+          type="button"
+          onClick={() => {
+            setPref("findingsTab", "tijdlijn");
+            if (first) focus("finding", first.id);
+            else window.setTimeout(() => document.querySelector('[aria-label="Bevindingen"]')?.scrollIntoView({ block: "start" }), 50);
+          }}
+          className="inline-flex min-h-[36px] items-center rounded-full border border-paper-300 bg-paper-50 px-3 text-xs font-semibold text-ink-700 hover:bg-paper-100"
         >
-          <Network size={16} /> Netwerk
-        </Link>
-      </div>
+          Ook in {sameStory} {sameStory === 1 ? "ander nieuwsitem" : "andere nieuwsitems"} over dit verhaal ›
+        </button>
+      ) : null}
+
+      {input.summary.firstParagraph ? (
+        <div>
+          <p className="font-serif text-[17px] leading-relaxed text-ink-800">
+            <EntityText text={truncate(input.summary.firstParagraph, 320)} />
+          </p>
+          <button
+            type="button"
+            onClick={() => panel.open("samenvatting")}
+            className="mt-1 inline-flex min-h-[40px] items-center gap-1.5 text-sm font-semibold text-accent-blue"
+          >
+            <BookOpen size={15} /> Lees alles
+          </button>
+        </div>
+      ) : null}
+
+      {countries.length ? (
+        <div className="-mx-1 flex flex-wrap gap-1.5 px-1" aria-label="Landen in dit verhaal">
+          {countries.map((country) => (
+            <Balloon
+              key={country.iso_code}
+              label={getCountryName(country.iso_code)}
+              placement="top"
+              width={280}
+              content={
+                <div className="space-y-1">
+                  <p className="font-semibold text-ink-900">
+                    {getCountryFlag(country.iso_code)} {getCountryName(country.iso_code)}
+                  </p>
+                  {country.relevance ? (
+                    <p className="text-sm text-ink-700">
+                      <EntityText text={country.relevance} />
+                    </p>
+                  ) : null}
+                </div>
+              }
+            >
+              {({ ref, props }) => (
+                <button
+                  ref={ref}
+                  {...props}
+                  type="button"
+                  className="inline-flex min-h-[32px] items-center gap-1 rounded-full border border-paper-300 bg-paper-50 px-2.5 text-xs font-medium text-ink-700 hover:bg-paper-100"
+                >
+                  <span aria-hidden="true">{getCountryFlag(country.iso_code)}</span>
+                  {getCountryName(country.iso_code)}
+                </button>
+              )}
+            </Balloon>
+          ))}
+        </div>
+      ) : null}
     </header>
   );
 }

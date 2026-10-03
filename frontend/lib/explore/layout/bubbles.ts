@@ -11,7 +11,7 @@ import { ArticleIndex } from "../input";
 import { frameLabel } from "../labels";
 import { perspectiveEstimates } from "../nearest";
 import { lcg } from "../normalize";
-import type { Clue, ExploreInput } from "../types";
+import type { Finding, ExploreInput } from "../types";
 
 export type HeroLens = "invalshoek" | "spectrum" | "frame" | "tegenspraak";
 
@@ -24,7 +24,7 @@ export interface Bubble {
   estimated: boolean;
   /** Perspective index (-1 when the event has no clusters) */
   perspectiveIndex: number;
-  perspectiveClueId: string | null;
+  perspectiveFindingId: string | null;
   stance: string | null;
   articleCount: number;
   spectrum: number | null;
@@ -35,19 +35,17 @@ export interface Bubble {
   establishment: number | null;
   /** First own-framing frame type of this outlet */
   frameType: string | null;
-  frameClueId: string | null;
+  frameFindingId: string | null;
 }
 
 export interface BubbleGroup {
   key: string;
   label: string;
-  /** Shown until the group is discovered */
-  maskedLabel: string;
-  clueId: string | null;
+  findingId: string | null;
 }
 
 export interface ContradictionLine {
-  clueId: string;
+  findingId: string;
   topic: string;
   from: string;
   to: string;
@@ -65,48 +63,48 @@ export interface BubbleScene {
 }
 
 /** Build the bubbles of an event: one per (perspective, outlet), Dutch and foreign (see selectBubbles). */
-export function buildBubbleScene(input: ExploreInput, clues: Clue[], index = new ArticleIndex(input)): BubbleScene {
-  const perspectiveClues = clues.filter((clue) => clue.body.type === "perspective");
-  const frameClues = clues.filter((clue) => clue.body.type === "frame");
-  const outletFrame = new Map<string, { type: string; clueId: string }>();
-  for (const clue of frameClues) {
-    if (clue.body.type !== "frame" || clue.body.frame.attribution === "geciteerd") continue;
-    for (const key of clue.outletKeys) {
-      if (!outletFrame.has(key)) outletFrame.set(key, { type: clue.body.frame.frame_type, clueId: clue.id });
+export function buildBubbleScene(input: ExploreInput, findings: Finding[], index = new ArticleIndex(input)): BubbleScene {
+  const perspectiveFindings = findings.filter((finding) => finding.body.type === "perspective");
+  const frameFindings = findings.filter((finding) => finding.body.type === "frame");
+  const outletFrame = new Map<string, { type: string; findingId: string }>();
+  for (const finding of frameFindings) {
+    if (finding.body.type !== "frame" || finding.body.frame.attribution === "geciteerd") continue;
+    for (const key of finding.outletKeys) {
+      if (!outletFrame.has(key)) outletFrame.set(key, { type: finding.body.frame.frame_type, findingId: finding.id });
     }
   }
 
   const bubbles: Bubble[] = [];
   const covered = new Set<string>();
 
-  for (const clue of perspectiveClues) {
-    if (clue.body.type !== "perspective") continue;
-    for (const stance of clue.body.stances) {
+  for (const finding of perspectiveFindings) {
+    if (finding.body.type !== "perspective") continue;
+    for (const stance of finding.body.stances) {
       const outlet = index.outlet(stance.outletKey);
       if (!outlet) continue;
       covered.add(outlet.key);
       bubbles.push({
-        id: `${clue.body.index}:${outlet.key}`,
+        id: `${finding.body.index}:${outlet.key}`,
         outletKey: outlet.key,
         isInternational: outlet.isInternational,
-        perspectiveIndex: clue.body.index,
-        perspectiveClueId: clue.id,
+        perspectiveIndex: finding.body.index,
+        perspectiveFindingId: finding.id,
         estimated: false,
         // Shown right away; the perspective itself when the analysis gives no words for this outlet
-        stance: stance.stance?.trim() || clue.body.cluster.label,
+        stance: stance.stance?.trim() || finding.body.cluster.label,
         articleCount: outlet.articleIds.length,
         spectrum: outlet.spectrum,
         isAlternative: outlet.isAlternative,
         x: outlet.x,
         establishment: outlet.establishment,
         frameType: outletFrame.get(outlet.key)?.type ?? null,
-        frameClueId: outletFrame.get(outlet.key)?.clueId ?? null,
+        frameFindingId: outletFrame.get(outlet.key)?.findingId ?? null,
       });
     }
   }
   // Outlets the analysis did not put in a perspective go with the one their headlines lean to; only
   // without a clear winner in the group "Nog niet ingedeeld"
-  const estimates = perspectiveEstimates(input, clues, index);
+  const estimates = perspectiveEstimates(input, findings, index);
   for (const outlet of input.outlets) {
     if (covered.has(outlet.key)) continue;
     const estimate = estimates.get(outlet.key);
@@ -116,7 +114,7 @@ export function buildBubbleScene(input: ExploreInput, clues: Clue[], index = new
       isInternational: outlet.isInternational,
       estimated: Boolean(estimate),
       perspectiveIndex: estimate ? estimate.index : -1,
-      perspectiveClueId: null,
+      perspectiveFindingId: null,
       stance: null,
       articleCount: outlet.articleIds.length,
       spectrum: outlet.spectrum,
@@ -124,18 +122,17 @@ export function buildBubbleScene(input: ExploreInput, clues: Clue[], index = new
       x: outlet.x,
       establishment: outlet.establishment,
       frameType: outletFrame.get(outlet.key)?.type ?? null,
-      frameClueId: outletFrame.get(outlet.key)?.clueId ?? null,
+      frameFindingId: outletFrame.get(outlet.key)?.findingId ?? null,
     });
   }
 
-  const invalshoek: BubbleGroup[] = perspectiveClues.map((clue) => ({
-    key: `p${clue.body.type === "perspective" ? clue.body.index : 0}`,
-    label: clue.body.type === "perspective" ? clue.body.cluster.label : "",
-    maskedLabel: clue.teaser.title,
-    clueId: clue.id,
+  const invalshoek: BubbleGroup[] = perspectiveFindings.map((finding) => ({
+    key: `p${finding.body.type === "perspective" ? finding.body.index : 0}`,
+    label: finding.body.type === "perspective" ? finding.body.cluster.label : "",
+    findingId: finding.id,
   }));
   if (bubbles.some((bubble) => bubble.perspectiveIndex === -1)) {
-    invalshoek.push({ key: "p-1", label: "Nog niet ingedeeld", maskedLabel: "Nog niet ingedeeld", clueId: null });
+    invalshoek.push({ key: "p-1", label: "Nog niet ingedeeld", findingId: null });
   }
 
   const frameGroups = new Map<string, BubbleGroup>();
@@ -145,28 +142,27 @@ export function buildBubbleScene(input: ExploreInput, clues: Clue[], index = new
       frameGroups.set(key, {
         key,
         label: bubble.frameType ? frameLabel(bubble.frameType) : "Geen eigen frame",
-        maskedLabel: bubble.frameType ? "Frame ?" : "Geen eigen frame",
-        clueId: bubble.frameClueId,
+        findingId: bubble.frameFindingId,
       });
     }
   }
 
   const contradictions: ContradictionLine[] = [];
-  for (const clue of clues) {
-    if (clue.body.type !== "contradiction") continue;
-    const from = bubbles.find((bubble) => clue.body.type === "contradiction" && clue.body.outletsA.includes(bubble.outletKey));
+  for (const finding of findings) {
+    if (finding.body.type !== "contradiction") continue;
+    const from = bubbles.find((bubble) => finding.body.type === "contradiction" && finding.body.outletsA.includes(bubble.outletKey));
     const to = bubbles.find(
       (bubble) =>
-        clue.body.type === "contradiction" && clue.body.outletsB.includes(bubble.outletKey) && bubble.id !== from?.id,
+        finding.body.type === "contradiction" && finding.body.outletsB.includes(bubble.outletKey) && bubble.id !== from?.id,
     );
     if (from && to) {
       contradictions.push({
-        clueId: clue.id,
-        topic: clue.body.contradiction.topic,
+        findingId: finding.id,
+        topic: finding.body.contradiction.topic,
         from: from.id,
         to: to.id,
-        outletsA: clue.body.outletsA,
-        outletsB: clue.body.outletsB,
+        outletsA: finding.body.outletsA,
+        outletsB: finding.body.outletsB,
       });
     }
   }
@@ -175,7 +171,7 @@ export function buildBubbleScene(input: ExploreInput, clues: Clue[], index = new
     bubbles,
     groupsByLens: {
       invalshoek,
-      spectrum: [{ key: "s:main", label: "Spectrum", maskedLabel: "Spectrum", clueId: null }],
+      spectrum: [{ key: "s:main", label: "Spectrum", findingId: null }],
       frame: Array.from(frameGroups.values()),
     },
     contradictions,
@@ -189,8 +185,17 @@ export interface SourceSelection {
   removed: readonly string[];
 }
 
-export function isOutletShown(outlet: { key: string; isInternational: boolean }, selection?: SourceSelection | null): boolean {
-  return outlet.isInternational ? Boolean(selection?.added.includes(outlet.key)) : !selection?.removed.includes(outlet.key);
+/**
+ * Dutch outlets are in the picture unless left out; foreign ones only when added — except one that
+ * was added to the news for a missing voice (it is there to be seen).
+ */
+export function isOutletShown(
+  outlet: { key: string; isInternational: boolean; foundVoice?: boolean },
+  selection?: SourceSelection | null,
+): boolean {
+  return outlet.isInternational && !outlet.foundVoice
+    ? Boolean(selection?.added.includes(outlet.key))
+    : !selection?.removed.includes(outlet.key);
 }
 
 /** The scene with only the chosen outlets: empty groups disappear, contradiction lines follow their outlets. */
@@ -548,7 +553,7 @@ export function layoutBubbles(boxes: BubbleBox[], groupOrder: string[], options:
 /** Convenience: boxes for a lens (bubbles with a perspective are larger: they show it). */
 export function bubbleBoxes(scene: BubbleScene, lens: HeroLens): BubbleBox[] {
   return scene.bubbles.map((bubble) => {
-    const size = bubble.perspectiveClueId ? BUBBLE_OPEN : BUBBLE_PLAIN;
+    const size = bubble.perspectiveFindingId ? BUBBLE_OPEN : BUBBLE_PLAIN;
     const box: BubbleBox = { id: bubble.id, group: bubbleGroupKey(bubble, lens), width: size.width, height: size.height };
     if (lens === "spectrum") {
       // 2D map: links (0) -> rechts (10) and gevestigd (+1, top) -> alternatief (-1, bottom)

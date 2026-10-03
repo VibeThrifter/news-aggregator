@@ -1,18 +1,16 @@
 /**
- * Derive investigation clues ("aanwijzingen") from the analysis, grouped per spoor.
+ * Findings ("bevindingen"): every analysis field turned into an item that hangs on something you
+ * can see — an outlet, a speaker or a missing voice — and belongs to one tab under "Wie zegt wat?".
  *
- * A clue is face down until the user reveals it. The teaser may say WHERE to look (outlets,
- * actor names, counts) but never gives away WHAT was found.
+ * Ids are `<type>:<hash>`: the ids of the old clue model without their spoor prefix, so saved
+ * dossier items map one-to-one (see `legacyFindingId`).
  */
-
-import { getCountryFlag, getCountryName } from "@/lib/format";
 
 import { biasByOutlet } from "./bias";
 import {
   actorNode,
   claimNode,
   contradictionNode,
-  countryNode,
   fallacyNode,
   frameNode,
   gapNode,
@@ -21,47 +19,60 @@ import {
   statisticNode,
 } from "./ids";
 import { ArticleIndex } from "./input";
-import { PRESENTED_AS_LABELS } from "./labels";
+import { OWN_KIND_LABELS } from "./labels";
 import { actorKeys, fnv1a } from "./normalize";
 import { firstReporters, parseTimelineTime } from "./timeline";
-import type { Clue, ClueBody, ExploreInput, NodeId, SpoorId, StanceEntry } from "./types";
+import type { AnalysisBody, AnalysisType, ExploreInput, Finding, NodeId, StanceEntry, TabId } from "./types";
 
 const PERSON_TYPES = /(persoon|politicus|minister|expert|wetenschapper|hoogleraar|woordvoerder|journalist|arts|advocaat)/i;
 
-class ClueCollector {
-  readonly clues: Clue[] = [];
-  private ids = new Set<string>();
-  private orders = new Map<SpoorId, number>();
+/** The tab each kind of finding belongs to (a reader's own entries: see own.ts). */
+export const TAB_OF_TYPE: Record<AnalysisType, TabId> = {
+  perspective: "invalshoeken",
+  voices: "stemmen",
+  authority: "stemmen",
+  contradiction: "klopt",
+  claim: "klopt",
+  statistic: "klopt",
+  fallacy: "klopt",
+  frame: "gebracht",
+  tone: "gebracht",
+  bias: "gebracht",
+  gap: "ontbreekt",
+  questions: "ontbreekt",
+  science: "ontbreekt",
+  first: "tijdlijn",
+  timeline: "tijdlijn",
+  timing: "tijdlijn",
+};
 
-  add(
-    spoor: SpoorId,
-    key: string,
-    body: ClueBody,
-    teaser: Clue["teaser"],
-    outletKeys: string[],
-    links: NodeId[],
-  ): Clue {
-    let id = `${spoor}:${body.type}:${fnv1a(key)}`;
+class FindingCollector {
+  readonly findings: Finding[] = [];
+  private ids = new Set<string>();
+  private orders = new Map<TabId, number>();
+
+  add(key: string, body: AnalysisBody, outletKeys: string[], links: NodeId[]): Finding {
+    const tab = TAB_OF_TYPE[body.type];
+    let id = `${body.type}:${fnv1a(key)}`;
     let suffix = 2;
     while (this.ids.has(id)) {
-      id = `${spoor}:${body.type}:${fnv1a(key)}-${suffix}`;
+      id = `${body.type}:${fnv1a(key)}-${suffix}`;
       suffix += 1;
     }
     this.ids.add(id);
-    const order = this.orders.get(spoor) ?? 0;
-    this.orders.set(spoor, order + 1);
-    const clue: Clue = {
+    const order = this.orders.get(tab) ?? 0;
+    this.orders.set(tab, order + 1);
+    const finding: Finding = {
       id,
-      spoor,
+      tab,
       type: body.type,
-      teaser,
       outletKeys: unique(outletKeys),
       links: unique(links),
       order,
       body,
     };
-    this.clues.push(clue);
-    return clue;
+    this.findings.push(finding);
+    return finding;
   }
 }
 
@@ -69,22 +80,16 @@ function unique<T>(values: T[]): T[] {
   return Array.from(new Set(values));
 }
 
-function outletNames(index: ArticleIndex, keys: string[], max = 3): string {
-  const names = keys.map((key) => index.outlet(key)?.name ?? key);
-  if (names.length <= max) return names.join(", ");
-  return `${names.slice(0, max).join(", ")} +${names.length - max}`;
-}
-
 export function isPersonAuthority(authorityType: string | null | undefined): boolean {
   return Boolean(authorityType && PERSON_TYPES.test(authorityType));
 }
 
-export function deriveClues(input: ExploreInput, index: ArticleIndex = new ArticleIndex(input)): Clue[] {
-  const collector = new ClueCollector();
+export function deriveFindings(input: ExploreInput, index: ArticleIndex = new ArticleIndex(input)): Finding[] {
+  const collector = new FindingCollector();
   const insight = input.insight;
   const dutchOutlets = input.outlets.filter((outlet) => !outlet.isInternational);
 
-  // --- Wie zegt wat? ---------------------------------------------------------------------------
+  // --- Invalshoeken ----------------------------------------------------------------------------
   (insight?.clusters ?? []).forEach((cluster, i) => {
     const stances: StanceEntry[] = [];
     for (const source of cluster.sources ?? []) {
@@ -99,19 +104,15 @@ export function deriveClues(input: ExploreInput, index: ArticleIndex = new Artic
     }
     const outletKeys = stances.map((entry) => entry.outletKey);
     collector.add(
-      "wie-zegt-wat",
       `cluster:${cluster.label}`,
       { type: "perspective", cluster, index: i, stances },
-      {
-        title: `Invalshoek ${i + 1}`,
-        hint: outletKeys.length === 1 ? "1 bron" : `${outletKeys.length} bronnen`,
-      },
       outletKeys,
       [perspectiveNode(i), ...outletKeys.map(outletNode)],
     );
   });
 
-  // Voices: who gets quoted per Dutch outlet
+  // --- Wie praat? ------------------------------------------------------------------------------
+  // Voices: who gets quoted per Dutch outlet, and its sourcing pattern
   for (const outlet of dutchOutlets) {
     const actors: { name: string; key: string; role: string | null }[] = [];
     const addActor = (name: string | null | undefined, role: string | null, person = false) => {
@@ -141,28 +142,31 @@ export function deriveClues(input: ExploreInput, index: ArticleIndex = new Artic
     const sourcingPattern = analysis?.sourcing_pattern?.trim() || null;
     if (actors.length === 0 && !sourcingPattern) continue;
     collector.add(
-      "wie-zegt-wat",
       `voices:${outlet.key}`,
       { type: "voices", outletKey: outlet.key, actors, sourcingPattern },
-      {
-        title: `Wie krijgt het woord bij ${outlet.name}?`,
-        hint: actors.length ? `${actors.length} ${actors.length === 1 ? "stem" : "stemmen"}` : "Bronpatroon",
-      },
       [outlet.key],
       [outletNode(outlet.key), ...actors.map((actor) => actorNode(actor.key))],
     );
   }
 
-  // --- Wat klopt er niet? ------------------------------------------------------------------------
+  for (const authority of insight?.authority_analysis ?? []) {
+    const { outletKey } = index.resolveUrl(authority.article_url);
+    const actor = actorKeys(authority.authority, { person: isPersonAuthority(authority.authority_type) });
+    collector.add(
+      `authority:${actor.slug}:${outletKey ?? ""}`,
+      { type: "authority", authority, outletKey, actorKey: actor.slug },
+      outletKey ? [outletKey] : [],
+      [actorNode(actor.slug), ...(outletKey ? [outletNode(outletKey)] : [])],
+    );
+  }
+
+  // --- Klopt het? ------------------------------------------------------------------------------
   for (const contradiction of insight?.contradictions ?? []) {
     const outletsA = index.outletsForUrls(contradiction.claim_a?.sources);
     const outletsB = index.outletsForUrls(contradiction.claim_b?.sources);
-    const sides = [outletNames(index, outletsA, 2), outletNames(index, outletsB, 2)].filter(Boolean);
     collector.add(
-      "wat-klopt-niet",
       `contradiction:${contradiction.topic}`,
       { type: "contradiction", contradiction, outletsA, outletsB },
-      { title: "Tegenspraak", hint: sides.length === 2 ? `${sides[0]} vs ${sides[1]}` : "Twee claims botsen" },
       [...outletsA, ...outletsB],
       [contradictionNode(contradiction.topic), ...[...outletsA, ...outletsB].map(outletNode)],
     );
@@ -171,15 +175,9 @@ export function deriveClues(input: ExploreInput, index: ArticleIndex = new Artic
   for (const claim of insight?.unsubstantiated_claims ?? []) {
     const { outletKey } = index.resolveUrl(claim.article_url);
     const actor = actorKeys(claim.source_in_article || "onbekend");
-    const presented = PRESENTED_AS_LABELS[claim.presented_as?.toLowerCase?.() ?? ""] ?? "zonder bewijs";
     collector.add(
-      "wat-klopt-niet",
       `claim:${claim.claim}`,
       { type: "claim", claim, outletKey, actorKey: actor.slug },
-      {
-        title: "Claim zonder bewijs",
-        hint: [presented, outletKey ? index.outlet(outletKey)?.name : null].filter(Boolean).join(" · "),
-      },
       outletKey ? [outletKey] : [],
       [claimNode(claim.claim), actorNode(actor.slug), ...(outletKey ? [outletNode(outletKey)] : [])],
     );
@@ -188,10 +186,8 @@ export function deriveClues(input: ExploreInput, index: ArticleIndex = new Artic
   for (const issue of insight?.statistical_issues ?? []) {
     const { outletKey } = index.resolveUrl(issue.article_url);
     collector.add(
-      "wat-klopt-niet",
       `statistic:${issue.claim}`,
       { type: "statistic", issue, outletKey },
-      { title: "Cijfer onder de loep", hint: outletKey ? index.outlet(outletKey)?.name : undefined },
       outletKey ? [outletKey] : [],
       [statisticNode(issue.claim), ...(outletKey ? [outletNode(outletKey)] : [])],
     );
@@ -200,86 +196,30 @@ export function deriveClues(input: ExploreInput, index: ArticleIndex = new Artic
   for (const fallacy of insight?.fallacies ?? []) {
     const outletKeys = index.outletsForUrls(fallacy.sources);
     collector.add(
-      "wat-klopt-niet",
       `fallacy:${fallacy.type}:${fallacy.description}`,
       { type: "fallacy", fallacy },
-      { title: "Redeneerfout gespot", hint: outletKeys.length ? outletNames(index, outletKeys) : undefined },
       outletKeys,
       [fallacyNode(`${fallacy.type}:${fallacy.description}`), ...outletKeys.map(outletNode)],
     );
   }
 
-  // --- Wie heeft er belang bij? --------------------------------------------------------------------
-  for (const authority of insight?.authority_analysis ?? []) {
-    const { outletKey } = index.resolveUrl(authority.article_url);
-    const actor = actorKeys(authority.authority, { person: isPersonAuthority(authority.authority_type) });
-    collector.add(
-      "wie-heeft-belang",
-      `authority:${actor.slug}:${outletKey ?? ""}`,
-      { type: "authority", authority, outletKey, actorKey: actor.slug },
-      { title: `Wie is ${actor.display}?`, hint: authority.authority_type || undefined },
-      outletKey ? [outletKey] : [],
-      [actorNode(actor.slug), ...(outletKey ? [outletNode(outletKey)] : [])],
-    );
-  }
-
-  if (insight?.timing_analysis?.why_now) {
-    collector.add(
-      "wie-heeft-belang",
-      "timing",
-      { type: "timing", timing: insight.timing_analysis },
-      { title: "Waarom juist nu?", hint: "Timing en cui bono" },
-      [],
-      [],
-    );
-  }
-
-  const ownedOutlets = dutchOutlets.filter((outlet) => outlet.profile?.pmEntityId || outlet.profile?.ownershipType);
-  if (ownedOutlets.length > 0) {
-    collector.add(
-      "wie-heeft-belang",
-      "ownership",
-      { type: "ownership", outletKeys: ownedOutlets.map((outlet) => outlet.key) },
-      {
-        title: ownedOutlets.length > 1 ? `Van wie zijn deze ${ownedOutlets.length} bronnen?` : `Van wie is ${ownedOutlets[0].name}?`,
-        hint: "Eigendom en geldstromen",
-      },
-      ownedOutlets.map((outlet) => outlet.key),
-      ownedOutlets.map((outlet) => outletNode(outlet.key)),
-    );
-  }
-
-  // --- Hoe wordt het gebracht? ---------------------------------------------------------------------
+  // --- Hoe gebracht? ---------------------------------------------------------------------------
   for (const frame of insight?.frames ?? []) {
-    const outletKeys = frame.attribution === "geciteerd" ? [] : index.outletsForUrls(frame.sources);
-    const quotedOutlets = frame.attribution === "geciteerd" ? index.outletsForUrls(frame.sources) : [];
+    const outletKeys = index.outletsForUrls(frame.sources);
     collector.add(
-      "hoe-gebracht",
       `frame:${frame.frame_type}:${frame.description}`,
       { type: "frame", frame },
-      {
-        title: "Welk frame?",
-        hint:
-          frame.attribution === "geciteerd"
-            ? `Geciteerd door ${outletNames(index, quotedOutlets)}`
-            : outletKeys.length
-              ? `Bij ${outletNames(index, outletKeys)}`
-              : undefined,
-      },
-      [...outletKeys, ...quotedOutlets],
-      [frameNode(frame.frame_type), ...outletKeys.map(outletNode)],
+      outletKeys,
+      [frameNode(frame.frame_type), ...(frame.attribution === "geciteerd" ? [] : outletKeys.map(outletNode))],
     );
   }
 
   for (const analysis of insight?.media_analysis ?? []) {
     if (!analysis.tone) continue;
     const outletKey = index.outletForName(analysis.source, analysis.article_url);
-    const name = outletKey ? (index.outlet(outletKey)?.name ?? analysis.source) : analysis.source;
     collector.add(
-      "hoe-gebracht",
       `tone:${outletKey ?? analysis.source}`,
       { type: "tone", analysis, outletKey },
-      { title: `Toon van ${name}`, hint: "Toon, kopieergedrag, anonieme bronnen" },
       outletKey ? [outletKey] : [],
       outletKey ? [outletNode(outletKey)] : [],
     );
@@ -289,7 +229,6 @@ export function deriveClues(input: ExploreInput, index: ArticleIndex = new Artic
     const outlet = index.outlet(entry.outletKey);
     if (!outlet || entry.sentenceCount === 0) continue;
     collector.add(
-      "hoe-gebracht",
       `bias:${entry.outletKey}`,
       {
         type: "bias",
@@ -299,25 +238,14 @@ export function deriveClues(input: ExploreInput, index: ArticleIndex = new Artic
         sentenceCount: entry.sentenceCount,
         topTypes: entry.topTypes,
       },
-      {
-        title: `${entry.sentenceCount} gekleurde ${entry.sentenceCount === 1 ? "zin" : "zinnen"} bij ${outlet.name}`,
-        hint: "Bias per zin",
-      },
       [entry.outletKey],
       [outletNode(entry.outletKey)],
     );
   }
 
-  // --- Wat zie je niet? ----------------------------------------------------------------------------
+  // --- Wat ontbreekt? --------------------------------------------------------------------------
   for (const gap of insight?.coverage_gaps ?? []) {
-    collector.add(
-      "wat-zie-je-niet",
-      `gap:${gap.perspective}`,
-      { type: "gap", gap },
-      { title: "Ontbrekend perspectief", hint: "Een stem die niet klinkt" },
-      [],
-      [gapNode(gap.perspective)],
-    );
+    collector.add(`gap:${gap.perspective}`, { type: "gap", gap }, [], [gapNode(gap.perspective)]);
   }
 
   for (const analysis of insight?.media_analysis ?? []) {
@@ -325,51 +253,24 @@ export function deriveClues(input: ExploreInput, index: ArticleIndex = new Artic
     const omitted = analysis.perspectives_omitted?.length ?? 0;
     if (questions === 0 && omitted === 0 && !analysis.framing_by_omission) continue;
     const outletKey = index.outletForName(analysis.source, analysis.article_url);
-    const name = outletKey ? (index.outlet(outletKey)?.name ?? analysis.source) : analysis.source;
     collector.add(
-      "wat-zie-je-niet",
       `questions:${outletKey ?? analysis.source}`,
       { type: "questions", analysis, outletKey },
-      {
-        title: questions
-          ? `${questions} ${questions === 1 ? "vraag" : "vragen"} die ${name} niet stelde`
-          : `Wat liet ${name} weg?`,
-      },
       outletKey ? [outletKey] : [],
       outletKey ? [outletNode(outletKey)] : [],
     );
   }
 
   if (insight?.scientific_plurality?.topic) {
-    collector.add(
-      "wat-zie-je-niet",
-      "science",
-      { type: "science", plurality: insight.scientific_plurality },
-      { title: "Is er echt consensus?", hint: "Wetenschappelijk debat" },
-      [],
-      [],
-    );
+    collector.add("science", { type: "science", plurality: insight.scientific_plurality }, [], []);
   }
 
-  if ((insight?.clusters?.length ?? 0) === 1 && dutchOutlets.length >= 3) {
-    collector.add(
-      "wat-zie-je-niet",
-      "consensus",
-      { type: "consensus", clusterLabel: insight?.clusters?.[0]?.label ?? "" },
-      { title: "Iedereen hetzelfde verhaal?", hint: `${dutchOutlets.length} bronnen, één invalshoek` },
-      dutchOutlets.map((outlet) => outlet.key),
-      [perspectiveNode(0)],
-    );
-  }
-
-  // --- Hoe liep het? -------------------------------------------------------------------------------
+  // --- Tijdlijn --------------------------------------------------------------------------------
   const order = firstReporters(input);
   if (order.length >= 2) {
     collector.add(
-      "hoe-liep-het",
       "first",
       { type: "first", order },
-      { title: "Wie was er het eerst?", hint: `${order.length} bronnen in de race` },
       order.map((entry) => entry.outletKey),
       order.map((entry) => outletNode(entry.outletKey)),
     );
@@ -380,40 +281,27 @@ export function deriveClues(input: ExploreInput, index: ArticleIndex = new Artic
     const parsed = parseTimelineTime(item.time, item.headline);
     const outletKeys = index.outletsForUrls(item.sources);
     collector.add(
-      "hoe-liep-het",
       `timeline:${i}:${item.time}:${item.headline}`,
       { type: "timeline", item, timeLabel: parsed.label, historic: parsed.yearOnly },
-      { title: parsed.label === "–" ? "Een moment" : parsed.label, hint: "Wat gebeurde er?" },
       outletKeys,
       outletKeys.map(outletNode),
     );
   });
 
-  // --- En het buitenland? --------------------------------------------------------------------------
-  // Only the countries that play a role. Foreign outlets are not clues: of their articles only the
-  // headline is known, which the outlet balloon already shows ("Wat schreef …?").
-  for (const country of insight?.involved_countries ?? []) {
-    if (!country.iso_code) continue;
-    collector.add(
-      "buitenland",
-      `country:${country.iso_code}`,
-      { type: "country", country },
-      { title: `Waarom ${getCountryName(country.iso_code)}?`, hint: getCountryFlag(country.iso_code) || undefined },
-      [],
-      [countryNode(country.iso_code)],
-    );
+  if (insight?.timing_analysis?.why_now) {
+    collector.add("timing", { type: "timing", timing: insight.timing_analysis }, [], []);
   }
 
-  return collector.clues;
+  return collector.findings;
 }
 
-/** Clues grouped per spoor, in display order. */
-export function cluesBySpoor(clues: Clue[]): Map<SpoorId, Clue[]> {
-  const map = new Map<SpoorId, Clue[]>();
-  for (const clue of clues) {
-    const list = map.get(clue.spoor) ?? [];
-    list.push(clue);
-    map.set(clue.spoor, list);
+/** Findings grouped per tab, in display order. */
+export function findingsByTab(findings: Finding[]): Map<TabId, Finding[]> {
+  const map = new Map<TabId, Finding[]>();
+  for (const finding of findings) {
+    const list = map.get(finding.tab) ?? [];
+    list.push(finding);
+    map.set(finding.tab, list);
   }
   for (const list of Array.from(map.values())) {
     list.sort((a, b) => a.order - b.order);
@@ -421,37 +309,48 @@ export function cluesBySpoor(clues: Clue[]): Map<SpoorId, Clue[]> {
   return map;
 }
 
-export const CLUE_TYPE_LABELS: Record<Clue["type"], string> = {
+/** The spoor prefixes of the old clue model (Epic 11): `wat-klopt-niet:claim:abc` -> `claim:abc`. */
+const LEGACY_SPOREN = ["wie-zegt-wat", "wat-klopt-niet", "wie-heeft-belang", "hoe-gebracht", "wat-zie-je-niet", "hoe-liep-het", "buitenland"];
+
+export function legacyFindingId(id: string): string {
+  const prefix = LEGACY_SPOREN.find((spoor) => id.startsWith(`${spoor}:`));
+  return prefix ? id.slice(prefix.length + 1) : id;
+}
+
+export const FINDING_TYPE_LABELS: Record<Finding["type"], string> = {
   perspective: "Invalshoek",
   voices: "Stemmen",
   contradiction: "Tegenspraak",
   claim: "Claim zonder bewijs",
   statistic: "Cijfer",
   fallacy: "Redeneerfout",
-  authority: "Bronkritiek",
-  timing: "Timing",
-  ownership: "Eigendom",
+  authority: "Autoriteit",
+  timing: "Waarom nu?",
   frame: "Frame",
   tone: "Toon",
-  bias: "Bias per zin",
-  gap: "Ontbrekend perspectief",
+  bias: "Gekleurde zinnen",
+  gap: "Ontbrekende stem",
   questions: "Niet gesteld",
   science: "Wetenschap",
-  consensus: "Eenstemmigheid",
   first: "Wie eerst",
   timeline: "Moment",
-  country: "Land",
+  own: "Van jou",
 };
 
-/** Title of a revealed clue (used on the card front and in the dossier). */
-export function revealedTitle(clue: Clue, index: ArticleIndex): string {
-  const body = clue.body;
+/** Type label of a finding; a reader's own entry by its kind ("Twijfel", "Ontbrekende stem"). */
+export function findingLabel(finding: Finding): string {
+  return finding.body.type === "own" ? OWN_KIND_LABELS[finding.body.entry.kind] : FINDING_TYPE_LABELS[finding.type];
+}
+
+/** Short title of a finding (rows, dossier, popovers). */
+export function findingTitle(finding: Finding, index: ArticleIndex): string {
+  const body = finding.body;
   const outletName = (key: string | null | undefined) => (key ? (index.outlet(key)?.name ?? key) : "");
   switch (body.type) {
     case "perspective":
       return body.cluster.label;
     case "voices":
-      return `Stemmen bij ${outletName(body.outletKey)}`;
+      return `Wie praat bij ${outletName(body.outletKey)}`;
     case "contradiction":
       return body.contradiction.topic;
     case "claim":
@@ -463,9 +362,7 @@ export function revealedTitle(clue: Clue, index: ArticleIndex): string {
     case "authority":
       return body.authority.authority;
     case "timing":
-      return "Waarom juist nu?";
-    case "ownership":
-      return "Eigendom van de bronnen";
+      return "Waarom nu?";
     case "frame":
       return body.frame.technique || body.frame.frame_type;
     case "tone":
@@ -478,15 +375,13 @@ export function revealedTitle(clue: Clue, index: ArticleIndex): string {
       return `Niet gesteld door ${outletName(body.outletKey) || body.analysis.source}`;
     case "science":
       return body.plurality.topic;
-    case "consensus":
-      return "Iedereen hetzelfde verhaal";
     case "first":
       return `Eerst: ${outletName(body.order[0]?.outletKey)}`;
     case "timeline":
       return body.item.headline;
-    case "country":
-      return body.country.name;
+    case "own":
+      return body.entry.text;
     default:
-      return clue.teaser.title;
+      return FINDING_TYPE_LABELS[finding.type];
   }
 }

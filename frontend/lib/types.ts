@@ -394,10 +394,14 @@ export interface PmNeighborhood {
   truncated: boolean;
   /** Relations touching the center per filter, regardless of `filters` ("overig" = no filter; missing = 0) */
   filter_counts?: Record<string, number>;
-  /** Per filter: who the relations touching the center are with (entity type) and how (mechanism), over all of them */
+  /** Per filter: who the relations touching the center are with (entity type) and how (mechanism), over all of them (only `direction` when given) */
   breakdown?: Record<string, PmBreakdown>;
   /** The filters these relations were restricted to (null = all) */
   filters?: string[] | null;
+  /** Per filter how many relations touching the center go each way of influence (migration 008; missing on older databases) */
+  direction_counts?: Record<string, { in: number; out: number }>;
+  /** The direction these relations were restricted to: "in" = influence on the center, "out" = the center's influence (null = both) */
+  direction?: "in" | "out" | null;
 }
 
 /** Relations of one entity via one filter, counted per type of the other party and per mechanism. */

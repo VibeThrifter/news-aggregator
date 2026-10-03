@@ -21,8 +21,10 @@ test.describe("Netwerk", () => {
     const telegraaf = page.locator(".react-flow__node").filter({ hasText: /^De Telegraaf$/ });
     await telegraaf.click();
     const tip = page.getByRole("dialog", { name: "De Telegraaf" });
-    const questions = tip.getByRole("group", { name: "Vragen" });
-    await expect(questions.getByRole("button").first()).toBeVisible();
+    // Two questions per filter, side by side: who has influence on it, and on whom it has influence
+    const questions = tip.getByRole("table", { name: "Vragen" });
+    await expect(questions.getByRole("button", { name: /^Wie heeft invloed op De Telegraaf via / }).first()).toBeVisible();
+    await expect(questions.getByRole("button", { name: /^Op wie heeft De Telegraaf invloed via / }).first()).toBeVisible();
     await expect(tip.getByRole("button", { name: /^Breid uit/ })).toHaveCount(0);
 
     // A question along a filter that is off by default: that filter switches on, a few parties join
@@ -31,7 +33,7 @@ test.describe("Netwerk", () => {
     const nodes = page.locator(".react-flow__node");
     await expect.poll(() => nodes.count()).toBeGreaterThan(0);
     const before = await nodes.count();
-    await questions.getByRole("button", { name: /^Wie valt aan\? · \d+$/ }).click();
+    await questions.getByRole("button", { name: /^Wie heeft invloed op De Telegraaf via Flak\? \d+$/ }).click();
     await expect(tip).toBeHidden();
     await expect(flakLegend).toHaveAttribute("aria-pressed", "true");
     await expect.poll(() => nodes.count()).toBeGreaterThan(before);
@@ -49,7 +51,7 @@ test.describe("Netwerk", () => {
 
     // Asked questions are ticked off (tap the name: a neighbour's label may overlap the circle)
     await telegraaf.getByText("De Telegraaf", { exact: true }).click();
-    await expect(questions.getByRole("button", { name: /^Wie valt aan\? · \d+$/ })).toBeDisabled();
+    await expect(questions.getByRole("button", { name: /^Wie heeft invloed op De Telegraaf via Flak\? \d+$/ })).toBeDisabled();
 
     // Meer weten
     await tip.getByRole("button", { name: "Meer weten" }).click();
@@ -61,7 +63,10 @@ test.describe("Netwerk", () => {
     await expect(page.getByText("Dit nieuws", { exact: true })).toBeVisible({ timeout: 20_000 });
     const nodes = page.locator(".react-flow__node");
     await nodes.filter({ hasText: /^NOS$/ }).click();
-    await page.getByRole("dialog", { name: "NOS" }).getByRole("group", { name: "Vragen" }).getByRole("button", { name: /^Wie praat mee\? · \d+$/ }).click();
+    await page.getByRole("dialog", { name: "NOS" }).getByRole("button", { name: /^Wie heeft invloed op NOS via Bronnen\? \d+$/ }).click();
+    // The answers come in see-through: keep them all
+    await page.getByRole("group", { name: "Nieuw in het netwerk" }).getByRole("button", { name: "Houd alle" }).click();
+    await expect(page.locator('.react-flow__node:has([data-pending="true"])')).toHaveCount(0);
 
     // Not every source NOS ever used: the three most specific are drawn, the rest is one bundle
     const bundle = nodes.filter({ hasText: /^\+\d+\s*Bronnen$/ });
@@ -70,7 +75,7 @@ test.describe("Netwerk", () => {
     const count = await countOf();
     expect(count).toBeGreaterThan(20);
     await bundle.click();
-    const tip = page.getByRole("dialog", { name: `Nog ${count} via Bronnen` });
+    const tip = page.getByRole("dialog", { name: `Nog ${count} via Bronnen · invloed op NOS` });
     await expect(tip.getByText("Met wie?")).toBeVisible();
     await expect(tip.getByRole("group", { name: "Soort partij" }).getByRole("button").first()).toBeVisible();
     await expect(tip.getByText(/^Hoe:/)).toBeVisible();
@@ -88,6 +93,125 @@ test.describe("Netwerk", () => {
     await expect.poll(countOf).toBe(count);
   });
 
+  test("shows what a question adds see-through: tap what stays, the rest goes", async ({ page }) => {
+    await page.goto("/event/demo/netwerk");
+    await expect(page.getByText("Dit nieuws", { exact: true })).toBeVisible({ timeout: 20_000 });
+    const nodes = page.locator(".react-flow__node");
+    const ghosts = page.locator('.react-flow__node:has([data-pending="true"])');
+    const ghostBundle = ghosts.filter({ hasText: /^\+\d+/ });
+    const bar = page.getByRole("group", { name: "Nieuw in het netwerk" });
+    await expect(page.getByText("Laden…", { exact: true })).toBeHidden();
+    await expect(bar).toBeHidden();
+    const before = await nodes.count();
+    const askNos = async () => {
+      await nodes.filter({ hasText: /^NOS$/ }).click();
+      const question = page.getByRole("dialog", { name: "NOS" }).getByRole("button", { name: /^Wie heeft invloed op NOS via Bronnen\? \d+$/ });
+      await expect(question).toBeEnabled();
+      await question.click();
+    };
+
+    // The three most specific sources and the bundle with the rest come in see-through
+    await askNos();
+    await expect.poll(() => ghosts.count()).toBeGreaterThanOrEqual(2);
+    await expect(ghostBundle).toHaveCount(1);
+    await expect(bar.getByRole("button", { name: "Alles weg" })).toBeVisible();
+
+    // Tap one: it stays and opens; the rest (the bundle too) stays see-through
+    const party = ghosts.filter({ hasNotText: /^\+\d+/ }).first();
+    const name = (await party.locator("span").last().innerText()).trim();
+    await party.click();
+    await expect(page.getByRole("dialog", { name })).toBeVisible();
+    const kept = nodes.filter({ hasText: name });
+    await expect(kept.locator('[data-pending="true"]')).toHaveCount(0);
+    await expect(ghostBundle).toHaveCount(1);
+
+    // Rest weg: everything you did not tap goes, the bundle too
+    await bar.getByRole("button", { name: "Rest weg" }).click();
+    await expect(ghosts).toHaveCount(0);
+    await expect(bar).toBeHidden();
+    await expect(kept).toHaveCount(1);
+    await expect(nodes.filter({ hasText: /^\+\d+/ })).toHaveCount(0);
+    expect(await nodes.count()).toBe(before + 1);
+
+    // Undo brings them back see-through
+    await page.getByRole("button", { name: "Ongedaan maken" }).click();
+    await expect.poll(() => ghosts.count()).toBeGreaterThan(0);
+    await page.getByRole("button", { name: "Opnieuw", exact: true }).click();
+    await expect(ghosts).toHaveCount(0);
+
+    // Asking again brings back what went, see-through; keep nothing and the picture stays as it was
+    await askNos();
+    await expect(ghostBundle).toHaveCount(1);
+    await bar.getByRole("button", { name: "Alles weg" }).click();
+    await expect(ghosts).toHaveCount(0);
+    await expect.poll(() => nodes.count()).toBe(before + 1);
+
+    // A question of which you keep nothing is withdrawn: the picture is as before, and you can ask it again
+    const telegraaf = nodes.filter({ hasText: /^De Telegraaf$/ });
+    await telegraaf.getByText("De Telegraaf", { exact: true }).click();
+    const tip = page.getByRole("dialog", { name: "De Telegraaf" });
+    await tip.getByRole("button", { name: /^Wie heeft invloed op De Telegraaf via Flak\? \d+$/ }).click();
+    await expect.poll(() => ghosts.count()).toBeGreaterThan(0);
+    await bar.getByRole("button", { name: "Alles weg" }).click();
+    await expect.poll(() => nodes.count()).toBe(before + 1);
+    await expect(page.getByRole("button", { name: "Flak", exact: true })).toHaveAttribute("aria-pressed", "false");
+    await telegraaf.getByText("De Telegraaf", { exact: true }).click();
+    await expect(tip.getByRole("button", { name: /^Wie heeft invloed op De Telegraaf via Flak\? \d+$/ })).toBeEnabled();
+  });
+
+  test("asks who has influence on a party, and on whom it has influence, as different questions", async ({ page }) => {
+    await page.goto("/event/demo/netwerk");
+    await expect(page.getByText("Dit nieuws", { exact: true })).toBeVisible({ timeout: 20_000 });
+    const nodes = page.locator(".react-flow__node");
+    const dpg = nodes.filter({ hasText: /DPG Media$/ }); // initials before the name
+    await expect(dpg).toHaveCount(1);
+    await dpg.getByText("DPG Media", { exact: true }).click();
+    const tip = page.getByRole("dialog", { name: "DPG Media" });
+    const ownersQuestion = tip.getByRole("button", { name: /^Wie heeft invloed op DPG Media via Eigendom\? \d+$/ });
+    const titlesQuestion = tip.getByRole("button", { name: /^Op wie heeft DPG Media invloed via Eigendom\? \d+$/ });
+    // Its owners and its titles are different answers; only others pay DPG Media (advertisers)
+    const owners = Number((await ownersQuestion.innerText()).trim());
+    const titles = Number((await titlesQuestion.innerText()).trim());
+    expect(titles).toBeGreaterThan(owners);
+    await expect(tip.getByRole("button", { name: /^Wie heeft invloed op DPG Media via Advertenties\? \d+$/ })).toBeVisible();
+    await expect(tip.getByRole("button", { name: /^Op wie heeft DPG Media invloed via Advertenties\?/ })).toHaveCount(0);
+
+    // What DPG Media owns: three titles see-through and a bundle the line runs to (from DPG Media)
+    await titlesQuestion.click();
+    const ghosts = page.locator('.react-flow__node:has([data-pending="true"])');
+    await expect.poll(() => ghosts.count()).toBeGreaterThanOrEqual(2);
+    const bundle = ghosts.filter({ hasText: /^\+\d+\s*Eigendom$/ });
+    await expect(bundle).toHaveCount(1);
+    await bundle.click();
+    await expect(page.getByRole("dialog", { name: /^Nog \d+ via Eigendom · invloed van DPG Media$/ })).toBeVisible();
+
+    // The other question stays open, the asked one is ticked off
+    await page.keyboard.press("Escape");
+    await page.getByRole("group", { name: "Nieuw in het netwerk" }).getByRole("button", { name: "Houd alle" }).click();
+    await dpg.getByText("DPG Media", { exact: true }).click();
+    await expect(titlesQuestion).toBeDisabled();
+    await expect(ownersQuestion).toBeEnabled();
+  });
+
+  test("draws every person and organisation of the news, also those not in the model", async ({ page }) => {
+    await page.goto("/event/demo/netwerk");
+    await expect(page.getByText("Dit nieuws", { exact: true })).toBeVisible({ timeout: 20_000 });
+    const nodes = page.locator(".react-flow__node");
+    // In the model (Anouk Verbeek was found by "Wie is dit?" research) and not in the model
+    await expect(nodes.filter({ hasText: /Anouk Verbeek$/ })).toHaveCount(1);
+    await expect(nodes.filter({ hasText: /NordVind$/ })).toHaveCount(1);
+    await expect(nodes.filter({ hasText: /Stichting Stille Polder$/ })).toHaveCount(1);
+    // A private resident is never drawn
+    await expect(nodes.filter({ hasText: /Henk de Boer$/ })).toHaveCount(0);
+
+    await nodes.filter({ hasText: /NordVind$/ }).click();
+    const tip = page.getByRole("dialog", { name: "NordVind" });
+    await expect(tip.getByText(/niet in het propagandamodel · wordt nu uitgezocht/)).toBeVisible();
+    await expect(tip.getByRole("group")).toHaveCount(0); // no questions: it is not in the model
+    await tip.getByRole("button", { name: "Meer weten" }).click();
+    await expect(page.getByRole("dialog").filter({ hasText: "Netwerk & onderzoek" }).getByText("Wordt nu uitgezocht")).toBeVisible();
+  });
+
   test("finds routes between two parties instead of drawing everything around one", async ({ page }) => {
     await page.goto("/event/demo/netwerk");
     await expect(page.getByText("Dit nieuws", { exact: true })).toBeVisible({ timeout: 20_000 });
@@ -99,20 +223,22 @@ test.describe("Netwerk", () => {
     await nodes.filter({ hasText: /^NOS$/ }).click();
     const tip = page.getByRole("dialog", { name: "NOS" });
     await tip.getByRole("button", { name: "Zoek verband met…" }).click();
-    await tip.getByRole("textbox", { name: /^Verband tussen NOS en/ }).fill("DPG");
-    await tip.getByRole("button", { name: /DPG Media/ }).first().click();
+    // A party that is not in the starting view (DPG Media already is: it links the news' outlets)
+    const target = nodes.filter({ hasText: /BlackRock$/ });
+    await expect(target).toHaveCount(0);
+    await tip.getByRole("textbox", { name: /^Verband tussen NOS en/ }).fill("BlackRock");
+    await tip.getByRole("button", { name: /BlackRock/ }).first().click();
     await expect(tip).toBeHidden();
-    // Propaganda-model nodes show initials before the name (text "DMDPG Media"; not "DPG Media Group NV")
-    const dpg = nodes.filter({ hasText: /DPG Media$/ });
-    await expect(dpg).toHaveCount(1);
+    // Propaganda-model nodes show initials before the name
+    await expect(target).toHaveCount(1);
     const grown = await nodes.count();
     expect(grown).toBeGreaterThan(before);
-    expect(grown - before).toBeLessThanOrEqual(1 + 3 * 2); // DPG Media + at most two stations on each of three routes
+    expect(grown - before).toBeLessThanOrEqual(1 + 3 * 2); // the party + at most two stations on each of three routes
 
     // One step to undo
     await page.getByRole("button", { name: "Ongedaan maken" }).click();
     await expect.poll(() => nodes.count()).toBe(before);
-    await expect(dpg).toHaveCount(0);
+    await expect(target).toHaveCount(0);
 
     // Verbind met beeld: routes to what is on screen, or an honest "no route"
     await nodes.filter({ hasText: /^GeenStijl$/ }).click();
@@ -168,46 +294,41 @@ test.describe("Netwerk", () => {
     await expect(sheet.getByText("In het netwerk").first()).toBeVisible();
   });
 
-  test("event lenses show discovered things and ghosts for what is still hidden", async ({ page }) => {
-    await page.goto("/event/demo/netwerk?lens=tegenspraak");
-    const ghost = page.locator(".react-flow__node").filter({ hasText: /verborgen · Wat klopt er niet\?/ });
-    await expect(ghost).toBeVisible({ timeout: 20_000 });
-    await ghost.click();
-    await page.getByRole("button", { name: "Open het spoor" }).click();
-    await expect(page.getByRole("dialog").filter({ hasText: "Wat klopt er niet?" })).toBeVisible();
+  test("the network is the propaganda model only, and focus=outlet: works", async ({ page }) => {
+    await page.goto("/event/demo/netwerk?focus=outlet:nu-nl");
+    await expect(page.getByText("Dit nieuws", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("radio", { name: "Actoren" })).toHaveCount(0);
+    await expect(page.getByText(/verborgen/)).toHaveCount(0);
   });
 });
 
-test.describe("Onderzoeksbord", () => {
-  test("collects cards, suggests and makes connections", async ({ page }) => {
+test.describe("Bewaard", () => {
+  test("collects items, suggests and makes connections", async ({ page }) => {
     // Save NordVind (entity) from the demo
     await page.goto("/event/demo?p=entiteit:nordvind");
-    await page.getByRole("button", { name: "Bewaar in dossier" }).click();
-    await expect(page.getByText(/Bewaard in je dossier/)).toBeVisible();
+    await page.getByRole("dialog").getByRole("button", { name: "Bewaar", exact: true }).last().click();
+    await expect(page.getByText(/^Bewaard: /)).toBeVisible();
 
-    // Save the NordVind authority clue from the same (one) demo
-    await page.goto("/event/demo?p=spoor:wie-heeft-belang");
-    const sheet = page.getByRole("dialog").filter({ hasText: "Wie heeft er belang bij?" });
-    await sheet.getByRole("button", { name: /Wie is NordVind\?/ }).click();
-    await sheet.getByRole("button", { name: "Bewaar in dossier" }).first().click();
-    await expect(page.getByText(/Bewaard in je dossier/)).toBeVisible();
+    // Save a claim about NordVind's outlet from the list
+    await page.goto("/event/demo");
+    await page.getByRole("tab", { name: /^Klopt het\?/ }).click();
+    const row = page.locator("li[id^='finding-']").filter({ hasText: "miljoenen" }).first();
+    await row.getByRole("button", { name: "Openklappen" }).click();
+    await row.getByRole("button", { name: "Bewaar" }).click();
+    await expect(page.getByText(/^Bewaard: /)).toBeVisible();
+    await page.waitForLoadState("networkidle");
 
     await page.goto("/onderzoek");
-    await expect(page.getByText("2 kaarten · 0 verbanden")).toBeVisible();
-    await expect(page.getByText(/1 mogelijke verband/)).toBeVisible();
-
+    await expect(page.getByText("2 bewaard · 0 verbanden")).toBeVisible();
     await page.getByRole("button", { name: "Toon als lijst" }).click();
-    await page.getByRole("button", { name: /^NordVind/ }).first().click();
-    await page.getByRole("button", { name: /Bronkritiek|NordVind/ }).last().click();
-    await page.getByRole("button", { name: "zelfde eigenaar" }).click();
-    await expect(page.getByText("2 kaarten · 1 verbanden")).toBeVisible();
+    await expect(page.getByText("Claim zonder bewijs").first()).toBeVisible();
   });
 
   test("shows an empty board with recently explored events", async ({ page }) => {
     await page.goto("/event/demo");
     await expect(page.getByRole("heading", { level: 1, name: "Windpark Dijkerhoven splijt dorp en Den Haag" })).toBeVisible();
     await page.goto("/onderzoek");
-    await expect(page.getByText("Je bord is nog leeg")).toBeVisible();
+    await expect(page.getByText("Nog niets bewaard")).toBeVisible();
     await expect(page.getByRole("link", { name: /Windpark Dijkerhoven splijt dorp en Den Haag/ })).toBeVisible();
   });
 });

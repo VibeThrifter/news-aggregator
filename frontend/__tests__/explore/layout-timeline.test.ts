@@ -1,4 +1,4 @@
-import { deriveClues } from "@/lib/explore/clues";
+import { deriveFindings } from "@/lib/explore/findings";
 import { DEMO_EVENT } from "@/lib/explore/fixtures/demo-event";
 
 import { SECOND_EVENT } from "./fixtures/second-event";
@@ -114,7 +114,7 @@ describe("bubble layout", () => {
 
   it("builds a scene from the demo event with lenses and contradiction lines", () => {
     const input = buildExploreInput(DEMO_EVENT);
-    const clues = deriveClues(input);
+    const clues = deriveFindings(input);
     const scene = buildBubbleScene(input, clues);
     expect(scene.bubbles.length).toBeGreaterThanOrEqual(8);
     // Foreign outlets get a bubble too; they are only shown when the reader adds them
@@ -144,14 +144,14 @@ describe("bubble layout", () => {
 
     // Perspectives are shown right away: bubbles with one are large enough for it
     const boxes = bubbleBoxes(scene, "invalshoek");
-    expect(boxes.filter((box) => scene.bubbles.find((bubble) => bubble.id === box.id)?.perspectiveClueId).every((box) => box.width === BUBBLE_OPEN.width)).toBe(true);
-    expect(scene.bubbles.filter((bubble) => bubble.perspectiveClueId).every((bubble) => Boolean(bubble.stance))).toBe(true);
+    expect(boxes.filter((box) => scene.bubbles.find((bubble) => bubble.id === box.id)?.perspectiveFindingId).every((box) => box.width === BUBBLE_OPEN.width)).toBe(true);
+    expect(scene.bubbles.filter((bubble) => bubble.perspectiveFindingId).every((bubble) => Boolean(bubble.stance))).toBe(true);
   });
 });
 
 describe("choosing the outlets in the map", () => {
   const input = buildExploreInput(DEMO_EVENT);
-  const scene = buildBubbleScene(input, deriveClues(input));
+  const scene = buildBubbleScene(input, deriveFindings(input));
   const shownWith = (selection?: { added: string[]; removed: string[] }) =>
     selectBubbles(scene, (bubble) => isOutletShown({ key: bubble.outletKey, isInternational: bubble.isInternational }, selection));
 
@@ -176,7 +176,7 @@ describe("choosing the outlets in the map", () => {
   });
 
   it("gives outlets the analysis did not put in a perspective a plain bubble instead of typing dots", () => {
-    const plain = scene.bubbles.filter((bubble) => !bubble.perspectiveClueId);
+    const plain = scene.bubbles.filter((bubble) => !bubble.perspectiveFindingId);
     expect(plain.length).toBeGreaterThan(0);
     const boxes = bubbleBoxes({ ...scene, bubbles: plain }, "invalshoek");
     expect(boxes.every((box) => box.width === BUBBLE_PLAIN.width)).toBe(true);
@@ -184,7 +184,7 @@ describe("choosing the outlets in the map", () => {
 
   it("places them with the perspective their headlines lean to (estimate)", () => {
     const input2 = buildExploreInput(SECOND_EVENT);
-    const scene2 = buildBubbleScene(input2, deriveClues(input2));
+    const scene2 = buildBubbleScene(input2, deriveFindings(input2));
     const vissers = scene2.groupsByLens.invalshoek.find((group) => group.label === "Vissers in het nauw")!;
     for (const key of ["nu-nl", "geenstijl"]) {
       const bubble = scene2.bubbles.find((item) => item.outletKey === key)!;

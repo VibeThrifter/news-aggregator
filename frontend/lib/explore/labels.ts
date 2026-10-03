@@ -2,64 +2,44 @@
  * Dutch labels and descriptions used throughout the exploration UI.
  */
 
-import type { SpoorId } from "./types";
+import type { OwnKind, TabId } from "./types";
 
-export interface SpoorDefinition {
-  id: SpoorId;
-  question: string;
-  intro: string;
-  /** lucide icon name, resolved in the UI layer */
-  icon: string;
+export interface TabDefinition {
+  id: TabId;
+  /** The question the tab answers (also its label) */
+  label: string;
+  /** Accent colour (also used in SVG) */
+  color: string;
 }
 
-export const SPOREN: SpoorDefinition[] = [
-  {
-    id: "wie-zegt-wat",
-    question: "Wie zegt wat?",
-    intro: "Welke invalshoeken zijn er, en wie krijgt bij welke bron het woord?",
-    icon: "MessagesSquare",
-  },
-  {
-    id: "wat-klopt-niet",
-    question: "Wat klopt er niet?",
-    intro: "Tegenspraak tussen bronnen, claims zonder bewijs, rammelende cijfers en redeneerfouten.",
-    icon: "SearchCheck",
-  },
-  {
-    id: "wie-heeft-belang",
-    question: "Wie heeft er belang bij?",
-    intro: "Wie zijn de geciteerde autoriteiten, wie betaalt ze, en waarom is dit juist nu nieuws?",
-    icon: "Coins",
-  },
-  {
-    id: "hoe-gebracht",
-    question: "Hoe wordt het gebracht?",
-    intro: "Frames, toon en gekleurde zinnen: hoe het verhaal verteld wordt.",
-    icon: "Megaphone",
-  },
-  {
-    id: "wat-zie-je-niet",
-    question: "Wat zie je niet?",
-    intro: "Ontbrekende stemmen, vragen die niemand stelde en wat er is weggelaten.",
-    icon: "EyeOff",
-  },
-  {
-    id: "hoe-liep-het",
-    question: "Hoe liep het?",
-    intro: "Wie meldde wat wanneer, en hoe ontwikkelde het verhaal zich?",
-    icon: "History",
-  },
-  {
-    id: "buitenland",
-    question: "En het buitenland?",
-    intro: "Welke landen spelen een rol in dit verhaal, en waarom?",
-    icon: "Globe2",
-  },
+/** The tabs under "Wie zegt wat?", in display order (Epic 14). */
+export const TABS: TabDefinition[] = [
+  { id: "invalshoeken", label: "Invalshoeken", color: "#1F75CE" },
+  { id: "klopt", label: "Klopt het?", color: "#E30613" },
+  { id: "stemmen", label: "Wie praat?", color: "#b7791f" },
+  { id: "ontbreekt", label: "Wat ontbreekt?", color: "#0f766e" },
+  { id: "gebracht", label: "Hoe gebracht?", color: "#7c3aed" },
+  { id: "tijdlijn", label: "Tijdlijn", color: "#475569" },
 ];
 
-export const SPOOR_BY_ID: Record<SpoorId, SpoorDefinition> = Object.fromEntries(
-  SPOREN.map((spoor) => [spoor.id, spoor]),
-) as Record<SpoorId, SpoorDefinition>;
+export const TAB_BY_ID: Record<TabId, TabDefinition> = Object.fromEntries(TABS.map((tab) => [tab.id, tab])) as Record<
+  TabId,
+  TabDefinition
+>;
+
+export function isTabId(value: unknown): value is TabId {
+  return typeof value === "string" && value in TAB_BY_ID;
+}
+
+/** What you can add yourself, per kind (rows, popovers, the board). */
+export const OWN_KIND_LABELS: Record<OwnKind, string> = {
+  claim: "Twijfel",
+  speaker: "Spreker",
+  gap: "Ontbrekende stem",
+  question: "Vraag",
+  note: "Opmerking",
+  moment: "Moment",
+};
 
 export const FRAME_LABELS: Record<string, string> = {
   conflict: "Conflict",

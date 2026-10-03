@@ -1,5 +1,6 @@
 import { safeStorage, onStorageQuotaExceeded } from "@/lib/explore/storage";
-import { STORE_KEY, exportDossier, useExploreStore } from "@/lib/explore/store";
+import { STORE_KEY, exportDossier, migrateState, sanitizeOwn, sanitizeOwnEntry, sanitizePrefs, useExploreStore } from "@/lib/explore/store";
+import type { OwnEntry } from "@/lib/explore/types";
 
 const item = (id: string, extra: Record<string, unknown> = {}) => ({
   id,
@@ -14,29 +15,71 @@ beforeEach(() => {
   window.localStorage.clear();
   useExploreStore.setState({
     events: {},
+    own: {},
     dossier: { items: {}, order: [], edges: [], dismissed: [] },
     compare: { eventId: null, a: null, b: null },
   });
 });
 
+const own = (id: string, extra: Partial<OwnEntry> = {}): OwnEntry => ({
+  id: `own:${id}`,
+  kind: "gap",
+  text: `Stem ${id}`,
+  createdAt: "2026-10-03T10:00:00.000Z",
+  ...extra,
+});
+
 describe("exploration store", () => {
-  it("tracks revealed clues per event without duplicates", () => {
+  it("remembers the outlets chosen per event", () => {
     const store = useExploreStore.getState();
     store.touchEvent(7, { slug: "zeven", title: "Zeven" });
-    store.reveal(7, ["a", "b"]);
-    store.reveal(7, ["b", "c"]);
-    store.reveal(7, []);
-    expect(useExploreStore.getState().events["7"].revealed).toEqual(["a", "b", "c"]);
-    store.markSpoorCompleted(7, "wat-klopt-niet");
-    store.markSpoorCompleted(7, "wat-klopt-niet");
-    expect(useExploreStore.getState().events["7"].completed).toEqual(["wat-klopt-niet"]);
-    store.resetEvent(7);
-    expect(useExploreStore.getState().events["7"].revealed).toEqual([]);
+    store.setOutletShown(7, { key: "dw", isInternational: true }, true);
+    store.setOutletShown(7, { key: "nos", isInternational: false }, false);
+    expect(useExploreStore.getState().events["7"].sources).toEqual({ added: ["dw"], removed: ["nos"] });
+    store.touchEvent(7, { slug: "zeven", title: "Zeven" });
+    expect(useExploreStore.getState().events["7"].sources?.added).toEqual(["dw"]);
   });
 
-  it("reveals for events that were never touched", () => {
-    useExploreStore.getState().reveal(9, ["x"]);
-    expect(useExploreStore.getState().events["9"].revealed).toEqual(["x"]);
+  it("migrates v1 data: quest state goes, clue items become findings with the same id", () => {
+    const v1 = {
+      events: { "7": { revealed: ["a"], completed: ["wat-klopt-niet"], lastVisitedAt: "2026-09-30T10:00:00Z", slug: "zeven", title: "Zeven" } },
+      dossier: {
+        items: {
+          "clue:7:wat-klopt-niet:claim:abc": {
+            id: "clue:7:wat-klopt-niet:claim:abc",
+            kind: "clue",
+            spoor: "wat-klopt-niet",
+            refId: "wat-klopt-niet:claim:abc",
+            eventId: 7,
+            title: "Een claim",
+            keys: [],
+            addedAt: "2026-09-30T10:00:00Z",
+          },
+          "outlet:nos": { id: "outlet:nos", kind: "outlet", eventId: null, title: "NOS", keys: [], addedAt: "2026-09-30T10:00:00Z" },
+        },
+        order: ["clue:7:wat-klopt-niet:claim:abc", "outlet:nos"],
+        edges: [{ id: "e1", source: "clue:7:wat-klopt-niet:claim:abc", target: "outlet:nos", origin: "user" }],
+        dismissed: ["x"],
+      },
+      prefs: { heroLens: "frame", questMode: true, seenHints: ["bubbles"], listMode: true, networkLens: "actoren" },
+    };
+    const migrated = migrateState(v1);
+    expect(migrated.events["7"]).toEqual({ lastVisitedAt: "2026-09-30T10:00:00Z", slug: "zeven", title: "Zeven" });
+    const clue = migrated.dossier.items["clue:7:wat-klopt-niet:claim:abc"];
+    expect(clue.kind).toBe("finding");
+    expect(clue.findingId).toBe("claim:abc");
+    expect(clue.tab).toBe("klopt");
+    expect("spoor" in clue).toBe(false);
+    expect(migrated.dossier.edges).toHaveLength(1);
+    expect(migrated.dossier.dismissed).toEqual(["x"]);
+    expect(migrated.prefs).toEqual({ mapMode: "auto", findingsTab: null });
+  });
+
+  it("keeps only known preference values", () => {
+    expect(sanitizePrefs({ mapMode: "spectrum", findingsTab: "klopt" })).toEqual({ mapMode: "spectrum", findingsTab: "klopt" });
+    expect(sanitizePrefs({ heroLens: "spectrum" })).toEqual({ mapMode: "spectrum", findingsTab: null });
+    expect(sanitizePrefs({ mapMode: "lenzen", findingsTab: "wat-klopt-niet" })).toEqual({ mapMode: "auto", findingsTab: null });
+    expect(sanitizePrefs(null)).toEqual({ mapMode: "auto", findingsTab: null });
   });
 
   it("adds, moves, connects and removes dossier items", () => {
@@ -100,16 +143,90 @@ describe("exploration store", () => {
 
   it("persists to localStorage and survives corrupt data", async () => {
     await useExploreStore.persist.rehydrate();
-    useExploreStore.getState().reveal(3, ["z"]);
+    useExploreStore.getState().touchEvent(3, { slug: "drie", title: "Drie" });
     const raw = window.localStorage.getItem(STORE_KEY);
-    expect(raw).toContain('"z"');
+    expect(raw).toContain('"Drie"');
 
-    window.localStorage.setItem(STORE_KEY, JSON.stringify({ state: { prefs: { questMode: false }, dossier: { nope: true } }, version: 1 }));
+    window.localStorage.setItem(STORE_KEY, JSON.stringify({ state: { prefs: { questMode: false, heroLens: "spectrum" }, dossier: { nope: true } }, version: 1 }));
     await useExploreStore.persist.rehydrate();
     const state = useExploreStore.getState();
-    expect(state.prefs.questMode).toBe(false);
-    expect(state.prefs.heroLens).toBe("invalshoek");
+    expect(state.prefs).toEqual({ mapMode: "spectrum", findingsTab: null });
     expect(Array.isArray(state.dossier.order)).toBe(true);
+
+    // A renamed value from another tab never reaches the UI
+    window.localStorage.setItem(STORE_KEY, JSON.stringify({ state: { prefs: { findingsTab: "sporen" } }, version: 2 }));
+    await useExploreStore.persist.rehydrate();
+    expect(useExploreStore.getState().prefs.findingsTab).toBeNull();
+  });
+});
+
+describe("own entries", () => {
+  it("are added, changed, removed and put back per event", () => {
+    const store = useExploreStore.getState();
+    expect(store.addOwn(7, own("a"))).toBe("added");
+    expect(store.addOwn(7, own("b", { kind: "claim", text: "Twijfel", anchor: "outlet:nos" }))).toBe("added");
+    expect(store.addOwn(8, own("c"))).toBe("added");
+    expect(useExploreStore.getState().own["7"].map((entry) => entry.id)).toEqual(["own:a", "own:b"]);
+
+    store.updateOwn(7, "own:b", { text: "  Andere twijfel  ", detail: "Bron zegt iets anders", url: "javascript:alert(1)" });
+    const changed = useExploreStore.getState().own["7"][1];
+    expect(changed).toMatchObject({ text: "Andere twijfel", detail: "Bron zegt iets anders", anchor: "outlet:nos" });
+    expect(changed.url).toBeUndefined();
+    expect(changed.updatedAt).toBeDefined();
+
+    const removed = store.removeOwn(7, "own:a");
+    expect(removed?.index).toBe(0);
+    expect(useExploreStore.getState().own["7"].map((entry) => entry.id)).toEqual(["own:b"]);
+    store.restoreOwn(7, removed!.entry, removed!.index);
+    expect(useExploreStore.getState().own["7"].map((entry) => entry.id)).toEqual(["own:a", "own:b"]);
+
+    store.removeOwn(8, "own:c");
+    expect(useExploreStore.getState().own["8"]).toBeUndefined();
+    expect(store.removeOwn(8, "own:c")).toBeNull();
+  });
+
+  it("refuses what is not a valid entry and stops at the maximum", () => {
+    const store = useExploreStore.getState();
+    expect(store.addOwn(1, own("x", { text: "   " }))).toBe("invalid");
+    expect(store.addOwn(1, own("y", { kind: "moment" }))).toBe("invalid");
+    for (let i = 0; i < 100; i += 1) store.addOwn(1, own(`n${i}`));
+    expect(store.addOwn(1, own("teveel"))).toBe("full");
+  });
+
+  it("are cleaned when read back: known kind, limited text, safe link, valid anchor and date", () => {
+    expect(sanitizeOwnEntry({ ...own("a"), kind: "spel" })).toBeNull();
+    expect(sanitizeOwnEntry({ ...own("a"), id: "x" })).toBeNull();
+    expect(sanitizeOwnEntry({ ...own("a"), text: "x".repeat(400) })?.text).toHaveLength(300);
+    expect(sanitizeOwnEntry({ ...own("a"), url: "https://cbs.nl/x", anchor: "speaker:nos:jan" })).toMatchObject({
+      url: "https://cbs.nl/x",
+      anchor: "speaker:nos:jan",
+    });
+    expect(sanitizeOwnEntry({ ...own("a"), anchor: "<script>" })?.anchor).toBeUndefined();
+    expect(sanitizeOwnEntry({ ...own("a"), kind: "moment", date: "12-11-2026" })).toBeNull();
+    expect(sanitizeOwnEntry({ ...own("a"), kind: "moment", date: "2026-11-12" })?.date).toBe("2026-11-12");
+    expect(sanitizeOwn({ "7": [own("a"), own("a"), { nope: true }], abc: [own("b")], "8": "geen lijst" })).toEqual({ "7": [own("a")] });
+  });
+
+  it("travel with the dossier export and are merged on import", () => {
+    const store = useExploreStore.getState();
+    store.addOwn(7, own("a"));
+    const json = exportDossier();
+    expect(JSON.parse(json).own["7"]).toHaveLength(1);
+    useExploreStore.setState({ own: { "7": [own("b")] } });
+    expect(useExploreStore.getState().importDossier(json)).toEqual({ ok: true, items: 0 });
+    expect(useExploreStore.getState().own["7"].map((entry) => entry.id)).toEqual(["own:b", "own:a"]);
+    // Importing twice adds nothing
+    useExploreStore.getState().importDossier(json);
+    expect(useExploreStore.getState().own["7"]).toHaveLength(2);
+  });
+
+  it("persist and survive bad data in storage", async () => {
+    await useExploreStore.persist.rehydrate();
+    useExploreStore.getState().addOwn(5, own("p", { kind: "question", text: "Wie betaalt?" }));
+    expect(window.localStorage.getItem(STORE_KEY)).toContain("Wie betaalt?");
+    window.localStorage.setItem(STORE_KEY, JSON.stringify({ state: { own: { "5": [{ id: "own:p", kind: "vraag" }], x: 1 } }, version: 2 }));
+    await useExploreStore.persist.rehydrate();
+    expect(useExploreStore.getState().own).toEqual({});
   });
 });
 

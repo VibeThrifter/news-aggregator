@@ -4,15 +4,16 @@ import { useMemo } from "react";
 import useSWR from "swr";
 
 import { pmMatch, pmPaths } from "@/lib/api";
+import { actorKeys } from "@/lib/explore/normalize";
 import { eventActorAliases, eventOutletSeeds, followedOutletIds, matchActorIds } from "@/lib/explore/pm-seeds";
 import { exploreAuxSwrOptions } from "@/lib/swr-config";
 
 import { useExplore } from "../ExploreContext";
 
 /**
- * Epic 13: routes (at most two steps) from every followed outlet — also those that did not bring this
- * news — to the parties of this news. One request per news item, shared by every outlet balloon and
- * the filters sheet.
+ * Epic 13/14: routes (at most two steps) from every followed outlet — also those that did not bring
+ * this news — to the parties and speakers of this news. One request per news item, shared by "Wie zit
+ * erachter?" and the filters sheet.
  */
 export function useWhyRoutes(enabled = true) {
   const { exploration } = useExplore();
@@ -20,10 +21,21 @@ export function useWhyRoutes(enabled = true) {
   const demo = input.event.isDemo;
   const newsOutletIds = useMemo(() => eventOutletSeeds(input).map((seed) => seed.id), [input]);
   const from = useMemo(() => Array.from(new Set([...newsOutletIds, ...followedOutletIds()])).slice(0, 12), [newsOutletIds]);
-  const actors = useMemo(() => eventActorAliases(input), [input]);
+  // Named people/organisations, authorities, and the speakers parsed from the analysis
+  const actors = useMemo(
+    () => [
+      ...eventActorAliases(input),
+      ...exploration.speakers.speakers
+        .filter((speaker) => speaker.kind === "person" || speaker.kind === "org")
+        .map((speaker) => ({ aliases: actorKeys(speaker.name, { person: speaker.kind === "person" }).aliases, kind: speaker.kind as "person" | "org" })),
+    ],
+    [input, exploration.speakers],
+  );
 
+  // Speakers the reader adds join the lookup right away (their names are part of the key)
+  const actorKey = useMemo(() => actors.map((actor) => actor.aliases[0] ?? "").join("|"), [actors]);
   const matches = useSWR(
-    enabled && actors.length ? ["pm-news-actors", input.event.id, demo] : null,
+    enabled && actors.length ? ["pm-news-actors", input.event.id, demo, actorKey] : null,
     () => pmMatch(actors.flatMap((actor) => actor.aliases), { demo }),
     exploreAuxSwrOptions,
   );

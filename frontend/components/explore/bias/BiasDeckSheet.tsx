@@ -46,8 +46,8 @@ function Speaker({ speaker }: { speaker: string }) {
 }
 
 export function BiasDeckSheet({ outletKey }: { outletKey: string }) {
-  const { exploration, panel, reveal, pin, eventId } = useExplore();
-  const { input, index, clues } = exploration;
+  const { exploration, panel, pin, eventId } = useExplore();
+  const { input, index } = exploration;
   const outlet = index.outlet(outletKey);
   const [includeQuotes, setIncludeQuotes] = useState(false);
   const [position, setPosition] = useState(0);
@@ -57,12 +57,6 @@ export function BiasDeckSheet({ outletKey }: { outletKey: string }) {
   const cards = useMemo(() => biasCards(input, { outletKey, includeQuotes }), [input, outletKey, includeQuotes]);
   const summary = biasByOutlet(input).get(outletKey);
   const card = cards[Math.min(position, Math.max(cards.length - 1, 0))];
-
-  useEffect(() => {
-    const clue = clues.find((candidate) => candidate.type === "bias" && candidate.outletKeys.includes(outletKey));
-    if (clue) reveal([clue.id]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [outletKey]);
 
   useEffect(() => {
     setPosition(0);
@@ -147,7 +141,7 @@ export function BiasDeckSheet({ outletKey }: { outletKey: string }) {
                           {outlet?.name} · zin {card.sentence_index + 1}
                         </div>
                         <p className="font-serif text-xl leading-snug text-ink-900">“{truncate(card.sentence_text, 200)}”</p>
-                        <p className="text-xs text-ink-400">Tik voor uitleg · veeg voor de volgende</p>
+                        
                       </motion.div>
                     ) : (
                       <motion.div

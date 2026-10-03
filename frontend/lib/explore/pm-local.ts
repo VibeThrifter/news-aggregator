@@ -8,7 +8,7 @@
 import type { PmDetails, PmEntity, PmMatch, PmMeta, PmNeighborhood, PmPaths, PmRelation, PmSource } from "@/lib/types";
 
 import { slugify } from "./normalize";
-import { countBreakdown, countFilters, matchesFilters, relationFilters } from "./pm-graph";
+import { countBreakdown, countDirections, countFilters, matchesFilters, onSide, relationFilters, type PmDirection } from "./pm-graph";
 import { findPaths, type PathOptions } from "./pm-paths";
 
 export interface PmSlice {
@@ -108,11 +108,13 @@ export function createLocalPm(slice: PmSlice) {
         .map(strip);
     },
 
-    neighborhood(entityId: number, limit = 40, filters: string[] | null = null): PmNeighborhood | null {
+    neighborhood(entityId: number, limit = 40, filters: string[] | null = null, direction: PmDirection | null = null): PmNeighborhood | null {
       const center = entityById.get(entityId);
       if (!center) return null;
       const touching = slice.relations.filter((relation) => relation.source_id === entityId || relation.target_id === entityId);
-      const matching = touching.filter((relation) => matchesFilters(relation, filters));
+      // One way of influence (migration 008): relations that go both ways always count
+      const way = touching.filter((relation) => onSide(relation, entityId, direction ?? "any"));
+      const matching = way.filter((relation) => matchesFilters(relation, filters));
       const relations = (sortRelations(matching) as PmSlice["relations"]).slice(0, Math.min(Math.max(limit, 1), 60));
       const neighbourIds = new Set<number>();
       for (const relation of relations) {
@@ -128,8 +130,10 @@ export function createLocalPm(slice: PmSlice) {
         total: matching.length,
         truncated: matching.length > relations.length,
         filter_counts: countFilters(touching),
-        breakdown: countBreakdown(touching, entityId, (id) => entityById.get(id)?.type),
+        direction_counts: countDirections(touching, entityId),
+        breakdown: countBreakdown(way, entityId, (id) => entityById.get(id)?.type),
         filters: filters?.length ? filters : null,
+        direction,
       };
     },
 

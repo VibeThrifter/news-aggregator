@@ -18,6 +18,9 @@ volgt het spoor naar gerelateerd nieuws. Niet alles wordt meteen weggegeven: het
 └───────────────────────────────────────────────┘
 ```
 
+> **Vervangen (2026-10-02)**: de sporen, kaartjes, speurmodus, fog-of-war, drag & drop en "Volg het spoor" zijn
+> vervangen door Epic 14 "Eén beeld" (`docs/stories/active/epic-14-een-beeld.md`).
+
 ## Achtergrond
 
 - De gebruiker wil op de telefoon door nieuws scrollen en zelf de netwerken erachter uitzoeken (het propagandamodel van

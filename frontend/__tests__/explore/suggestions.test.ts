@@ -3,7 +3,7 @@ import type { DossierItem } from "@/lib/explore/store";
 
 const item = (id: string, eventId: number | null, keys: string[], extra: Partial<DossierItem> = {}): DossierItem => ({
   id,
-  kind: "clue",
+  kind: "finding",
   eventId,
   title: id,
   keys,

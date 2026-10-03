@@ -14,12 +14,11 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe("Wie is dit?", () => {
-  test("a name in the teaser opens its research and leads to the actor page with the network", async ({ page }) => {
+  test("a name in the summary opens its research and leads to the actor page with the network", async ({ page }) => {
     await page.goto("/event/demo");
     await expect(page.getByRole("heading", { level: 1, name: "Windpark Dijkerhoven splijt dorp en Den Haag" })).toBeVisible();
 
-    const teaser = page.locator('section[aria-labelledby="teaser-title"]');
-    await teaser.getByRole("button", { name: "Anouk Verbeek" }).click();
+    await page.locator("header").getByRole("button", { name: "Anouk Verbeek" }).first().click();
 
     const sheet = page.getByRole("dialog").filter({ hasText: "Netwerk & onderzoek" });
     await expect(sheet.getByText("Uitgezocht", { exact: true })).toBeVisible();

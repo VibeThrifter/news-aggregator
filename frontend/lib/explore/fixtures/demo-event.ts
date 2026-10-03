@@ -1,36 +1,19 @@
 /**
  * Demo data for /event/demo (behind NEXT_PUBLIC_ENABLE_DEMO).
  *
- * FICTIONAL: Dijkerhoven, all people, organisations, quotes and articles are made up to show the
- * Onderzoeksmodus. Outlet names are real (so the propaganda-model link works), their coverage here
- * is not. The UI shows a clear "verzonnen voorbeeld" banner and does not link to article URLs.
+ * FICTIONAL: Dijkerhoven, its people and organisations, all quotes and articles are made up to show
+ * the event page. Outlet names and national institutions (RIVM, PBL, ANP) are real, so the
+ * propaganda-model routes work; their coverage and role here are not. The UI shows a clear
+ * "verzonnen voorbeeld" banner and does not link to article URLs. The rest of the story (earlier and
+ * later episodes, other news with the alderman) is in demo-thread.ts.
  *
  * Shape = RawExploration, so the demo goes through exactly the same pipeline as real data.
  */
 
 import type { ArticleBiasAnalysis, SentenceBias } from "@/lib/types";
 
-import type { RawExploration, RawExploreArticle } from "../input";
-
-const art = (
-  id: number,
-  source: string,
-  url: string,
-  title: string,
-  publishedAt: string,
-  spectrum: number | string | null,
-  international = false,
-  country: string | null = null,
-): RawExploreArticle => ({
-  id,
-  title,
-  url,
-  source_name: source,
-  published_at: publishedAt,
-  is_international: international,
-  source_country: country,
-  spectrum,
-});
+import type { RawExploration } from "../input";
+import { DEMO_AANLOOP, DEMO_VERBEEK, DEMO_VERVOLG, EPISODES, REASONS, art, relationTo } from "./demo-thread";
 
 const U = {
   nos1: "https://nos.nl/artikel/2601101-windpark-dijkerhoven-mag-er-komen-dorp-verdeeld",
@@ -241,6 +224,11 @@ Terwijl Nederlandse media zich richten op de lokale strijd, plaatst de Duitse om
       { claim: "Het windpark levert Dijkerhoven jaarlijks miljoenen op.", presented_as: "feit", source_in_article: "De Telegraaf (redactie)", article_url: U.tel1, evidence_provided: "geen", missing_context: ["Hoe groot het omgevingsfonds precies is", "Wie het fonds beheert"], critical_questions: ["Welk bedrag staat in de overeenkomst?", "Voor hoeveel jaar?"] },
       { claim: "Infrageluid van turbines maakt omwonenden ziek.", presented_as: "feit", source_in_article: "De Andere Krant (redactie)", article_url: U.dak1, evidence_provided: "geen", missing_context: ["Welk onderzoek dit laat zien", "Afstand tot woningen"], critical_questions: ["Op welke studies is dit gebaseerd?", "Wat zeggen onafhankelijke akoestici?"] },
       { claim: "Zonder dit park haalt de regio de klimaatdoelen niet.", presented_as: "voorspelling", source_in_article: "Wethouder Anouk Verbeek", article_url: U.tel2, evidence_provided: "geen", missing_context: ["Welke andere projecten meetellen"], critical_questions: ["Welke berekening ligt hieronder?"] },
+      { claim: "Het geluid blijft ruim binnen de wettelijke normen.", presented_as: "feit", source_in_article: "woordvoerder NordVind, via ANP", article_url: U.nu1, evidence_provided: "geen", missing_context: ["Welke metingen dit laten zien", "Dat het geluidsonderzoek nog loopt"], critical_questions: ["Wie heeft gemeten, en waar?"] },
+      { claim: "Het besluit lag al maanden vast in een achterkamer.", presented_as: "feit", source_in_article: "ingewijden op het gemeentehuis (anoniem)", article_url: U.gs1, evidence_provided: "geen", missing_context: ["Wie dit zegt", "Stukken die het laten zien"], critical_questions: ["Waarom zijn de bronnen anoniem?", "Wat staat er in de raadsstukken?"] },
+      { claim: "Niemand heeft ons iets gevraagd.", presented_as: "mening", source_in_article: "Henk de Boer, omwonende", article_url: U.ad1, evidence_provided: "eigen ervaring", missing_context: ["Welke inspraakavonden er waren"], critical_questions: ["Hoe is de inspraak georganiseerd?"] },
+      { claim: "Binnen tien jaar is de grutto hier verdwenen.", presented_as: "voorspelling", source_in_article: "Marieke Brand (ecoloog)", article_url: U.vk1, evidence_provided: "tellingen van de vogelwerkgroep", missing_context: ["Hoe hard de stand nu daalt"], critical_questions: ["Komt dat door het park of door de landbouw?"] },
+      { claim: "Wind op land is nodig om de klimaatdoelen te halen.", presented_as: "feit", source_in_article: "Planbureau voor de Leefomgeving (geciteerd in de Volkskrant)", article_url: U.vk1, evidence_provided: "Klimaat- en Energieverkenning", missing_context: ["Of dat voor juist deze locatie geldt"], critical_questions: ["Hoeveel draagt dit park bij?"] },
     ],
     authority_analysis: [
       {
@@ -270,6 +258,20 @@ Terwijl Nederlandse media zich richten op de lokale strijd, plaatst de Duitse om
         potential_interests: ["Opbrengst van het park", "Subsidies"],
         independence_check: "Belanghebbende partij.",
         critical_questions: ["Wie verdient er aan het park?", "Welke toezeggingen zijn juridisch vastgelegd?"],
+      },
+      {
+        authority: "RIVM",
+        authority_type: "overheidsinstelling",
+        article_url: U.nos2,
+        claimed_expertise: "Gezondheidseffecten van geluid",
+        actual_role: "Rijksinstituut dat onderzoek doet naar gezondheid en milieu",
+        scope_creep: "",
+        composition_question: "",
+        funding_sources: "Ministerie van VWS",
+        track_record: "Eerdere rapporten over windturbinegeluid noemen hinder en slaapverstoring.",
+        potential_interests: [],
+        independence_check: "Wetenschappelijk onafhankelijk, gefinancierd door de overheid.",
+        critical_questions: ["Gaat het over hinder of over ziekte?"],
       },
       {
         authority: "Stichting Stille Polder",
@@ -323,10 +325,17 @@ Terwijl Nederlandse media zich richten op de lokale strijd, plaatst de Duitse om
     { entity_key: "org:stichting-stille-polder", name: "Stichting Stille Polder", kind: "org", iso_code: null, aliases: ["stichting-stille-polder", "stille-polder"], mention_count: 8, article_count: 5, article_ids: [-101, -102, -104, -105, -110], outlet_counts: { AD: 3, "NU.nl": 2, NOS: 2, GeenStijl: 1 }, salience: 0.09 },
     // Epic 12: a private resident (never researched: "Privépersoon — wordt niet uitgezocht")
     { entity_key: "person:henk-de-boer", name: "Henk de Boer", kind: "person", iso_code: null, aliases: ["henk-de-boer", "boer"], mention_count: 3, article_count: 2, article_ids: [-104, -110], outlet_counts: { AD: 2, "NU.nl": 1 }, salience: 0.04 },
+    { entity_key: "org:rivm", name: "RIVM", kind: "org", iso_code: null, aliases: ["rivm"], mention_count: 2, article_count: 1, article_ids: [-109], outlet_counts: { NOS: 2 }, salience: 0.04 },
+    { entity_key: "org:planbureau-voor-de-leefomgeving", name: "Planbureau voor de Leefomgeving", kind: "org", iso_code: null, aliases: ["planbureau-voor-de-leefomgeving", "pbl"], mention_count: 1, article_count: 1, article_ids: [-107], outlet_counts: { "de Volkskrant": 1 }, salience: 0.03 },
+    { entity_key: "person:marieke-brand", name: "Marieke Brand", kind: "person", iso_code: null, aliases: ["marieke-brand", "brand"], mention_count: 2, article_count: 1, article_ids: [-107], outlet_counts: { "de Volkskrant": 2 }, salience: 0.03 },
     { entity_key: "country:de", name: "Duitsland", kind: "country", iso_code: "DE", aliases: ["de", "duitsland"], mention_count: 5, article_count: 4, article_ids: [-103, -105, -107, -112], outlet_counts: { "De Telegraaf": 2, "de Volkskrant": 1, NOS: 1, GeenStijl: 1 }, salience: 0.05 },
   ],
-  // One demo: no related demo event to follow ("Volg het spoor" shows its empty state)
-  relations: [],
+  // The rest of the story: an earlier and a later episode, and other news with the alderman
+  relations: [
+    relationTo(EPISODES.aanloop, 0.82, [REASONS.verbeek, REASONS.nordvind, REASONS.dijkerhoven]),
+    relationTo(EPISODES.vervolg, 0.86, [REASONS.nordvind, REASONS.stillePolder, REASONS.verbeek, REASONS.dijkerhoven]),
+    relationTo(EPISODES.verbeek, 0.45, [REASONS.verbeek, REASONS.dijkerhoven]),
+  ],
   bias: [
     bias(-103, 18, 0.62, [
       sentence(0, "Dijkerhoven kan zich rijk rekenen: het windpark brengt het dorp jaarlijks miljoenen op.", "Opinionated Bias", "journalist", 0.78, "Een verwachting wordt als vaststaand feit gebracht."),
@@ -353,11 +362,22 @@ Terwijl Nederlandse media zich richten op de lokale strijd, plaatst de Duitse om
   availability: { entities: true, relations: true, bias: true },
 };
 
-/** There is exactly one demo: /event/demo. */
+/** The demo story, by slug: /event/demo and its episodes (demo-thread.ts). */
 export const DEMO_EVENTS: Record<string, RawExploration> = {
   demo: DEMO_EVENT,
+  "demo-aanloop": DEMO_AANLOOP,
+  "demo-vervolg": DEMO_VERVOLG,
+  "demo-verbeek": DEMO_VERBEEK,
 };
 
 export function isDemoIdentifier(identifier: string | number): boolean {
-  return typeof identifier === "string" ? identifier === "demo" : identifier === DEMO_EVENT.event.id;
+  return typeof identifier === "string"
+    ? Object.prototype.hasOwnProperty.call(DEMO_EVENTS, identifier)
+    : Object.values(DEMO_EVENTS).some((event) => event.event.id === identifier);
+}
+
+/** A demo event by slug or id */
+export function findDemoEvent(identifier: string | number): RawExploration | null {
+  if (typeof identifier === "string") return DEMO_EVENTS[identifier] ?? null;
+  return Object.values(DEMO_EVENTS).find((event) => event.event.id === identifier) ?? null;
 }

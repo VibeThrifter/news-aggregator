@@ -24,7 +24,7 @@ function itemHref(item: DossierItem): string | null {
   const event = item.eventSlug ?? (item.eventId !== null ? String(item.eventId) : null);
   if (!event) return null;
   const base = `/event/${encodeURIComponent(event)}`;
-  if (item.kind === "clue" && item.spoor && item.refId) return `${base}?p=${encodeURIComponent(`spoor:${item.spoor}`)}&c=${encodeURIComponent(item.refId)}`;
+  if (item.kind === "finding" && (item.findingId ?? item.refId)) return `${base}?f=${encodeURIComponent(item.findingId ?? item.refId ?? "")}`;
   if (item.kind === "pm" && item.refId) return `${base}/netwerk?lens=propaganda&focus=${encodeURIComponent(`pm:${item.refId}`)}`;
   if ((item.kind === "entity" || item.kind === "actor") && item.refId) {
     const key = item.refId.includes(":") ? item.refId.slice(item.refId.indexOf(":") + 1) : item.refId;
@@ -110,7 +110,7 @@ function Board() {
 
   const onImport = async (file: File) => {
     const result = store.importDossier(await file.text());
-    toast(result.ok ? `${result.items} kaarten geïmporteerd` : result.error);
+    toast(result.ok ? `${result.items} items geïmporteerd` : result.error);
   };
 
   const edgeBeingLabelled = edgeToLabel ? store.edges.find((edge) => edge.id === edgeToLabel) : null;
@@ -123,9 +123,9 @@ function Board() {
             <ArrowLeft size={20} />
           </Link>
           <div className="min-w-0 flex-1">
-            <h1 className="font-serif text-lg font-bold text-ink-900">Onderzoeksbord</h1>
+            <h1 className="font-serif text-lg font-bold text-ink-900">Bewaard</h1>
             <p className="text-xs text-ink-500">
-              {items.length} kaarten · {store.edges.length} verbanden · alleen op dit apparaat
+              {items.length} bewaard · {store.edges.length} verbanden · op dit apparaat
             </p>
           </div>
           <button
@@ -164,14 +164,10 @@ function Board() {
       <div className="relative min-h-0 flex-1">
         {items.length === 0 ? (
           <div className="mx-auto max-w-md space-y-4 p-6 text-center">
-            <p className="font-serif text-xl font-bold text-ink-900">Je bord is nog leeg</p>
-            <p className="text-sm text-ink-600">
-              Open een nieuwsbericht, onthul aanwijzingen en bewaar wat je opvalt met 📌 of door een ballon naar je dossier te
-              slepen. Hier verbind je daarna de puntjes.
-            </p>
+            <p className="font-serif text-xl font-bold text-ink-900">Nog niets bewaard</p>
             {recentEvents.length ? (
               <div className="space-y-2 text-left">
-                <Eyebrow>Laatst onderzocht</Eyebrow>
+                <Eyebrow>Laatst bekeken</Eyebrow>
                 {recentEvents.map(([id, progress]) => (
                   <Link
                     key={id}
@@ -179,7 +175,6 @@ function Board() {
                     className="flex min-h-[44px] items-center justify-between rounded-xl border border-paper-300 bg-paper-50 px-3 text-sm"
                   >
                     <span className="font-medium">{progress.title}</span>
-                    <Tag>{progress.revealed.length} ontdekt</Tag>
                   </Link>
                 ))}
               </div>
