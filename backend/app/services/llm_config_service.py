@@ -171,6 +171,12 @@ Respond with ONLY the category name in lowercase, nothing else.""",
         "description": "LLM provider voor event type classificatie (mistral|deepseek|gemini)",
     },
     {
+        "key": "provider_event_assignment",
+        "value": "deepseek",
+        "config_type": "provider",
+        "description": "LLM provider voor de keuze bestaand/nieuw event (zonder deze sleutel: die van de feitenanalyse)",
+    },
+    {
         "key": "provider_factual",
         "value": "mistral",
         "config_type": "provider",

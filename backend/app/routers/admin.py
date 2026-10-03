@@ -171,10 +171,10 @@ async def trigger_enrich():
 
 
 @router.post("/trigger/assign-events")
-async def trigger_assign_events():
-    """Manually trigger event assignment for enriched articles without events."""
+async def trigger_assign_events(limit: int = 200, max_age_hours: float | None = None):
+    """Assign enriched Dutch articles that are in no event (oldest first; optionally recent only)."""
     event_service = EventService()
-    result = await event_service.assign_orphaned_articles()
+    result = await event_service.assign_orphaned_articles(limit=limit, max_age_hours=max_age_hours)
     return result
 
 

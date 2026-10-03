@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from array import array
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, List, Sequence
 
 from sqlalchemy import select
@@ -47,18 +47,23 @@ class ArticleEnrichmentService:
         self.embedder = embedder or EmbeddingService()
         self.tfidf_manager = tfidf_manager or TfidfVectorizerManager()
         self.entity_extractor = entity_extractor or NamedEntityExtractor()
-        # Import here to avoid circular dependency
+        # Import here to avoid circular dependency. The provider comes from llm_config
+        # (provider_classification, else that of the factual analysis), never a fixed Mistral
         if llm_client is None:
-            from backend.app.llm.client import MistralClient
-            llm_client = MistralClient()
+            from backend.app.llm.providers import StepLLMClient
+
+            llm_client = StepLLMClient("provider_classification", fallback_keys=("provider_factual",))
         self.llm_client = llm_client
         self.log = logger.bind(component="ArticleEnrichmentService")
 
-    async def enrich_pending(self, limit: int | None = 50) -> Dict[str, int]:
-        """Enrich articles that have not been processed yet."""
+    async def enrich_pending(self, limit: int | None = 50, *, max_age_hours: float | None = None) -> Dict[str, int]:
+        """Enrich articles that have not been processed yet (optionally only recent ones)."""
 
         async with self.session_factory() as session:
             stmt = select(Article).where(Article.normalized_text.is_(None)).order_by(Article.fetched_at.asc())
+            if max_age_hours is not None:
+                cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+                stmt = stmt.where(Article.fetched_at >= cutoff)
             if limit is not None:
                 stmt = stmt.limit(limit)
             result = await session.execute(stmt)

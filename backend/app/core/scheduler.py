@@ -31,6 +31,8 @@ from .config import get_settings
 
 # Maximum time allowed for a single poll cycle (5 minutes)
 POLL_CYCLE_TIMEOUT_SECONDS = 300
+# Retrying left-behind articles gets its own budget, outside the poll timeout
+ORPHAN_CATCH_UP_TIMEOUT_SECONDS = 240
 # Maximum time allowed for insight backfill (10 minutes)
 INSIGHT_BACKFILL_TIMEOUT_SECONDS = 600
 # Maximum time allowed for maintenance (10 minutes)
@@ -271,6 +273,8 @@ class NewsAggregatorScheduler:
                 self._reset_services()
                 return
 
+            await self._catch_up_orphans(ingest_service, job_logger, correlation_id)
+
             if results["success"]:
                 job_logger.info(
                     "RSS feed polling job completed successfully",
@@ -289,6 +293,25 @@ class NewsAggregatorScheduler:
             # Reset services so next run gets fresh connections
             self._reset_services()
             # Don't re-raise - let scheduler continue with next execution
+
+    async def _catch_up_orphans(
+        self, ingest_service: IngestService, job_logger, correlation_id: str
+    ) -> None:
+        """Enrich and assign articles an earlier cycle left behind (never fails the poll job)."""
+
+        try:
+            stats = await asyncio.wait_for(
+                ingest_service.catch_up_orphans(correlation_id=correlation_id),
+                timeout=ORPHAN_CATCH_UP_TIMEOUT_SECONDS,
+            )
+            if stats.get("orphans") or stats.get("enriched"):
+                job_logger.info("orphan_catch_up_done", **stats)
+        except asyncio.TimeoutError:
+            job_logger.warning(
+                "orphan_catch_up_timed_out", timeout_seconds=ORPHAN_CATCH_UP_TIMEOUT_SECONDS
+            )
+        except Exception as exc:  # the poll itself succeeded; try again next cycle
+            job_logger.warning("orphan_catch_up_failed", error=str(exc))
 
     async def _insight_backfill_job(self) -> None:
         """Generate insights for events that are missing them."""

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.app.db.models import Article, Base, Event, EventArticle
+from backend.app.llm.client import BaseLLMClient, LLMRateLimitError, LLMResponse
 from backend.app.services.event_service import EventAssignmentResult, EventService
 from backend.app.services.vector_index import VectorIndexService
 
@@ -18,8 +19,40 @@ def _serialize_embedding(vector: list[float]) -> bytes:
     return buffer.tobytes()
 
 
+class StubLLM(BaseLLMClient):
+    """Answers the event decision without network (or fails like a rate-limited provider)."""
+
+    provider = "stub"
+
+    def __init__(self, answer: str | None = None, error: Exception | None = None) -> None:
+        self.answer = answer
+        self.error = error
+        self.calls = 0
+
+    async def generate_text(self, prompt, *, temperature=None, max_tokens=None, correlation_id=None):
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return LLMResponse(provider="stub", model="stub", content=self.answer or "")
+
+
 @pytest.mark.asyncio
-async def test_assign_links_article_to_existing_event(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("llm", "expect_created"),
+    [
+        (StubLLM(answer="EVENT_1"), False),
+        # A failed call is no verdict: the scores decide, so the story is not split
+        (StubLLM(error=LLMRateLimitError("Mistral gaf status 429", provider="mistral")), False),
+        # An unclear answer neither
+        (StubLLM(answer="weet ik niet"), False),
+        # An explicit NEW_EVENT is respected
+        (StubLLM(answer="NEW_EVENT"), True),
+    ],
+    ids=["llm-picks-event", "llm-outage-uses-scores", "llm-unclear-uses-scores", "llm-new-event"],
+)
+async def test_assign_article_to_existing_event_or_new(
+    tmp_path: Path, llm: StubLLM, expect_created: bool
+) -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -32,6 +65,7 @@ async def test_assign_links_article_to_existing_event(tmp_path: Path) -> None:
         session_factory=session_factory,
         vector_index=vector_service,
         auto_generate_insights=False,
+        llm_client=llm,
     )
 
     now = datetime.now(timezone.utc)
@@ -74,7 +108,12 @@ async def test_assign_links_article_to_existing_event(tmp_path: Path) -> None:
 
     result = await service.assign_article(article_id=article_id)
     assert isinstance(result, EventAssignmentResult)
-    assert not result.created
+    assert llm.calls == 1
+    assert result.created is expect_created
+    if expect_created:
+        assert result.event_id != event_id
+        await engine.dispose()
+        return
     assert result.event_id == event_id
     assert result.score >= result.threshold
 
@@ -102,6 +141,7 @@ async def test_assign_creates_new_event_when_score_below_threshold(tmp_path: Pat
         session_factory=session_factory,
         vector_index=vector_service,
         auto_generate_insights=False,
+        llm_client=StubLLM(answer="EVENT_1"),
     )
 
     now = datetime.now(timezone.utc)

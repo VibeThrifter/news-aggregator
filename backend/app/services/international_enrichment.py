@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 from sqlalchemy import select
@@ -127,6 +127,29 @@ def is_western_source(url: str) -> bool:
     return domain in WESTERN_SOURCES
 
 
+def _as_aware(value: datetime | None) -> datetime | None:
+    """A timezone-aware datetime (naive values are taken as UTC)."""
+
+    if value is None:
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def within_event_window(candidates: list, reference: datetime | None, *, days: int) -> list:
+    """The candidates published at most ``days`` from the event (unknown dates are kept)."""
+
+    reference = _as_aware(reference)
+    if reference is None:
+        return list(candidates)
+    window = timedelta(days=days)
+    return [
+        c
+        for c in candidates
+        if (published := _as_aware(c.google_article.published_at)) is None
+        or abs(published - reference) <= window
+    ]
+
+
 @dataclass
 class EnrichmentResult:
     """Result of an international enrichment operation."""
@@ -166,6 +189,8 @@ class InternationalEnrichmentService:
     RATE_LIMIT_BETWEEN_COUNTRIES = 1.0  # seconds
     MAX_COUNTRIES_PER_EVENT = 5
     MAX_ARTICLES_PER_COUNTRY = 5
+    # Google News also returns old coverage of the same names; farther from the event = another story
+    MAX_DAYS_FROM_EVENT = 7
 
     def __init__(
         self,
@@ -350,6 +375,11 @@ class InternationalEnrichmentService:
             # Filter by relevance (must have at least 1 keyword match in title)
             relevant = [c for c in all_candidates if c.keyword_matches > 0]
 
+            # Only coverage from around the time of the event
+            before_dates = len(relevant)
+            relevant = within_event_window(relevant, event.first_seen_at, days=self.MAX_DAYS_FROM_EVENT)
+            date_filtered = before_dates - len(relevant)
+
             # Filter out Western sources if US/GB are not involved in the event
             # This removes CNN, BBC, Reuters etc. for non-Western events
             filter_western = "US" not in detected_countries and "GB" not in detected_countries
@@ -374,6 +404,7 @@ class InternationalEnrichmentService:
                 total_found=len(all_candidates),
                 relevant=len(relevant),
                 western_filtered=western_filtered,
+                date_filtered=date_filtered,
                 filter_western_active=filter_western,
             )
 

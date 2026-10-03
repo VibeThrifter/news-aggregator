@@ -69,7 +69,7 @@ class ArticleRepository:
         stmt = select(Article).where(
             and_(
                 Article.source_name == source_name,
-                Article.source_metadata["source_article_id"].astext == source_article_id,
+                Article.source_metadata["source_article_id"].as_string() == source_article_id,
             )
         )
         result = await self.session.execute(stmt)
@@ -109,10 +109,10 @@ class ArticleRepository:
                 )
                 return ArticlePersistenceResult(article=existing, created=False)
 
-        # Fall back to URL-based deduplication
-        stmt = select(Article).where(Article.url == feed_item.url)
-        result = await self.session.execute(stmt)
-        existing = result.scalar_one_or_none()
+        # Fall back to URL- and guid-based deduplication. A feed may move an article to another
+        # URL while keeping its guid (RTL Boulevard); matching only on the URL then made the insert
+        # fail on the unique guid and dropped the whole batch.
+        existing = await self._find_existing(feed_item.url, feed_item.guid)
 
         if existing:
             self.log.info(
@@ -136,8 +136,10 @@ class ArticleRepository:
         )
 
         try:
-            self.session.add(article)
-            await self.session.flush()
+            # A savepoint: a conflict only undoes this insert, not the rest of the batch
+            async with self.session.begin_nested():
+                self.session.add(article)
+                await self.session.flush()
             self.log.info(
                 "article_persisted",
                 article_id=article.id,
@@ -146,17 +148,13 @@ class ArticleRepository:
             )
             return ArticlePersistenceResult(article=article, created=True)
         except IntegrityError as exc:
-            await self.session.rollback()
             self.log.warning(
                 "article_persist_integrity_error",
                 url=feed_item.url,
                 error=str(exc),
             )
-            # try to re-read to return existing if inserted concurrently
-            # Need to create a fresh query after rollback
-            refetch_stmt = select(Article).where(Article.url == feed_item.url)
-            refetch_result = await self.session.execute(refetch_stmt)
-            existing = refetch_result.scalar_one_or_none()
+            # Inserted concurrently, or the guid/URL already exists: return that row
+            existing = await self._find_existing(feed_item.url, feed_item.guid)
             if existing is None:
                 # Should not happen, but handle gracefully
                 self.log.error(
@@ -169,6 +167,16 @@ class ArticleRepository:
             await self.session.rollback()
             self.log.error("article_persist_failed", error=str(exc), url=feed_item.url)
             raise
+
+    async def _find_existing(self, url: str, guid: str | None) -> Article | None:
+        """The stored article with this URL, else with this guid."""
+
+        result = await self.session.execute(select(Article).where(Article.url == url))
+        existing = result.scalars().first()
+        if existing is None and guid:
+            result = await self.session.execute(select(Article).where(Article.guid == guid))
+            existing = result.scalars().first()
+        return existing
 
     async def apply_enrichment(self, article_id: int, payload: ArticleEnrichmentPayload) -> Article:
         """Update an article row with NLP enrichment outputs."""

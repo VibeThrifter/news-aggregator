@@ -28,15 +28,13 @@ from backend.app.db.models import Article, Event, EventArticle
 from backend.app.db.session import get_sessionmaker
 from backend.app.llm.client import (
     BaseLLMClient,
-    DeepSeekClient,
-    GeminiClient,
     LLMAuthenticationError,
     LLMQuotaExhaustedError,
     LLMRateLimitError,
     LLMResponseError,
     LLMTimeoutError,
-    MistralClient,
 )
+from backend.app.llm.providers import build_llm_client
 from backend.app.llm.schemas import ArticleDigestPayload
 from backend.app.services.llm_config_service import get_llm_config_service
 
@@ -75,19 +73,6 @@ def fetch_article_text(url: str) -> str | None:
         downloaded, favor_precision=True, include_comments=False, include_tables=False
     )
     return text.strip() if text else None
-
-
-def build_llm_client(provider: str | None, settings: Settings) -> BaseLLMClient:
-    """The client for a provider name from llm_config: mistral, deepseek, deepseek-r1 or gemini."""
-
-    name = (provider or "mistral").strip().lower()
-    if name == "deepseek":
-        return DeepSeekClient(settings=settings, use_reasoner=False)
-    if name == "deepseek-r1":
-        return DeepSeekClient(settings=settings, use_reasoner=True)
-    if name == "gemini":
-        return GeminiClient(settings=settings)
-    return MistralClient(settings=settings)
 
 
 def build_digest_prompt(template: str, *, source_name: str, title: str, text: str | None) -> str:

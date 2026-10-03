@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from backend.app.llm.client import MistralClient
+    from backend.app.llm.client import BaseLLMClient
 
 from backend.app.core.logging import get_logger
 from backend.app.services.llm_config_service import get_llm_config_service
@@ -62,7 +62,7 @@ async def _get_classification_prompt() -> str:
 async def classify_event_type_llm(
     title: str,
     content: str,
-    llm_client: "MistralClient",
+    llm_client: "BaseLLMClient",
 ) -> str:
     """
     Classify article into event type using LLM semantic analysis.
@@ -70,7 +70,7 @@ async def classify_event_type_llm(
     Args:
         title: Article title
         content: Article content (first 600 chars will be used)
-        llm_client: Mistral LLM client instance
+        llm_client: LLM client (provider from llm_config)
 
     Returns:
         Event type string from VALID_EVENT_TYPES (defaults to "other" on error)

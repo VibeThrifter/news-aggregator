@@ -252,16 +252,22 @@ class VectorIndexService:
         snapshots = await repo.fetch_index_snapshots()
         timestamps: Dict[int, datetime] = {}
         available_ids: set[int] = set()
+        missing_ids: set[int] = set()
         for snapshot in snapshots:
             if snapshot.event_id in self._labels:
                 timestamps[snapshot.event_id] = self._normalise_timestamp(snapshot.last_updated_at)
                 available_ids.add(snapshot.event_id)
+            elif self._to_vector(snapshot.centroid_embedding) is not None:
+                missing_ids.add(snapshot.event_id)
 
         orphaned = self._labels - available_ids
-        if orphaned:
+        # Events written by another process (or while the index file was stale) are not in the
+        # index: articles about them would never find their event again
+        if orphaned or missing_ids:
             logger.warning(
-                "vector_index_orphaned_labels",
+                "vector_index_out_of_sync",
                 orphan_count=len(orphaned),
+                missing_count=len(missing_ids),
             )
             await self._rebuild_from_db(session)
             return

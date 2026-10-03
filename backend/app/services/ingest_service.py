@@ -59,6 +59,11 @@ async def _get_enabled_source_ids(session_factory) -> set[str]:
         return {s.source_id for s in sources}
 
 
+# Each poll cycle also retries this many left-behind articles of the last few days
+ORPHAN_CATCH_UP_LIMIT = 25
+ORPHAN_CATCH_UP_MAX_AGE_HOURS = 72
+
+
 class IngestService:
     """Service for managing RSS feed ingestion across multiple sources."""
 
@@ -434,6 +439,25 @@ class IngestService:
             stats.update(event_stats)
 
         return stats
+
+    async def catch_up_orphans(
+        self,
+        *,
+        limit: int = ORPHAN_CATCH_UP_LIMIT,
+        max_age_hours: float = ORPHAN_CATCH_UP_MAX_AGE_HOURS,
+        correlation_id: Optional[str] = None,
+    ) -> Dict[str, int]:
+        """Enrich and assign recent Dutch articles a previous cycle left behind.
+
+        A poll cycle that times out between storing and assigning (or a feed reader that failed
+        halfway) leaves articles without an event; re-polls see them as duplicates.
+        """
+
+        enriched = await self.enrichment_service.enrich_pending(limit=limit, max_age_hours=max_age_hours)
+        assigned = await self.event_service.assign_orphaned_articles(
+            limit=limit, max_age_hours=max_age_hours, correlation_id=correlation_id
+        )
+        return {"enriched": enriched.get("processed", 0), **assigned}
 
     async def _assign_events(
         self,

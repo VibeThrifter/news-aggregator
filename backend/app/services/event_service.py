@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, List, Mapping, Optional, TYPE_CHECKING
 
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.config import get_settings
@@ -24,12 +25,25 @@ from backend.app.events.scoring import (
 )
 from backend.app.repositories import EventRepository, InsightRepository
 from backend.app.services.insight_service import InsightService
-from backend.app.llm.client import MistralClient, LLMResponse
+from backend.app.llm.client import BaseLLMClient, LLMResponse
+from backend.app.llm.providers import StepLLMClient
 
 if TYPE_CHECKING:
     from backend.app.services.vector_index import VectorIndexService
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class LLMEventDecision:
+    """What the LLM said about an article: an existing event, a new event, or nothing usable."""
+
+    event_id: int | None = None
+    new_event: bool = False
+
+    @property
+    def decided(self) -> bool:
+        return self.event_id is not None or self.new_event
 
 
 @dataclass(frozen=True)
@@ -230,7 +244,7 @@ class EventService:
         insight_service: InsightService | None = None,
         auto_generate_insights: bool = True,
         insight_refresh_ttl: timedelta | None = None,
-        llm_client: MistralClient | None = None,
+        llm_client: BaseLLMClient | None = None,
     ) -> None:
         self.settings = get_settings()
         self.session_factory = session_factory or get_sessionmaker()
@@ -247,7 +261,62 @@ class EventService:
         self._pending_insight_events: set[int] = set()
         self._insight_tasks: dict[int, asyncio.Task[None]] = {}
         self._insight_semaphore = asyncio.Semaphore(MAX_CONCURRENT_INSIGHT_TASKS)
-        self.llm_client = llm_client or (MistralClient() if self.settings.event_llm_enabled else None)
+        # The provider comes from llm_config (provider_event_assignment, else that of the factual analysis)
+        self.llm_client = llm_client or (
+            StepLLMClient(
+                "provider_event_assignment",
+                fallback_keys=("provider_factual",),
+                settings=self.settings,
+            )
+            if self.settings.event_llm_enabled
+            else None
+        )
+
+    async def assign_orphaned_articles(
+        self,
+        *,
+        limit: int | None = 100,
+        max_age_hours: float | None = None,
+        correlation_id: str | None = None,
+    ) -> Dict[str, int]:
+        """Assign enriched Dutch articles that are in no event yet.
+
+        They are left behind when a poll cycle times out between enrichment and assignment, or
+        when a provider fails; re-polls see them as duplicates and never retry them. Foreign
+        articles are skipped: international enrichment attaches those to an event itself.
+        """
+
+        stmt = (
+            select(Article.id)
+            .where(Article.enriched_at.is_not(None))
+            .where(Article.is_international.is_(False))
+            .where(~exists().where(EventArticle.article_id == Article.id))
+            .order_by(Article.published_at.asc().nulls_last(), Article.id.asc())
+        )
+        if max_age_hours is not None:
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+            stmt = stmt.where(Article.fetched_at >= cutoff)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        async with self.session_factory() as session:
+            article_ids = list((await session.execute(stmt)).scalars().all())
+
+        stats = {"orphans": len(article_ids), "events_created": 0, "events_linked": 0, "events_skipped": 0, "failed": 0}
+        for article_id in article_ids:
+            try:
+                result = await self.assign_article(article_id, correlation_id=correlation_id)
+            except Exception as exc:  # one bad article must not stop the rest
+                stats["failed"] += 1
+                self.log.warning("orphan_assignment_failed", article_id=article_id, error=str(exc))
+                continue
+            if result is None:
+                stats["events_skipped"] += 1
+            elif result.created:
+                stats["events_created"] += 1
+            else:
+                stats["events_linked"] += 1
+        self.log.info("orphan_assignment_done", correlation_id=correlation_id, **stats)
+        return stats
 
     async def assign_article(
         self,
@@ -727,7 +796,7 @@ class EventService:
                     candidates_count=len(llm_candidates),
                     reason=reason,
                 )
-                selected_event_id = await self._llm_select_best_event(
+                decision = await self._llm_select_best_event(
                     article=article,
                     candidates=llm_candidates,
                     correlation_id=correlation_id,
@@ -735,24 +804,32 @@ class EventService:
                 )
 
                 # Find the selected event in our candidates
-                if selected_event_id:
+                if decision.event_id is not None:
                     for event, breakdown, boosted_score, _, affinity in scored_candidates:
-                        if event.id == selected_event_id:
+                        if event.id == decision.event_id:
                             best_event = event
                             best_breakdown = breakdown
                             best_boosted_score = boosted_score
                             best_source_affinity = affinity
                             correlation_log.info(
                                 "llm_selected_event",
-                                event_id=selected_event_id,
+                                event_id=decision.event_id,
                                 score=boosted_score,
                             )
                             break
-                else:
+                elif decision.new_event:
                     # LLM was called and decided NEW_EVENT - respect this decision
                     llm_decided_new_event = True
                     correlation_log.info(
                         "llm_decided_new_event",
+                        article_id=article.id,
+                        candidates_count=len(llm_candidates),
+                    )
+                else:
+                    # The call failed or the answer was unclear: that is no verdict, so the
+                    # scores decide (a provider outage must not split every story)
+                    correlation_log.info(
+                        "llm_decision_unavailable_using_scores",
                         article_id=article.id,
                         candidates_count=len(llm_candidates),
                     )
@@ -1043,10 +1120,14 @@ class EventService:
         candidates: List[tuple[Event, float]],
         correlation_id: str | None = None,
         event_articles_map: dict[int, List[Article]] | None = None,
-    ) -> int | None:
-        """Use LLM to select the best matching event from candidates, or None for new event."""
+    ) -> "LLMEventDecision":
+        """Ask the LLM which candidate the article belongs to, or whether it is a new event.
+
+        A failed call or an unclear answer is no decision (``decided`` is False): the caller then
+        falls back to the scores instead of creating a new event.
+        """
         if not self.llm_client or not candidates:
-            return None
+            return LLMEventDecision()
 
         event_articles_map = event_articles_map or {}
 
@@ -1173,11 +1254,11 @@ Response:"""
 
             # Parse LLM decision
             if "NEW_EVENT" in decision or "NEW EVENT" in decision:
-                return None
+                return LLMEventDecision(new_event=True)
 
             for idx, (event, _) in enumerate(candidates, 1):
                 if f"EVENT_{idx}" in decision or f"EVENT {idx}" in decision:
-                    return event.id
+                    return LLMEventDecision(event_id=event.id)
 
             # Default to None if unclear
             self.log.warning(
@@ -1186,7 +1267,7 @@ Response:"""
                 decision=decision,
                 correlation_id=correlation_id,
             )
-            return None
+            return LLMEventDecision()
 
         except Exception as exc:
             self.log.warning(
@@ -1195,7 +1276,7 @@ Response:"""
                 error=str(exc),
                 correlation_id=correlation_id,
             )
-            return None
+            return LLMEventDecision()
 
     async def _insight_needs_refresh(
         self,
