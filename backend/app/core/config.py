@@ -197,6 +197,25 @@ class Settings(BaseSettings):
         description="Characters of article text sent to the LLM"
     )
 
+    # Stemmen zoeken (Epic 14, Story 14.10): AI search for a voice that is missing, queued by the
+    # admin in the app (table voice_searches, migration 009)
+    voice_search_enabled: bool = Field(
+        default=True,
+        description="Scheduled job that runs the AI searches for missing voices queued in the app"
+    )
+    voice_search_interval_minutes: int = Field(
+        default=1,
+        ge=1,
+        le=60,
+        description="Interval in minutes for the voice search job (it only works when a search is queued)"
+    )
+    voice_search_batch_size: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="Maximum number of queued searches per scheduled run"
+    )
+
     # Database Configuration
     database_url: str = Field(
         default="sqlite+aiosqlite:///./data/db.sqlite",

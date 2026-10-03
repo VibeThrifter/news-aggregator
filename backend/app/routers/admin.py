@@ -27,6 +27,7 @@ from backend.app.services.propaganda_model_sync import (
     get_propaganda_sync_service,
 )
 from backend.app.services.source_service import get_source_service
+from backend.app.services.voice_search import get_voice_search_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -651,6 +652,19 @@ async def trigger_article_digests(limit: int = 10, max_age_hours: int | None = N
         limit=limit, max_age_hours=max_age_hours
     )
     return ArticleDigestBatchResponse(**stats)
+
+
+# Stemmen zoeken (Epic 14, Story 14.10): AI searches for missing voices, queued in the app
+@router.post("/trigger/voice-search")
+async def trigger_voice_search(limit: int = 2):
+    """Run the queued AI searches for missing voices now (the job does this every minute).
+
+    Args:
+        limit: Maximum number of queued searches (1-10, default 2)
+    """
+    if limit < 1 or limit > 10:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 10")
+    return await get_voice_search_service().run_pending(limit=limit)
 
 
 # Exploration endpoints (Epic 11, Story 11.8)

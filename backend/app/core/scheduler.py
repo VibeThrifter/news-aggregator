@@ -17,6 +17,7 @@ from ..db.session import ensure_healthy_connection, get_sessionmaker
 from ..events.maintenance import get_event_maintenance_service
 from ..repositories.event_repo import EventRepository
 from ..services.article_digest import get_article_digest_service
+from ..services.voice_search import get_voice_search_service
 from ..services.bias_service import BiasDetectionService, get_bias_detection_service
 from ..services.exploration_service import get_exploration_service
 from ..services.ingest_service import IngestService
@@ -43,6 +44,8 @@ INTERNATIONAL_ENRICHMENT_TIMEOUT_SECONDS = 900
 BIAS_ANALYSIS_TIMEOUT_SECONDS = 1800
 # Maximum time allowed for one article digest batch (page fetches + one LLM call per article)
 ARTICLE_DIGEST_TIMEOUT_SECONDS = 900
+# One AI search for a missing voice takes about a minute; the service times out each one itself
+VOICE_SEARCH_TIMEOUT_SECONDS = 900
 # Maximum time allowed for the propaganda-model sync (Story 11.17)
 PROPAGANDA_SYNC_TIMEOUT_SECONDS = 600
 # Maximum time allowed for one entity research cycle (Epic 12; research rounds run in the
@@ -73,6 +76,7 @@ class NewsAggregatorScheduler:
         self._entity_research_last_run: dict | None = None
         # "Wat schreef …?": outcome of the last foreign article digest batch
         self._article_digest_last_run: dict | None = None
+        self._voice_search_last_run: dict | None = None
         self._is_running = False
 
     def _get_ingest_service(self) -> IngestService:
@@ -202,6 +206,24 @@ class NewsAggregatorScheduler:
             )
         else:
             logger.info("Article digest job disabled (set ARTICLE_DIGEST_ENABLED=true to enable)")
+
+        # Stemmen zoeken (Story 14.10) - AI searches for missing voices the admin queued
+        if self.settings.voice_search_enabled:
+            self.scheduler.add_job(
+                func=self._voice_search_job,
+                trigger=IntervalTrigger(minutes=self.settings.voice_search_interval_minutes),
+                id="voice_search",
+                name="Voice Search",
+                replace_existing=True,
+                max_instances=1,
+            )
+            logger.info(
+                "Voice search job enabled",
+                interval_minutes=self.settings.voice_search_interval_minutes,
+                batch_size=self.settings.voice_search_batch_size,
+            )
+        else:
+            logger.info("Voice search job disabled (set VOICE_SEARCH_ENABLED=true to enable)")
 
         # Propaganda-model sync (Story 11.17) - only writes when the pm database changed
         if self.settings.propaganda_sync_enabled:
@@ -451,6 +473,42 @@ class NewsAggregatorScheduler:
         run["finished_at"] = datetime.now(timezone.utc).isoformat()
         self._article_digest_last_run = run
 
+    async def _voice_search_job(self) -> None:
+        """Run the AI searches for missing voices that are queued. Never raises."""
+
+        correlation_id = str(uuid.uuid4())
+        job_logger = logger.bind(correlation_id=correlation_id, job="voice_search")
+        run: dict = {"started_at": datetime.now(timezone.utc).isoformat(), "success": False}
+        try:
+            if not await ensure_healthy_connection():
+                run["error"] = "database connection unhealthy"
+                self._reset_services()
+            else:
+                stats = await asyncio.wait_for(
+                    get_voice_search_service().run_pending(
+                        limit=self.settings.voice_search_batch_size,
+                        correlation_id=correlation_id,
+                    ),
+                    timeout=VOICE_SEARCH_TIMEOUT_SECONDS,
+                )
+                run.update(success=True, result=stats)
+                if stats.get("ran"):
+                    job_logger.info("Voice search job completed", **stats)
+        except asyncio.TimeoutError:
+            run["error"] = f"timed out after {VOICE_SEARCH_TIMEOUT_SECONDS} seconds"
+            job_logger.error("Voice search job timed out")
+        except Exception as exc:
+            run["error"] = str(exc) or type(exc).__name__
+            job_logger.error("Voice search job failed", error=run["error"])
+        run["finished_at"] = datetime.now(timezone.utc).isoformat()
+        # Keep the last run that did something (the job runs every minute)
+        if (
+            run.get("error")
+            or (run.get("result") or {}).get("ran")
+            or self._voice_search_last_run is None
+        ):
+            self._voice_search_last_run = run
+
     async def _propaganda_sync_job(self) -> None:
         """Sync the approved propaganda-model graph when its database changed. Never raises."""
 
@@ -667,6 +725,7 @@ class NewsAggregatorScheduler:
                 "propagandamodel_last_run": self._propaganda_sync_last_run,
                 "entity_research_last_run": self._entity_research_last_run,
                 "article_digest_last_run": self._article_digest_last_run,
+                "voice_search_last_run": self._voice_search_last_run,
             }
 
         jobs = []
@@ -687,6 +746,7 @@ class NewsAggregatorScheduler:
             "propagandamodel_last_run": self._propaganda_sync_last_run,
             "entity_research_last_run": self._entity_research_last_run,
             "article_digest_last_run": self._article_digest_last_run,
+            "voice_search_last_run": self._voice_search_last_run,
         }
 
     async def run_poll_feeds_now(self) -> dict:
