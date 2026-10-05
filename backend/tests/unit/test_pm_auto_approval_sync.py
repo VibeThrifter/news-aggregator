@@ -220,5 +220,7 @@ def test_merged_evidence_is_listed_before_unreviewed(tmp_path: Path) -> None:
 
 
 def test_snapshot_format_changed_for_the_new_columns() -> None:
-    assert sync.SNAPSHOT_FORMAT == "4"
+    # 4: auto_approved + unreviewed sources; 5: arguments + mechanisms (Story 14.12)
+    assert sync.SNAPSHOT_FORMAT == "5"
     assert sync._is_current({"db_mtime": "x", "format": "3"}, "x") is False
+    assert sync._is_current({"db_mtime": "x", "format": "4"}, "x") is False

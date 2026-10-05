@@ -8,6 +8,9 @@ per label, skips when there are no open targets and logs every round in
 
 Budget: at most N rounds per day (counted from the pm run records, so rounds started by launchd
 count too), a minimum gap between rounds and only during active hours.
+
+The same runner starts the pm agent ``nieuws-bewijs`` (Story 14.13, evidence for thin links):
+another label, account and brief, ``--doel-soort relatie`` and no auto-approval afterwards.
 """
 
 from __future__ import annotations
@@ -33,6 +36,10 @@ logger = get_logger(__name__).bind(component="NieuwsScoutRunner")
 RUN_LABEL = "nieuws-scout"
 AGENT_ACCOUNT = "nieuws-scout"
 BRIEF = "missies/nieuws_scout_brief.md"
+# Story 14.13: the pm agent that looks for evidence for and against thin links
+EVIDENCE_LABEL = "nieuws-bewijs"
+EVIDENCE_ACCOUNT = "nieuws-bewijs"
+EVIDENCE_BRIEF = "missies/nieuws_bewijs_brief.md"
 
 
 @dataclass(slots=True)
@@ -114,6 +121,11 @@ class RunnerConfig:
     active_end_hour: int = 22
     autokeur_enabled: bool = True
     autokeur_timeout_seconds: int = 300
+    label: str = RUN_LABEL
+    account: str = AGENT_ACCOUNT
+    brief: str = BRIEF
+    # Extra arguments for agent_runner.py, e.g. ("--doel-soort", "relatie")
+    extra_args: tuple[str, ...] = ()
 
 
 @dataclass(slots=True)
@@ -128,7 +140,8 @@ class RoundState:
 
 
 class NieuwsScoutRunner:
-    """Starts research rounds within the budget and runs the auto-approval afterwards."""
+    """Starts research rounds of one pm agent within the budget (and, for the nieuws-scout,
+    runs the auto-approval afterwards)."""
 
     def __init__(
         self,
@@ -157,13 +170,14 @@ class NieuwsScoutRunner:
             self._python(),
             "scripts/agent_runner.py",
             "--agent",
-            AGENT_ACCOUNT,
+            self.config.account,
             "--label",
-            RUN_LABEL,
+            self.config.label,
             "--brief",
-            BRIEF,
+            self.config.brief,
             "--skip-permissions",
             "--alleen-bij-open-doelen",
+            *self.config.extra_args,
             "--claude-bin",
             self.config.claude_bin,
             "--timeout",
@@ -191,7 +205,11 @@ class NieuwsScoutRunner:
 
     def rounds_today(self, now: datetime | None = None) -> int:
         today = (now or self._clock()).date().isoformat()
-        return sum(1 for record in read_run_records(self.runs_path) if record.get("datum") == today)
+        return sum(
+            1
+            for record in read_run_records(self.runs_path, self.config.label)
+            if record.get("datum") == today
+        )
 
     def can_start(self, now: datetime | None = None) -> tuple[bool, str | None]:
         now = now or self._clock()
@@ -217,13 +235,15 @@ class NieuwsScoutRunner:
 
         allowed, reason = self.can_start()
         if not allowed:
-            logger.info("nieuws_scout_round_not_started", reason=reason)
+            logger.info("pm_agent_round_not_started", label=self.config.label, reason=reason)
             return False
         now = self._clock()
         self._last_start = now
         self.state = RoundState(running=True, started_at=now.isoformat())
         self._task = asyncio.create_task(self._run(on_finished))
-        logger.info("nieuws_scout_round_started", started_at=self.state.started_at)
+        logger.info(
+            "pm_agent_round_started", label=self.config.label, started_at=self.state.started_at
+        )
         return True
 
     async def _run(self, on_finished: Callable[[RoundState], Awaitable[None]] | None) -> None:
@@ -238,13 +258,14 @@ class NieuwsScoutRunner:
             if self.config.autokeur_enabled:
                 self.state.autokeur = await self.run_autokeur()
         except Exception as exc:  # never let a background task crash silently
-            logger.error("nieuws_scout_round_failed", error=str(exc))
+            logger.error("pm_agent_round_failed", label=self.config.label, error=str(exc))
             self.state.output_tail = [*self.state.output_tail, f"fout: {exc}"][-20:]
         finally:
             self.state.running = False
             self.state.finished_at = self._clock().isoformat()
             logger.info(
-                "nieuws_scout_round_finished",
+                "pm_agent_round_finished",
+                label=self.config.label,
                 returncode=self.state.returncode,
                 timed_out=self.state.timed_out,
                 duration_seconds=round(time.monotonic() - started, 1),
@@ -253,7 +274,9 @@ class NieuwsScoutRunner:
             try:
                 await on_finished(self.state)
             except Exception as exc:
-                logger.error("nieuws_scout_after_round_failed", error=str(exc))
+                logger.error(
+                    "pm_agent_after_round_failed", label=self.config.label, error=str(exc)
+                )
 
     async def run_autokeur(self) -> dict[str, Any] | None:
         """Run the pm auto-approval once; parsed JSON summary (None on failure)."""
@@ -302,7 +325,7 @@ class NieuwsScoutRunner:
         return parsed if isinstance(parsed, dict) else None
 
     def status(self) -> dict[str, Any]:
-        records = read_run_records(self.runs_path)
+        records = read_run_records(self.runs_path, self.config.label)
         last = records[-1] if records else None
         allowed, reason = self.can_start()
         return {
@@ -328,6 +351,9 @@ class NieuwsScoutRunner:
 
 
 __all__ = [
+    "EVIDENCE_ACCOUNT",
+    "EVIDENCE_BRIEF",
+    "EVIDENCE_LABEL",
     "NieuwsScoutRunner",
     "ProcessResult",
     "RoundState",

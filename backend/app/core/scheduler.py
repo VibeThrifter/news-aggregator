@@ -27,6 +27,7 @@ from ..services.international_enrichment import (
     get_international_enrichment_service,
 )
 from ..services.entity_research.service import get_entity_research_service
+from ..services.evidence_research import get_evidence_research_service
 from ..services.propaganda_model_sync import get_propaganda_sync_service
 from .config import get_settings
 
@@ -51,6 +52,8 @@ PROPAGANDA_SYNC_TIMEOUT_SECONDS = 600
 # Maximum time allowed for one entity research cycle (Epic 12; research rounds run in the
 # background and are not part of this timeout)
 ENTITY_RESEARCH_TIMEOUT_SECONDS = 600
+# One evidence research cycle (Story 14.13; the rounds of the pm agent run in the background)
+EVIDENCE_RESEARCH_TIMEOUT_SECONDS = 300
 
 logger = structlog.get_logger()
 
@@ -74,6 +77,8 @@ class NewsAggregatorScheduler:
         self._propaganda_sync_last_run: dict | None = None
         # Epic 12: outcome of the last entity research cycle
         self._entity_research_last_run: dict | None = None
+        # Story 14.13: outcome of the last evidence research cycle (thin links)
+        self._evidence_research_last_run: dict | None = None
         # "Wat schreef …?": outcome of the last foreign article digest batch
         self._article_digest_last_run: dict | None = None
         self._voice_search_last_run: dict | None = None
@@ -263,6 +268,27 @@ class NewsAggregatorScheduler:
             )
         else:
             logger.info("Entity research job disabled (set ENTITY_RESEARCH_ENABLED=true to enable)")
+
+        # Dun bewijs (Story 14.13) - queue thin links readers saw for evidence research in the
+        # propaganda model, start rounds of its nieuws-bewijs agent (when switched on), pull results
+        if self.settings.evidence_research_enabled:
+            self.scheduler.add_job(
+                func=self._evidence_research_job,
+                trigger=IntervalTrigger(minutes=self.settings.evidence_research_interval_minutes),
+                id="evidence_research",
+                name="Evidence Research",
+                replace_existing=True,
+                max_instances=1,
+            )
+            logger.info(
+                "Evidence research job enabled",
+                interval_minutes=self.settings.evidence_research_interval_minutes,
+                rounds_enabled=self.settings.nieuws_bewijs_enabled,
+            )
+        else:
+            logger.info(
+                "Evidence research job disabled (set EVIDENCE_RESEARCH_ENABLED=true to enable)"
+            )
 
     async def _poll_feeds_job(self) -> None:
         """Job function for RSS feed polling with correlation ID and global timeout."""
@@ -572,6 +598,33 @@ class NewsAggregatorScheduler:
         run["finished_at"] = datetime.now(timezone.utc).isoformat()
         self._entity_research_last_run = run
 
+    async def _evidence_research_job(self) -> None:
+        """One evidence research cycle (Story 14.13). Never raises."""
+
+        correlation_id = str(uuid.uuid4())
+        job_logger = logger.bind(correlation_id=correlation_id, job="evidence_research")
+        run: dict = {"started_at": datetime.now(timezone.utc).isoformat(), "success": False}
+        try:
+            if not await ensure_healthy_connection():
+                run["error"] = "database connection unhealthy"
+                job_logger.error("Database connection unhealthy, skipping evidence research")
+                self._reset_services()
+            else:
+                result = await asyncio.wait_for(
+                    get_evidence_research_service().run_cycle(correlation_id=correlation_id),
+                    timeout=EVIDENCE_RESEARCH_TIMEOUT_SECONDS,
+                )
+                run.update(success=True, result=result)
+                job_logger.info("Evidence research cycle completed")
+        except asyncio.TimeoutError:
+            run["error"] = f"timed out after {EVIDENCE_RESEARCH_TIMEOUT_SECONDS} seconds"
+            job_logger.error("Evidence research cycle timed out")
+        except Exception as exc:
+            run["error"] = str(exc) or type(exc).__name__
+            job_logger.error("Evidence research cycle failed", error=run["error"])
+        run["finished_at"] = datetime.now(timezone.utc).isoformat()
+        self._evidence_research_last_run = run
+
     async def _international_enrichment_job(self) -> None:
         """Enrich events with international news perspectives via Google News."""
 
@@ -724,6 +777,7 @@ class NewsAggregatorScheduler:
                 "exploration_last_run": self._exploration_last_run,
                 "propagandamodel_last_run": self._propaganda_sync_last_run,
                 "entity_research_last_run": self._entity_research_last_run,
+                "evidence_research_last_run": self._evidence_research_last_run,
                 "article_digest_last_run": self._article_digest_last_run,
                 "voice_search_last_run": self._voice_search_last_run,
             }
@@ -745,6 +799,7 @@ class NewsAggregatorScheduler:
             "exploration_last_run": self._exploration_last_run,
             "propagandamodel_last_run": self._propaganda_sync_last_run,
             "entity_research_last_run": self._entity_research_last_run,
+            "evidence_research_last_run": self._evidence_research_last_run,
             "article_digest_last_run": self._article_digest_last_run,
             "voice_search_last_run": self._voice_search_last_run,
         }

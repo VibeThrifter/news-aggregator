@@ -7,7 +7,7 @@ import { ExternalLink, UserRound, Waypoints } from "lucide-react";
 import { pmDetails } from "@/lib/api";
 import { nameAliases } from "@/lib/explore/coverage";
 import { actorHref } from "@/lib/explore/research";
-import { FILTERS, filterColor } from "@/lib/explore/labels";
+import { FILTERS, filterColor, pmRelationLabel } from "@/lib/explore/labels";
 import { wikiTitleCandidates } from "@/lib/explore/wikipedia";
 import { exploreAuxSwrOptions } from "@/lib/swr-config";
 
@@ -17,6 +17,7 @@ import { WikipediaBlock } from "../entity/Wikipedia";
 import { Eyebrow, Tag } from "../ui/primitives";
 import { Sheet } from "../ui/Sheet";
 import { AutoApprovedTag } from "./MiniEgoNetwork";
+import { PmRelationDiscussion, relationSentence } from "./PmEvidence";
 import { PmAttribution } from "./PmSection";
 
 const CERTAINTY_LABELS: Record<string, { label: string; tone: "green" | "neutral" | "orange" }> = {
@@ -40,7 +41,7 @@ export function PmDetailsSheet({ kind, id }: { kind: "entity" | "relation"; id: 
     <Sheet
       open
       onOpenChange={(open) => (!open ? panel.close() : undefined)}
-      title={data?.title ?? (isLoading ? "Laden…" : "Propagandamodel")}
+      title={(data ? relationSentence(data) : null) ?? data?.title ?? (isLoading ? "Laden…" : "Propagandamodel")}
       subtitle={kind === "relation" ? "Verband in het propagandamodel" : data?.type ?? undefined}
       icon={<Waypoints size={22} />}
     >
@@ -48,7 +49,7 @@ export function PmDetailsSheet({ kind, id }: { kind: "entity" | "relation"; id: 
       {data ? (
         <div className="space-y-5 text-sm">
           <div className="flex flex-wrap gap-1.5">
-            {data.type && kind === "relation" ? <Tag>{data.type}</Tag> : null}
+            {data.type && kind === "relation" && !relationSentence(data) ? <Tag>{pmRelationLabel(data.type, data.mechanism)}</Tag> : null}
             {filters.map((filter) => (
               <span key={filter.id} className="inline-flex items-center gap-1 rounded-full border border-paper-300 px-2 py-0.5 text-[11px] font-semibold">
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: filterColor(filter.id) }} />
@@ -56,7 +57,8 @@ export function PmDetailsSheet({ kind, id }: { kind: "entity" | "relation"; id: 
               </span>
             ))}
             {data.mechanism ? <Tag tone="purple">{data.mechanism}</Tag> : null}
-            {certainty ? <Tag tone={certainty.tone}>{certainty.label}</Tag> : null}
+            {/* With the discussion the verdict below says how sure it is (Story 14.13) */}
+            {certainty && !(kind === "relation" && data.arguments) ? <Tag tone={certainty.tone}>{certainty.label}</Tag> : null}
             {data.active_from || data.active_until ? (
               <Tag>
                 {data.active_from ?? "?"}–{data.active_until ?? "nu"}
@@ -69,7 +71,13 @@ export function PmDetailsSheet({ kind, id }: { kind: "entity" | "relation"; id: 
               Automatisch toegevoegd door de nieuws-pijplijn: alleen neutrale structuurfeiten met een bron. Een mens kan het terugdraaien.
             </p>
           ) : null}
-          {data.description ? <p className="leading-relaxed text-ink-800">{data.description}</p> : <p className="text-ink-500">Geen beschrijving.</p>}
+          {kind === "relation" && data.arguments ? (
+            <PmRelationDiscussion details={data} demo={demo} />
+          ) : data.description ? (
+            <p className="leading-relaxed text-ink-800">{data.description}</p>
+          ) : (
+            <p className="text-ink-500">Geen beschrijving.</p>
+          )}
           {kind === "entity" ? (
             <Link
               href={actorHref(`pm-${id}`, { kind: data.type === "persoon" ? "person" : "org", name: data.title, demo })}
@@ -90,7 +98,7 @@ export function PmDetailsSheet({ kind, id }: { kind: "entity" | "relation"; id: 
               <ArticleSearch key={data.title} initialQuery={wikiTitleCandidates(data.title)[0] ?? data.title} />
             </>
           ) : null}
-          {data.sources.length ? (
+          {data.sources.length && !(kind === "relation" && data.arguments?.length) ? (
             <div className="space-y-2">
               <Eyebrow>Bronnen</Eyebrow>
               <ul className="space-y-2">

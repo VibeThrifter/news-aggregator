@@ -42,9 +42,12 @@ def _load_script():
     return module
 
 
+SLICE_KEYS = {"meta", "entities", "relations", "sources", "aliases", "arguments", "mechanisms"}
+
+
 def test_slice_shape(snapshot: pm.PmSnapshot) -> None:
     data = build_demo_slice(snapshot, SEEDS)
-    assert set(data) == {"meta", "entities", "relations", "sources", "aliases"}
+    assert set(data) == SLICE_KEYS
     assert set(data["meta"]) == {"version", "synced_at", "entity_count", "relation_count"}
     assert data["meta"]["entity_count"] == len(snapshot.entities)  # whole model, not the slice
     assert set(data["entities"][0]) == {
@@ -96,6 +99,32 @@ def test_slice_shape(snapshot: pm.PmSnapshot) -> None:
     assert entity_ids.isdisjoint({22, 25, 26})
     serialised = json.dumps(data, ensure_ascii=False)
     assert re.search(r"politieke_positie|machtsvalentie", serialised, re.IGNORECASE) is None
+    # the fixture has none of the demo story's institutions: no arguments
+    assert data["arguments"] == {} and data["mechanisms"] == []
+
+
+def test_slice_arguments_only_for_the_focus(snapshot: pm.PmSnapshot) -> None:
+    """Only relations of the story's real institutions carry their discussion (data licence)."""
+
+    data = build_demo_slice(snapshot, SEEDS, argument_focus=[11], max_arguments_per_owner=1)
+    relations = {relation["id"]: relation for relation in data["relations"]}
+    # the NOS relations that have arguments
+    assert set(data["arguments"]) == {"relation:103", "relation:104", "relation:110"}
+    for key, rows in data["arguments"].items():
+        relation = relations[int(key.split(":")[1])]
+        assert 11 in (relation["source_id"], relation["target_id"])
+        assert len(rows) == 1
+        assert set(rows[0]) == {"id", "parent_id", "aspect", "stance", "status", "claim", "sources"}
+    assert data["arguments"]["relation:110"][0]["claim"] == "Mediahuis adverteert op de NOS."
+    # what the mechanisms of every focus relation mean (also those without arguments: 108)
+    assert [row["name"] for row in data["mechanisms"]] == [
+        "Bron afhankelijkheid",
+        "Commerciële afhankelijkheid",
+        "Publieke aanval",
+        "Verantwoording",
+    ]
+    assert set(data["mechanisms"][0]) == {"name", "description", "effect"}
+    assert json.loads(dump_demo_slice(data)) == data
 
 
 def test_slice_second_hop_for_owners() -> None:
@@ -284,10 +313,15 @@ def test_committed_demo_slice() -> None:
     if not DEMO_FILE.exists():
         pytest.skip("demo-pm.json not generated")
     text = DEMO_FILE.read_text(encoding="utf-8")
-    assert len(text.encode("utf-8")) < 480 * 1024
+    assert len(text.encode("utf-8")) < 560 * 1024
     assert re.search(r"politieke_positie|machtsvalentie", text, re.IGNORECASE) is None
     data = json.loads(text)
-    assert set(data) == {"meta", "entities", "relations", "sources", "aliases"}
+    assert set(data) == SLICE_KEYS
+    # arguments only around the real institutions of the demo story
+    relations = {relation["id"]: relation for relation in data["relations"]}
+    for key in data["arguments"]:
+        relation = relations[int(key.split(":")[1])]
+        assert set(pm.DEMO_ARGUMENT_FOCUS) & {relation["source_id"], relation["target_id"]}
     assert len(data["entities"]) <= pm.DEMO_MAX_ENTITIES
     assert len(data["relations"]) <= pm.DEMO_MAX_RELATIONS
     for relation in data["relations"]:

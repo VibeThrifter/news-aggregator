@@ -16,7 +16,8 @@ SCHEMA = """
 CREATE TABLE roles (id INTEGER PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL,
     vervangen BOOLEAN NOT NULL DEFAULT 0);
 CREATE TABLE mechanisms (id INTEGER PRIMARY KEY, name TEXT NOT NULL, filter TEXT NOT NULL,
-    aard TEXT NOT NULL DEFAULT 'direct', vervangen BOOLEAN NOT NULL DEFAULT 0);
+    aard TEXT NOT NULL DEFAULT 'direct', vervangen BOOLEAN NOT NULL DEFAULT 0,
+    description TEXT, effect TEXT);
 CREATE TABLE mechanism_filters (mechanism_id INTEGER NOT NULL, filter TEXT NOT NULL,
     PRIMARY KEY (mechanism_id, filter));
 CREATE TABLE entities (id INTEGER PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL,
@@ -60,6 +61,18 @@ MECHANISMS = [
     (5, "verantwoording", "tegenmacht", "direct", 0),
     (6, "vervangen_mechanisme", "ideologie", "direct", 1),
 ]
+# id -> (description, effect) of the mechanisms (format 5: what a mechanism means)
+MECHANISM_TEXTS = {
+    1: (
+        "Twee concerns bezitten bijna alle kranten.",
+        "Minder verschillende stemmen. (De holding zelf is `holdingconstructie`.)",
+    ),
+    3: (
+        "Media leunen op vaste officiële bronnen. De machtsvalentie hiervan staat elders. "
+        "Zie ook `pr_subsidie`.",
+        None,
+    ),
+}
 # mechanism, filter. 1: multi + 'overig' (dropped); 2: no rows (the primary filter only);
 # 3: multi (sourcing + ideologie); 4: tagged WITHOUT its primary filter flak (the primary is added);
 # 6: replaced mechanism (never used)
@@ -204,6 +217,20 @@ ARGUMENTS = [
     (17, None, 11, None, "bereik", "supporting", "ongecontroleerd", None, "bot", 0, 0),
     (18, None, None, 8, None, "supporting", "ongecontroleerd", None, "bot", 0, 0),
 ]
+# id -> claim (the rest say "claim"); 9 mentions an excluded layer in one of its sentences
+CLAIMS = {
+    1: "Het jaarverslag noemt DPG Media als eigenaar van het AD.",
+    2: "DPG Media bezit het AD sinds 2019.",
+    3: "Het NRC bevestigt de overname.",
+    4: "Het AD is redactioneel onafhankelijk.",
+    9: "Het AD viel de NOS publiekelijk aan. De machtsvalentie daarvan is hoog.",
+    10: "Mediahuis adverteert op de NOS.",
+    11: "Dit is geen advertentie maar sponsoring.",
+    15: "Smaadclaim die niet getoond mag worden.",
+    16: "De Volkskrant volgt de lijn van DPG.",
+}
+# id -> source_type (the rest are nieuwsartikel)
+SOURCE_TYPES = {2: "rapport", 14: "persbericht"}
 # id, argument, source, quote, methode
 CITATIONS = [
     (1, 1, 1, LONG_QUOTE, "verbatim_quote"),
@@ -244,7 +271,14 @@ def create_pm_database(root: Path, *, releases: tuple[str, ...] = ("0.2.0", "0.1
     try:
         connection.executescript(SCHEMA)
         connection.executemany("INSERT INTO roles VALUES (?,?,?,?)", ROLES)
-        connection.executemany("INSERT INTO mechanisms VALUES (?,?,?,?,?)", MECHANISMS)
+        connection.executemany(
+            "INSERT INTO mechanisms (id, name, filter, aard, vervangen) VALUES (?,?,?,?,?)",
+            MECHANISMS,
+        )
+        connection.executemany(
+            "UPDATE mechanisms SET description = ?, effect = ? WHERE id = ?",
+            [(text, effect, key) for key, (text, effect) in MECHANISM_TEXTS.items()],
+        )
         connection.executemany("INSERT INTO mechanism_filters VALUES (?,?)", MECHANISM_FILTERS)
         connection.executemany(
             "INSERT INTO entities (id, name, type, primary_role_id, description, active_from, "
@@ -269,6 +303,14 @@ def create_pm_database(root: Path, *, releases: tuple[str, ...] = ("0.2.0", "0.1
             "stance, claim, status, bezwaar_resolutie, contributed_by, vervangen, smaad_hold) "
             "VALUES (?,?,?,?,?,?,'claim',?,?,?,?,?)",
             ARGUMENTS,
+        )
+        connection.executemany(
+            "UPDATE arguments SET claim = ? WHERE id = ?",
+            [(claim, argument_id) for argument_id, claim in CLAIMS.items()],
+        )
+        connection.executemany(
+            "UPDATE sources SET source_type = ? WHERE id = ?",
+            [(kind, source_id) for source_id, kind in SOURCE_TYPES.items()],
         )
         connection.executemany("INSERT INTO citations VALUES (?,?,?,?,?)", CITATIONS)
         connection.commit()

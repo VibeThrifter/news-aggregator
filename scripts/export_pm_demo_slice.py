@@ -6,8 +6,11 @@ the outlets of the fictional demo event (NOS, NU.nl, AD, De Telegraaf, de Volksk
 De Andere Krant) plus DPG Media and Mediahuis, their 1-hop neighbours and - for owners - one more
 hop along eigendom/financiering edges. Every filter is represented around every seed: per seed and
 per filter the first 6 relations of the filtered neighbourhood are selected first (caps: ~200
-entities, ~480 relations, < 480 KB). Relations carry ``filter`` (primary, edge colour) and
-``filters`` (primary filter + all filter tags of the mechanism).
+entities, ~480 relations, < 560 KB). Relations carry ``filter`` (primary, edge colour) and
+``filters`` (primary filter + all filter tags of the mechanism). Since Story 14.12 the relations of
+the real institutions of the demo story (``DEMO_ARGUMENT_FOCUS``: RIVM, PBL, ANP, Ipsos I&O) carry
+their arguments (for, against, nuance; at most 4 each) and the slice explains the mechanisms of
+those relations - only there, so the bundle stays small and holds little of the model's reasoning.
 
 Uses the SAME reader + transformer as the Supabase sync
 (``backend/app/services/propaganda_model_sync.py``): approved rows only, no political-position
@@ -45,7 +48,7 @@ from backend.app.services.propaganda_model_sync import (  # noqa: E402
 )
 
 DEFAULT_OUT = ROOT / "frontend" / "lib" / "explore" / "fixtures" / "demo-pm.json"
-MAX_BYTES = 480 * 1024
+MAX_BYTES = 560 * 1024  # 560: + the arguments around the demo story (Story 14.12)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

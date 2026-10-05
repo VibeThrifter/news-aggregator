@@ -158,7 +158,8 @@ make clean             # Clean up generated files
 | Entity Research | 15 min | Wie is dit? (Epic 12): triage van namen in het nieuws (rol + belang), onderzoeksdoelen naar het propagandamodel, rondes van de pm-agent `nieuws-scout` starten (max 4/dag, 08–22) en resultaten ophalen (`ENTITY_RESEARCH_ENABLED`, `NIEUWS_SCOUT_*`, vereist migratie 006 + draaiende pm-server) |
 | Article Digest | 15 min | "Wat schreef …?": haalt de tekst van nieuwe buitenlandse artikelen op (Google News geeft alleen de kop) en laat de LLM een Nederlandse kern van hoogstens twee zinnen schrijven in `source_metadata.digest`; de tekst zelf wordt niet opgeslagen. Alleen artikelen van de laatste 72 uur, oudere via de admin-backfill (`ARTICLE_DIGEST_*`; provider: `llm_config.provider_digest`, anders die van de feitenanalyse) |
 | Voice Search | 1 min | "Zoek met AI" (Epic 14, Story 14.10): runs the searches for missing voices the admin queued in the app (`voice_searches`, migration 009): own articles + the same news on Google News, LLM check; the admin approves what is found and it becomes a source of the event (`VOICE_SEARCH_*`; provider `llm_config.provider_voice_search`, else that of the factual analysis) |
-| Propagandamodel Sync | 60 min | Synct het goedgekeurde propagandamodel (alleen-lezen) naar de `pm_*`-tabellen, alleen als het DB-bestand gewijzigd is (Epic 11, Story 11.17; `PROPAGANDA_SYNC_ENABLED`, `PROPAGANDA_SYNC_INTERVAL_MINUTES`, vereist migratie 005) |
+| Propagandamodel Sync | 60 min | Synct het goedgekeurde propagandamodel (alleen-lezen) naar de `pm_*`-tabellen, alleen als het DB-bestand gewijzigd is (Epic 11, Story 11.17; `PROPAGANDA_SYNC_ENABLED`, `PROPAGANDA_SYNC_INTERVAL_MINUTES`, vereist migratie 005). Sinds format 5 ook de argumenten achter elke relatie (voor/tegen/nuance, status, bronnen) en de uitleg per mechanisme: vereist migratie 010 (Story 14.12) |
+| Evidence Research | 15 min | Dun bewijs (Story 14.13): verbanden onder "Wie zit erachter?" die op dun bewijs rusten (de eventpagina meldt ze aan via `request_relation_research`) gaan als onderzoeksdoel naar het propagandamodel (`nieuws_doelen`, soort `relatie`, max 6/dag) en de uitkomst komt terug (`relation_research`). Rondes van de pm-agent `nieuws-bewijs` (bewijs vóór én tegen, alles `voorgesteld` tot de eigenaar keurt) alleen met `NIEUWS_BEWIJS_ENABLED=true` (max 2/dag, 08–22). `EVIDENCE_RESEARCH_*`, `NIEUWS_BEWIJS_*`; vereist migratie 011 |
 
 **Note:** Bias Analysis is disabled by default to save LLM costs. Enable with `BIAS_ANALYSIS_SCHEDULER_ENABLED=true`.
 
@@ -299,6 +300,15 @@ curl -X POST "http://localhost:8000/admin/trigger/entity-research/person:dilan-y
 
 # Entity research status (queue counts, budgets, nieuws-scout runner, LinkedIn brake, pm server)
 curl "http://localhost:8000/admin/entity-research/status"
+
+# Dun bewijs (Story 14.13): one evidence research cycle now (status, queue, round of nieuws-bewijs if switched on)
+curl -X POST "http://localhost:8000/admin/trigger/evidence-research"
+
+# Queue one propaganda-model link for evidence research now (ignores budget and cooldown), e.g. PBL -> NOS
+curl -X POST "http://localhost:8000/admin/trigger/evidence-research/1564"
+
+# Evidence research status (queue counts, budget, nieuws-bewijs runner, last runs)
+curl "http://localhost:8000/admin/evidence-research/status"
 
 # Wat schreef …?: Dutch gist of one foreign article now (fetch text + LLM, also when it has one)
 curl -X POST "http://localhost:8000/admin/trigger/article-digest/{article_id}"

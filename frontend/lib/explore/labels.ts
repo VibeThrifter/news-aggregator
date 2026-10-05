@@ -2,6 +2,8 @@
  * Dutch labels and descriptions used throughout the exploration UI.
  */
 
+import type { PmRelation } from "@/lib/types";
+
 import type { OwnKind, TabId } from "./types";
 
 export interface TabDefinition {
@@ -218,7 +220,7 @@ export const PM_RELATION_LABELS: Record<string, string> = {
   flak: "oefent druk uit op",
   bron_van: "is bron voor",
   beinvloeding: "beïnvloedt",
-  draaideur: "draaideur naar",
+  draaideur: "stapte over naar",
   bestuurder: "bestuurt",
   adviseur: "adviseert",
   censuur: "censureert",
@@ -242,7 +244,75 @@ export const PM_RELATION_LABELS: Record<string, string> = {
   algoritmische_filtering: "filtert algoritmisch",
 };
 
-export function pmRelationLabel(type: string): string {
+/**
+ * "beinvloeding" alone says nothing: what it means is in the mechanism. Read as "source … target"
+ * and "target … source", the source being the one with the influence.
+ */
+const INFLUENCE_PHRASES: Record<string, [string, string]> = {
+  expert_legitimatie: ["treedt op als deskundige bij", "heeft als deskundige"],
+  expert_framing: ["levert experts en analyses aan", "brengt experts en analyses van"],
+  bron_afhankelijkheid: ["is vaste bron voor", "leunt als bron op"],
+  crisis_bronmonopolie: ["was in de crisis dé bron voor", "leunde in de crisis op"],
+  institutioneel_gezag: ["is gezaghebbende bron voor", "neemt rapporten en cijfers over van"],
+  pakketjournalistiek: ["levert kant-en-klaar nieuws aan", "neemt kant-en-klaar nieuws over van"],
+  verifieerbaarheidsroutine: ["levert snel te checken nieuws aan", "neemt snel te checken nieuws over van"],
+  pr_subsidie: ["levert kant-en-klare PR aan", "neemt PR over van"],
+  politicus_als_bron: ["is bron voor", "heeft als bron"],
+  belangenbehartiging: ["brengt zijn belang in bij", "geeft podium aan het belang van"],
+  intermedia_agendering: ["zet de agenda van", "volgt de agenda van"],
+  media_agendering: ["zet de agenda van", "volgt de agenda van"],
+  indexering: ["bepaalt de bandbreedte van", "volgt de bandbreedte van"],
+  citaatautorisatie: ["autoriseert de citaten van", "laat citaten autoriseren door"],
+  elite_referentiekader: ["bepaalt het referentiekader van", "denkt binnen het kader van"],
+  ideologische_synchronisatie: ["stemt het wereldbeeld af met", "deelt het wereldbeeld van"],
+  academische_socialisatie: ["leidde journalisten op voor", "heeft journalisten opgeleid aan"],
+  academische_socialisatie_hoofdredacteur: ["vormde", "is gevormd aan"],
+  academische_socialisatie_politiek: ["vormde", "is gevormd aan"],
+  academische_vorming_opinie: ["vormde", "is gevormd aan"],
+  academische_orthodoxie_denktank: ["levert het denkkader van", "denkt in de kaders van"],
+  academische_orthodoxie_instituut: ["levert het denkkader van", "denkt in de kaders van"],
+  academische_autoriteit: ["verleent gezag aan", "ontleent gezag aan"],
+  institutionele_gezagsketen: ["verleent gezag aan", "ontleent gezag aan"],
+  begrotingsorthodoxie: ["zet het begrotingsframe van", "neemt het begrotingsframe over van"],
+  meningsspectrum_beperking: ["beperkt de keuze van", "krijgt een beperkte keuze van"],
+  kapitaalvluchtdreiging: ["dreigt met vertrek bij", "krijgt vertrekdreigingen van"],
+  algoritmische_filtering: ["bepaalt het bereik van", "hangt voor zijn bereik af van"],
+  algoritmische_socialisatie: ["bepaalt het nieuwsbeeld van", "haalt zijn nieuws via"],
+  platform_advertentie_concentratie: ["neemt advertentiegeld af van", "verliest advertentiegeld aan"],
+  platform_verdienmodel_druk: ["dwingt platformlogica af bij", "volgt de platformlogica van"],
+  kijkcijferdisciplinering: ["stuurt met kijkcijfers de redactie van", "stuurt op de kijkcijfers van"],
+  bestelsturing: ["verdeelt geld en zendtijd van", "krijgt geld en zendtijd van"],
+  intekensturing: ["keurt de programma's goed van", "laat zijn programma's goedkeuren door"],
+  winstmaximalisatie: ["legt een rendementseis op aan", "moet rendement maken voor"],
+  redactioneel_budgetcontrole: ["bepaalt het redactiebudget van", "krijgt zijn redactiebudget van"],
+  stak_stemzeggenschap: ["heeft het stemrecht over", "valt onder het stemrecht van"],
+  ledenraad_zeggenschap: ["heeft zeggenschap over", "valt onder de zeggenschap van"],
+  redactieraad_instemming: ["stemt in met de hoofdredacteur van", "benoemt zijn hoofdredacteur met instemming van"],
+  zelfcensuur: ["bepaalt de redactiecultuur van", "past zich aan aan de cultuur van"],
+  bestuurlijke_redactiedruk: ["zet de redactie onder druk van", "staat onder druk van"],
+  statelijke_tegenwerking: ["werkt journalisten tegen bij", "wordt tegengewerkt door"],
+  geweld_intimidatie: ["is een afschrikwekkend geval voor", "is afgeschrikt door het geval"],
+  toezicht_tandeloosheid: ["houdt zwak toezicht op", "staat onder zwak toezicht van"],
+  toezichthouder_interventie: ["grijpt in bij", "kreeg voorwaarden van"],
+  vakbond_bescherming: ["beschermt de journalisten van", "heeft journalisten onder bescherming van"],
+  publieksafleiding: ["leidt de aandacht af van", "wordt afgeleid door"],
+};
+
+/** "Bron afhankelijkheid", "Intermedia-agendering" (pm display names) → "bron_afhankelijkheid", … */
+export function mechanismKey(mechanism: string | null | undefined): string {
+  return (mechanism ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+/** The words of a relation read as "source … target"; for "beinvloeding" those of its mechanism. */
+export function pmRelationLabel(type: string, mechanism?: string | null): string {
+  if (type === "beinvloeding" && mechanism?.trim()) {
+    return INFLUENCE_PHRASES[mechanismKey(mechanism)]?.[0] ?? `beïnvloedt via ${mechanism.trim().toLowerCase()}`;
+  }
   return PM_RELATION_LABELS[type] ?? type.replace(/_/g, " ");
 }
 
@@ -254,11 +324,11 @@ const PM_RELATION_REVERSE_LABELS: Record<string, string> = {
   flak: "krijgt druk van",
   bron_van: "heeft als bron",
   beinvloeding: "wordt beïnvloed door",
-  draaideur: "draaideur vanaf",
+  draaideur: "kreeg als overstapper",
   bestuurder: "wordt bestuurd door",
   adviseur: "wordt geadviseerd door",
   censuur: "wordt gecensureerd door",
-  mediaplatform: "heeft als platform",
+  mediaplatform: "verschijnt bij",
   personeel: "heeft als medewerker",
   lidmaatschap: "heeft als lid",
   oppositie: "staat tegenover",
@@ -278,8 +348,41 @@ const PM_RELATION_REVERSE_LABELS: Record<string, string> = {
   algoritmische_filtering: "wordt algoritmisch gefilterd door",
 };
 
-export function pmRelationReverseLabel(type: string): string {
+export function pmRelationReverseLabel(type: string, mechanism?: string | null): string {
+  if (type === "beinvloeding" && mechanism?.trim()) {
+    return INFLUENCE_PHRASES[mechanismKey(mechanism)]?.[1] ?? `wordt via ${mechanism.trim().toLowerCase()} beïnvloed door`;
+  }
   return PM_RELATION_REVERSE_LABELS[type] ?? `${pmRelationLabel(type)} (omgekeerd)`;
+}
+
+/**
+ * Affiliations: someone belongs to an organisation. The model gives them no direction of influence and
+ * stores them either way round ("VVD → Heinen" and "Heinen → Tweede Kamer" are both lidmaatschap).
+ */
+export const PM_AFFILIATIONS: ReadonlySet<string> = new Set(["lidmaatschap", "personeel", "dienstverband", "woordvoerder_van", "bestuurder", "adviseur", "draaideur"]);
+
+/** Entity types that are a group others are a member of */
+const GROUP_TYPES = new Set(["partij", "elite_netwerk", "vakbond", "lobbygroep"]);
+
+type ReadableRelation = Pick<PmRelation, "source_id" | "target_id" | "relation_type" | "mechanism">;
+
+/**
+ * The end a relation's label is read from: its source, but for an affiliation the person (or the
+ * member of a group), whichever way the model stores it, so "Heinen is lid van VVD".
+ */
+export function labelSourceId(relation: ReadableRelation, typeOf: (id: number) => string | null | undefined): number {
+  if (!PM_AFFILIATIONS.has(relation.relation_type)) return relation.source_id;
+  const member = (id: number, other: number) =>
+    (typeOf(id) === "persoon" && typeOf(other) !== "persoon") || (GROUP_TYPES.has(typeOf(other) ?? "") && !GROUP_TYPES.has(typeOf(id) ?? ""));
+  if (member(relation.target_id, relation.source_id)) return relation.target_id;
+  return relation.source_id;
+}
+
+/** The words of a relation read from one of its ends: "RIVM is vaste bron voor …", "NOS leunt als bron op …". */
+export function relationWords(relation: ReadableRelation, fromId: number, typeOf: (id: number) => string | null | undefined): string {
+  return labelSourceId(relation, typeOf) === fromId
+    ? pmRelationLabel(relation.relation_type, relation.mechanism)
+    : pmRelationReverseLabel(relation.relation_type, relation.mechanism);
 }
 
 export function filterLabel(filter: string | null | undefined): string {

@@ -11,6 +11,7 @@ from backend.app.core.scheduler import get_scheduler
 from backend.app.services.article_digest import get_article_digest_service
 from backend.app.services.enrich_service import ArticleEnrichmentService
 from backend.app.services.entity_research.service import get_entity_research_service
+from backend.app.services.evidence_research import get_evidence_research_service
 from backend.app.services.event_service import EventService
 from backend.app.services.insight_service import InsightGenerationOutcome, InsightService
 from backend.app.services.international_enrichment import (
@@ -926,3 +927,76 @@ async def entity_research_status():
     """Queue counts, budgets, the nieuws-scout runner, LinkedIn brake and the last runs."""
 
     return EntityResearchStatusResponse(**await get_entity_research_service().status())
+
+
+class EvidenceResearchCycleResponse(BaseModel):
+    """Outcome of one evidence research cycle (status, queue, round) - Story 14.13."""
+
+    skipped: bool
+    reason: str | None = None
+    status: dict[str, Any] | None = None
+    enqueue: dict[str, Any] | None = None
+    round_started: bool = False
+
+
+class EvidenceResearchRelationResponse(BaseModel):
+    """Outcome of queueing one link for evidence research now."""
+
+    relation_id: int
+    found: bool
+    reason: str | None = None
+    label: str | None = None
+    evidence: str | None = None
+    missing: list[str] = []
+    status: str | None = None
+    enqueue: dict[str, Any] | None = None
+    round_started: bool = False
+
+
+class EvidenceResearchStatusResponse(BaseModel):
+    """Queue counts, daily budget, the nieuws-bewijs runner and the last runs."""
+
+    enabled: bool
+    rounds_enabled: bool
+    pm_db: str
+    pm_db_exists: bool
+    pm_server: bool
+    counts: dict[str, int]
+    budget: dict[str, int]
+    runner: dict[str, Any]
+    last_runs: dict[str, Any]
+
+
+@router.post("/trigger/evidence-research", response_model=EvidenceResearchCycleResponse)
+async def trigger_evidence_research():
+    """Run one evidence research cycle now: pull the status, queue requested thin links, start a
+    round of the pm agent nieuws-bewijs (only when NIEUWS_BEWIJS_ENABLED)."""
+
+    try:
+        result = await get_evidence_research_service().run_cycle()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Evidence research failed: {exc}") from exc
+    return EvidenceResearchCycleResponse(**result)
+
+
+@router.post(
+    "/trigger/evidence-research/{relation_id}", response_model=EvidenceResearchRelationResponse
+)
+async def trigger_evidence_research_relation(relation_id: int):
+    """Queue one propaganda-model link for evidence research now (ignores the budget and the
+    cooldown); a round starts only when NIEUWS_BEWIJS_ENABLED."""
+
+    try:
+        result = await get_evidence_research_service().research_relation(relation_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Evidence research failed: {exc}") from exc
+    if not result.get("found"):
+        raise HTTPException(status_code=404, detail=result.get("reason") or "Link not found")
+    return EvidenceResearchRelationResponse(**result)
+
+
+@router.get("/evidence-research/status", response_model=EvidenceResearchStatusResponse)
+async def evidence_research_status():
+    """Queue counts, budget, the nieuws-bewijs runner and the last runs (Story 14.13)."""
+
+    return EvidenceResearchStatusResponse(**await get_evidence_research_service().status())

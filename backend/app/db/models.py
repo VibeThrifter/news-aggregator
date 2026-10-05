@@ -511,6 +511,56 @@ class PmSource(Base):
         return f"<PmSource {self.owner_kind}:{self.owner_id} #{self.position}>"
 
 
+class PmArgument(Base):
+    """Argument for, against or nuancing an exported relation, with up to 3 sources (migration 010).
+
+    ``aspect`` is what it is about (NULL = whether the relation exists), ``status`` its review
+    status in the propaganda model (geverifieerd, ongecontroleerd, bronvermelding_nodig, betwist,
+    verouderd; voorgesteld only for the unreviewed evidence of automatically approved relations).
+    Replies point at their parent (``parent_id``).
+    """
+
+    __tablename__ = "pm_arguments"
+    __table_args__ = (
+        CheckConstraint("owner_kind IN ('entity','relation')", name="ck_pm_arguments_owner_kind"),
+        CheckConstraint(
+            "stance IN ('supporting','contradicting','contextual')", name="ck_pm_arguments_stance"
+        ),
+        Index("idx_pm_arguments_owner", "owner_kind", "owner_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    owner_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    owner_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    parent_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    aspect: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stance: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    claim: Mapped[str] = mapped_column(Text, nullable=False)
+    # [{"title","url","publisher","published_at","kind","quote"}]
+    sources: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONBType, nullable=False, default=list, server_default=text("'[]'")
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging helper
+        return f"<PmArgument {self.id} {self.owner_kind}:{self.owner_id} {self.stance}>"
+
+
+class PmMechanism(Base):
+    """What a mechanism means, by its display name (= ``pm_relations.mechanism``, migration 010)."""
+
+    __tablename__ = "pm_mechanisms"
+
+    name: Mapped[str] = mapped_column(Text, primary_key=True)
+    filter: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    effect: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging helper
+        return f"<PmMechanism {self.name!r}>"
+
+
 class PmAlias(Base):
     """Slug alias (shared ``slugify``) -> propaganda-model entity."""
 
@@ -644,3 +694,78 @@ class EntityResearch(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper
         return f"<EntityResearch key={self.entity_key!r} status={self.status!r}>"
+
+
+# --------------------------------------------------------------------------------------
+# Dun bewijs (Epic 14, Story 14.13): evidence research for propaganda-model relations
+# that readers see under "Wie zit erachter?" and that rest on thin evidence. One row per
+# pm relation; demand comes from request_relation_research() (the event page), the local
+# backend queues the relation in the propaganda model (nieuws_doelen, soort 'relatie') and
+# pulls the outcome of its agent nieuws-bewijs. No direct anon access (RLS without
+# policies, migration 011); the frontend reads through the functions of that migration.
+# --------------------------------------------------------------------------------------
+
+RELATION_RESEARCH_STATUSES: tuple[str, ...] = (
+    "nieuw",
+    "niet_nodig",
+    "wachtrij",
+    "bezig",
+    "klaar",
+    "niets_gevonden",
+    "overgeslagen",
+    "twijfel",
+    "fout",
+)
+
+
+class RelationResearch(Base):
+    """Evidence research status of one propaganda-model relation (Story 14.13)."""
+
+    __tablename__ = "relation_research"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN (" + ",".join(f"'{s}'" for s in RELATION_RESEARCH_STATUSES) + ")",
+            name="ck_relation_research_status",
+        ),
+        Index("idx_relation_research_status", "status", "priority"),
+        Index("idx_relation_research_requested", "last_requested_at"),
+    )
+
+    relation_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="nieuw", server_default="nieuw"
+    )
+    status_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    priority: Mapped[float] = mapped_column(REAL, nullable=False, default=0.0, server_default="0")
+    # Event slugs the demand came from, newest first (at most 5)
+    request_events: Mapped[list[str]] = mapped_column(
+        JSONBType, nullable=False, default=list, server_default=text("'[]'")
+    )
+    requested_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    last_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    pm_doel_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # {"arguments": n, "sources": n, "pending": n, "merged": n, "rejected": n}
+    found: Mapped[dict[str, Any]] = mapped_column(
+        JSONBType, nullable=False, default=dict, server_default=text("'{}'")
+    )
+    # Report of the research agent for the reviewer (never exposed to the frontend)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    researched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        onupdate=utcnow,
+        server_default=func.now(),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging helper
+        return f"<RelationResearch relation={self.relation_id} status={self.status!r}>"

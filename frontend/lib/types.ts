@@ -435,6 +435,43 @@ export interface PmDetails {
   sources: PmSource[];
   /** Epic 12: approved by the news pipeline, not by a person */
   auto_approved?: boolean;
+  /** Story 14.12 (migration 010), relations: the discussion behind it */
+  arguments?: PmArgument[];
+  /** Story 14.12, relations: its two ends (to read it as a sentence) */
+  source?: Pick<PmEntity, "id" | "name" | "type"> | null;
+  target?: Pick<PmEntity, "id" | "name" | "type"> | null;
+  /** Story 14.12, relations: what its mechanism means in the model */
+  mechanism_description?: string | null;
+  mechanism_effect?: string | null;
+}
+
+/** A source an argument cites (Story 14.12) */
+export interface PmArgumentSource {
+  title?: string | null;
+  url?: string | null;
+  publisher?: string | null;
+  published_at?: string | null;
+  /** nieuwsartikel, persbericht, rapport, academisch_artikel, … */
+  kind?: string | null;
+  quote?: string | null;
+}
+
+/** Review status of an argument in the propaganda model */
+export type PmArgumentStatus = "geverifieerd" | "ongecontroleerd" | "bronvermelding_nodig" | "betwist" | "verouderd" | "voorgesteld";
+
+/**
+ * Story 14.12 (migration 010): an argument for, against or nuancing a relation, as the propaganda
+ * model keeps it: claim, review status and the sources it cites. Replies point at their parent.
+ */
+export interface PmArgument {
+  id: number;
+  parent_id?: number | null;
+  /** What it is about: null = whether the relation exists; certainty, influence, active_from, … */
+  aspect?: string | null;
+  stance: "supporting" | "contradicting" | "contextual";
+  status: PmArgumentStatus | string;
+  claim: string;
+  sources: PmArgumentSource[];
 }
 
 export interface PmMatch {
@@ -531,6 +568,39 @@ export interface EntityResearch {
   pm_entity_id?: number | null;
   pm_degree?: number | null;
   found?: EntityResearchFound | null;
+  queued_at?: string | null;
+  researched_at?: string | null;
+  updated_at?: string | null;
+}
+
+/** Story 14.13: research of a thin propaganda-model link (relation_research, migration 011) */
+export type RelationResearchStatus =
+  | "nieuw"
+  | "niet_nodig"
+  | "wachtrij"
+  | "bezig"
+  | "klaar"
+  | "niets_gevonden"
+  | "overgeslagen"
+  | "twijfel"
+  | "fout";
+
+/** What the research produced and how far its review is (counts only) */
+export interface RelationResearchFound {
+  arguments?: number;
+  sources?: number;
+  /** Still waiting for a human in the propaganda model */
+  pending?: number;
+  merged?: number;
+  rejected?: number;
+}
+
+/** One row of relation_research_status / request_relation_research */
+export interface RelationResearch {
+  relation_id: number;
+  status: RelationResearchStatus | string;
+  status_reason?: string | null;
+  found?: RelationResearchFound | null;
   queued_at?: string | null;
   researched_at?: string | null;
   updated_at?: string | null;

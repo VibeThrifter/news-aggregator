@@ -5,7 +5,7 @@
  * auto_approved on entities/relations, unreviewed on sources), and pm_paths (Epic 13, migration 007).
  */
 
-import type { PmDetails, PmEntity, PmMatch, PmMeta, PmNeighborhood, PmPaths, PmRelation, PmSource } from "@/lib/types";
+import type { PmArgument, PmDetails, PmEntity, PmMatch, PmMeta, PmNeighborhood, PmPaths, PmRelation, PmSource } from "@/lib/types";
 
 import { slugify } from "./normalize";
 import { countBreakdown, countDirections, countFilters, matchesFilters, onSide, relationFilters, type PmDirection } from "./pm-graph";
@@ -17,6 +17,10 @@ export interface PmSlice {
   relations: (PmRelation & { description?: string | null })[];
   sources: Record<string, PmSource[]>;
   aliases: { alias: string; entity_id: number }[];
+  /** Story 14.12: arguments per "relation:<id>" (only around the demo story's institutions) */
+  arguments?: Record<string, PmArgument[]>;
+  /** Story 14.12: what the mechanisms mean, by display name */
+  mechanisms?: { name: string; description?: string | null; effect?: string | null }[];
 }
 
 /** Informative relation types first (same order as the pm_neighborhood SQL function). */
@@ -58,6 +62,8 @@ export function extendSlice(base: PmSlice, extra: Partial<Omit<PmSlice, "meta">>
     relations: [...base.relations, ...(extra.relations ?? [])],
     sources: { ...base.sources, ...(extra.sources ?? {}) },
     aliases: [...base.aliases, ...(extra.aliases ?? [])],
+    arguments: { ...(base.arguments ?? {}), ...(extra.arguments ?? {}) },
+    mechanisms: [...(base.mechanisms ?? []), ...(extra.mechanisms ?? [])],
   };
 }
 
@@ -163,6 +169,7 @@ export function createLocalPm(slice: PmSlice) {
       if (!relation) return null;
       const source = entityById.get(relation.source_id);
       const target = entityById.get(relation.target_id);
+      const mechanism = slice.mechanisms?.find((candidate) => candidate.name === relation.mechanism);
       return {
         kind,
         id,
@@ -177,7 +184,21 @@ export function createLocalPm(slice: PmSlice) {
         certainty_label: relation.certainty_label ?? null,
         sources: slice.sources[`relation:${id}`] ?? [],
         ...(relation.auto_approved ? { auto_approved: true } : {}),
+        arguments: slice.arguments?.[`relation:${id}`] ?? [],
+        source: source ? { id: source.id, name: source.name, type: source.type } : null,
+        target: target ? { id: target.id, name: target.name, type: target.type } : null,
+        mechanism_description: mechanism?.description ?? null,
+        mechanism_effect: mechanism?.effect ?? null,
       };
+    },
+
+    /** pm_relation_arguments (migration 010): the arguments of at most 40 relations. */
+    relationArguments(ids: number[]): { relation_id: number; arguments: PmArgument[] }[] {
+      const known = new Set(slice.relations.map((relation) => relation.id));
+      return Array.from(new Set(ids.slice(0, 40)))
+        .filter((id) => known.has(id))
+        .sort((a, b) => a - b)
+        .map((id) => ({ relation_id: id, arguments: (slice.arguments?.[`relation:${id}`] ?? []).slice(0, 12) }));
     },
   };
 }

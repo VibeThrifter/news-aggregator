@@ -8,7 +8,7 @@ import { Check, ChevronRight, Info, Loader2, Route, UserRound } from "lucide-rea
 import { getEntityCooccurrence, pmMatch } from "@/lib/api";
 import { actorScene } from "@/lib/explore/actor-graph";
 import { useUrlPanel } from "@/lib/explore/hooks";
-import { FILTERS, filterAsk, filterColor, filterLabel, pmRelationLabel } from "@/lib/explore/labels";
+import { FILTERS, filterAsk, filterColor, filterLabel, labelSourceId, pmRelationLabel } from "@/lib/explore/labels";
 import { layoutNetwork, type Positions } from "@/lib/explore/layout/network";
 import { actorKeys } from "@/lib/explore/normalize";
 import {
@@ -420,15 +420,15 @@ function ActorNodeTip({
 }
 
 function ActorEdgeTip({ relation, pmx, pinned, onDetails }: { relation: PmRelation; pmx: ActorExplorer; pinned: boolean; onDetails: () => void }) {
-  const source = pmx.merged.entities.get(relation.source_id);
-  const target = pmx.merged.entities.get(relation.target_id);
+  const first = labelSourceId(relation, (id) => pmx.merged.entities.get(id)?.type);
+  const last = otherEnd(relation, first);
   const when = period(relation);
   return (
     <div className="space-y-2">
       <p className="text-sm leading-snug">
-        <span className="font-semibold text-ink-900">{source?.name ?? relation.source_id}</span>{" "}
-        <span className="text-ink-600">{pmRelationLabel(relation.relation_type)}</span>{" "}
-        <span className="font-semibold text-ink-900">{target?.name ?? relation.target_id}</span>
+        <span className="font-semibold text-ink-900">{pmx.merged.entities.get(first)?.name ?? first}</span>{" "}
+        <span className="text-ink-600">{pmRelationLabel(relation.relation_type, relation.mechanism)}</span>{" "}
+        <span className="font-semibold text-ink-900">{pmx.merged.entities.get(last)?.name ?? last}</span>
       </p>
       <div className="flex flex-wrap gap-1.5">
         {relationFilters(relation).map((filter) => (
@@ -498,8 +498,8 @@ function RelationList({
         {shown.map((relation) => {
           const otherId = otherEnd(relation, center.id);
           const other = pmx.merged.entities.get(otherId);
-          const outgoing = relation.source_id === center.id;
-          const label = pmRelationLabel(relation.relation_type);
+          const outgoing = labelSourceId(relation, (id) => pmx.merged.entities.get(id)?.type) === center.id;
+          const label = pmRelationLabel(relation.relation_type, relation.mechanism);
           return (
             <li key={relation.id} className="flex items-center gap-1 pr-1">
               <Link

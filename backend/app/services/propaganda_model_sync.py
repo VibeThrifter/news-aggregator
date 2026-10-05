@@ -15,6 +15,11 @@ Pipeline
    (mirrors ``grep -c "politieke_positie\\|machtsvalentie"`` from the pm release discipline).
 4. :func:`write_snapshot` - full refresh in one transaction (delete pm_* then batched inserts).
 
+Since format 5 (migration 010) the arguments about each exported relation travel along: claim,
+stance (for / against / nuance), review status and up to three sources each, plus what every
+mechanism means. The frontend shows them so a reader sees what a link rests on and how sure the
+model is, instead of one bare description.
+
 Rules copied from the propaganda-model project (deliberately not imported - keep in sync by hand):
 
 - approval filter ``status = 'goedgekeurd' AND NOT vervangen`` (``scripts/export_dataset.py``);
@@ -59,7 +64,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
-from backend.app.db.models import PmAlias, PmEntity, PmMeta, PmRelation, PmSource
+from backend.app.db.models import (
+    PmAlias,
+    PmArgument,
+    PmEntity,
+    PmMechanism,
+    PmMeta,
+    PmRelation,
+    PmSource,
+)
 from backend.app.nlp.entity_keys import slugify
 
 logger = get_logger(__name__).bind(component="PropagandaModelSync")
@@ -228,9 +241,40 @@ FILTERS: tuple[str, ...] = (
 UNFILTERED = "overig"
 # Version of the pm_* row format (pm_meta.format). A sync is never skipped as "unchanged" while
 # the stored format differs, so a new column is filled right after the migration adds it.
-SNAPSHOT_FORMAT = "4"  # 4: auto_approved + unreviewed sources (Epic 12)
+SNAPSHOT_FORMAT = "5"  # 4: auto_approved + unreviewed sources (Epic 12); 5: arguments + mechanisms
 MAX_SOURCES_PER_OWNER = 12
 MAX_QUOTE_LENGTH = 300
+# Arguments shown with a relation (migration 010): whether it exists, how strong, when it held and
+# what kind of tie it is - not the classification debates (mechanism, filter, role). The excluded
+# layers are never read at all.
+ARGUMENT_ASPECTS: frozenset[str | None] = frozenset(
+    {
+        None,
+        "existence",
+        "description",
+        "certainty",
+        "influence",
+        "active_from",
+        "active_until",
+        "relation_type",
+    }
+)
+# Review statuses a reader may see (rejected arguments and unmerged proposals never count)
+SHOWN_ARGUMENT_STATUSES: frozenset[str] = frozenset(
+    {"geverifieerd", "ongecontroleerd", "bronvermelding_nodig", "betwist", "verouderd"}
+)
+STANCE_ORDER: dict[str, int] = {"supporting": 0, "contextual": 1, "contradicting": 2}
+ARGUMENT_STATUS_ORDER: dict[str, int] = {
+    "geverifieerd": 0,
+    "ongecontroleerd": 1,
+    "bronvermelding_nodig": 2,
+    "voorgesteld": 3,
+    "betwist": 4,
+    "verouderd": 5,
+}
+MAX_ARGUMENTS_PER_OWNER = 12
+MAX_SOURCES_PER_ARGUMENT = 3
+MAX_CLAIM_LENGTH = 600
 MIN_DERIVED_ALIAS_LENGTH = 3
 
 # Curated aliases for the aggregator's feeds: pm id -> (expected pm name, alias names).
@@ -264,6 +308,15 @@ DEMO_SEEDS: dict[int, str] = {
 DEMO_MAX_ENTITIES = 200
 DEMO_MAX_RELATIONS = 480
 DEMO_PER_FILTER = 6  # relations per seed and per filter that are selected first
+DEMO_MAX_ARGUMENTS = 4  # arguments per relation in the demo slice
+# The real institutions of the demo story: only their relations carry arguments in the demo, so
+# the slice stays small and bundles little of the model's reasoning (data licence).
+DEMO_ARGUMENT_FOCUS: dict[int, str] = {
+    82: "RIVM",
+    865: "Planbureau voor de Leefomgeving (PBL)",
+    12: "ANP",
+    870: "Ipsos I&O",
+}
 
 # Display names (copied from propaganda-model paginas.NAAM_WEERGAVE; roles + mechanisms).
 DISPLAY_NAMES: dict[str, str] = {
@@ -316,7 +369,15 @@ _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _PARENTHETICAL = re.compile(r"^(?P<outer>[^()]+?)\s*\((?P<inner>[^()]+)\)\s*$")
 _ACRONYM = re.compile(r"[A-Z0-9][A-Za-z0-9.&-]{0,11}")
 
-PM_TABLES: tuple[str, ...] = ("pm_entities", "pm_relations", "pm_sources", "pm_aliases", "pm_meta")
+PM_TABLES: tuple[str, ...] = (
+    "pm_entities",
+    "pm_relations",
+    "pm_sources",
+    "pm_aliases",
+    "pm_meta",
+    "pm_arguments",
+    "pm_mechanisms",
+)
 
 
 class ExcludedLayerError(RuntimeError):
@@ -537,9 +598,11 @@ _READ_QUERIES: dict[str, str] = {
         WHERE status = 'goedgekeurd' AND NOT vervangen
         ORDER BY id""",
     "roles": "SELECT id, name, category, vervangen FROM roles ORDER BY id",
-    "mechanisms": "SELECT id, name, filter, aard, vervangen FROM mechanisms ORDER BY id",
-    # Never read the excluded layers (incl. every reply below such an argument); claim and
-    # reasoning texts are not needed either.
+    "mechanisms": """
+        SELECT id, name, filter, aard, description, effect, vervangen
+        FROM mechanisms ORDER BY id""",
+    # Never read the excluded layers (incl. every reply below such an argument). The claim is
+    # shown with its relation (format 5); the longer reasoning is not needed.
     "arguments": f"""
         WITH RECURSIVE excluded(id) AS (
             SELECT id FROM arguments WHERE property IN ({_EXCLUDED_SQL_LIST})
@@ -547,7 +610,7 @@ _READ_QUERIES: dict[str, str] = {
             SELECT a.id FROM arguments a JOIN excluded e ON a.parent_argument_id = e.id
         )
         SELECT id, relation_id, entity_id, parent_argument_id, property, stance, status,
-               bezwaar_resolutie, contributed_by, smaad_hold
+               claim, bezwaar_resolutie, contributed_by, smaad_hold
         FROM arguments
         WHERE NOT vervangen AND id NOT IN (SELECT id FROM excluded)
         ORDER BY id""",  # noqa: S608 - constant list, no user input
@@ -563,7 +626,8 @@ _READ_QUERIES: dict[str, str] = {
         WHERE NOT a.vervangen AND a.id NOT IN (SELECT id FROM excluded)
         ORDER BY c.id""",  # noqa: S608 - constant list, no user input
     "sources": """
-        SELECT id, title, publisher, date_published, reliability, onderwerp, cluster_key
+        SELECT id, title, source_type, publisher, date_published, reliability, onderwerp,
+               cluster_key
         FROM sources ORDER BY id""",
     "source_locations": """
         SELECT id, source_id, location_type, location
@@ -1106,6 +1170,180 @@ def collect_sources(
     return rows, counts
 
 
+def _argument_sources(
+    citations: Sequence[Mapping[str, Any]],
+    sources: Mapping[int, Mapping[str, Any]],
+    locations: Mapping[int, Sequence[Mapping[str, Any]]],
+    limit: int = MAX_SOURCES_PER_ARGUMENT,
+) -> list[dict[str, Any]]:
+    """The sources an argument cites (in citation order, once each, never project material)."""
+
+    rows: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for citation in citations:
+        source = sources.get(citation["source_id"])
+        if source is None or source["id"] in seen:
+            continue
+        if _reliability_weight(source.get("reliability")) <= 0:
+            continue  # eigen_synthese: project material, never evidence
+        title = _as_text(source.get("title"))
+        quote = truncate_quote(citation.get("quote"))
+        if EXCLUDED_TEXT_PATTERN.search(title or "") or EXCLUDED_TEXT_PATTERN.search(quote or ""):
+            continue
+        seen.add(source["id"])
+        rows.append(
+            {
+                "title": title,
+                "url": _source_url(locations.get(source["id"], ())),
+                "publisher": _as_text(source.get("publisher")),
+                "published_at": _as_text(source.get("date_published")),
+                "kind": _as_text(source.get("source_type")),
+                "quote": quote,
+            }
+        )
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def collect_arguments(
+    owner_ids: Iterable[int],
+    arguments: Sequence[Mapping[str, Any]],
+    scores: ArgumentScores,
+    citations: Sequence[Mapping[str, Any]],
+    sources: Mapping[int, Mapping[str, Any]],
+    locations: Mapping[int, Sequence[Mapping[str, Any]]],
+    *,
+    max_per_owner: int = MAX_ARGUMENTS_PER_OWNER,
+    unreviewed_owner_ids: Iterable[int] = (),
+    unreviewed_contributors: frozenset[str] = AUTO_RESEARCH_CONTRIBUTORS,
+) -> list[dict[str, Any]]:
+    """pm_arguments rows: what a reader may see of the discussion about each exported relation.
+
+    For, against and nuance, each with its review status and cited sources: merged arguments of
+    every status except rejected, and for automatically approved relations also the unmerged
+    evidence of the news research agent (status ``voorgesteld``). Never arguments under the smaad
+    hold, about the excluded layers or about classification (:data:`ARGUMENT_ASPECTS`). Replies
+    follow their parent. Per relation: supporting, then nuance, then against; within a stance the
+    best reviewed and strongest first.
+    """
+
+    wanted = set(owner_ids)
+    unreviewed = wanted & set(unreviewed_owner_ids)
+    claims = {row["id"]: row.get("claim") for row in arguments}
+    citations_by_arg: dict[int, list[Mapping[str, Any]]] = defaultdict(list)
+    for citation in citations:
+        citations_by_arg[citation["argument_id"]].append(citation)
+
+    def claim_of(arg_id: int) -> str | None:
+        return truncate_quote(scrub_text(claims.get(arg_id)), MAX_CLAIM_LENGTH)
+
+    def shown(arg_id: int, owner_id: int, root: bool) -> bool:
+        meta = scores.meta[arg_id]
+        if meta["smaad_hold"] or not claim_of(arg_id):
+            return False
+        if root and meta["property"] not in ARGUMENT_ASPECTS:
+            return False
+        status = meta["status"]
+        return status in SHOWN_ARGUMENT_STATUSES or (
+            status == "voorgesteld"
+            and root
+            and owner_id in unreviewed
+            and meta.get("contributed_by") in unreviewed_contributors
+        )
+
+    roots: dict[int, list[int]] = defaultdict(list)
+    for arg_id, meta in scores.meta.items():
+        owner_id = meta.get("relation_id")
+        if meta["parent"] is None and owner_id in wanted and shown(arg_id, owner_id, True):
+            roots[owner_id].append(arg_id)
+
+    rows: list[dict[str, Any]] = []
+    for owner_id in sorted(roots):
+        ordered = sorted(
+            roots[owner_id],
+            key=lambda arg_id: (
+                STANCE_ORDER.get(scores.meta[arg_id]["stance"], 9),
+                ARGUMENT_STATUS_ORDER.get(scores.meta[arg_id]["status"], 9),
+                -scores.sigma.get(arg_id, 0.0),
+                arg_id,
+            ),
+        )
+        picked: list[tuple[int, int | None]] = []
+        for root_id in ordered:
+            stack: list[tuple[int, int | None]] = [(root_id, None)]
+            while stack and len(picked) < max_per_owner:
+                arg_id, parent = stack.pop()
+                picked.append((arg_id, parent))
+                replies = sorted(
+                    (
+                        child
+                        for child in scores.children.get(arg_id, ())
+                        if shown(child, owner_id, False)
+                    ),
+                    reverse=True,
+                )
+                stack.extend((child, arg_id) for child in replies)
+        for position, (arg_id, parent) in enumerate(picked):
+            meta = scores.meta[arg_id]
+            rows.append(
+                {
+                    "id": arg_id,
+                    "owner_kind": "relation",
+                    "owner_id": owner_id,
+                    "parent_id": parent,
+                    "aspect": meta["property"] if meta["property"] != "existence" else None,
+                    "stance": meta["stance"],
+                    "status": meta["status"],
+                    "claim": claim_of(arg_id),
+                    "sources": _argument_sources(
+                        citations_by_arg.get(arg_id, ()), sources, locations
+                    ),
+                    "position": position,
+                }
+            )
+    return rows
+
+
+_IDENTIFIER = re.compile(r"`([a-z][a-z0-9_]*?)(?:_\*)?`")  # also `academische_*` (a family)
+# The model's own cross-references: "(De financieringsband zelf is `denktank_financiering_bias`.)"
+_CROSS_REFERENCE = re.compile(r"\s*\([^()]*`[a-z][a-z0-9_]*`[^()]*\)")
+
+
+def _plain_mechanism_text(value: str | None) -> str | None:
+    """Mechanism text for readers: no cross-references in brackets, ``expert_framing`` -> "expert
+    framing" elsewhere (+ the scrub)."""
+
+    text_value = scrub_text(value)
+    if text_value is None:
+        return None
+    text_value = _CROSS_REFERENCE.sub("", text_value).strip()
+    plain = _IDENTIFIER.sub(lambda match: (display_name(match[1]) or match[1]).lower(), text_value)
+    return plain or None
+
+
+def mechanism_rows(
+    mechanisms: Mapping[int, Mapping[str, Any]], used_ids: Iterable[int | None]
+) -> list[dict[str, Any]]:
+    """pm_mechanisms rows: what the mechanisms of the exported relations mean, by display name."""
+
+    rows: dict[str, dict[str, Any]] = {}
+    for mechanism_id in sorted({value for value in used_ids if value is not None}):
+        mechanism = mechanisms.get(mechanism_id)
+        if mechanism is None or mechanism.get("vervangen"):
+            continue
+        name = display_name(mechanism.get("name"))
+        if not name or name in rows:
+            continue
+        rows[name] = {
+            "name": name,
+            "filter": _as_text(mechanism.get("filter")),
+            "description": _plain_mechanism_text(mechanism.get("description")),
+            "effect": _plain_mechanism_text(mechanism.get("effect")),
+        }
+    return list(rows.values())
+
+
 def _alias_parts(name: str) -> tuple[str, list[str]]:
     """Split ``"AIVD (Algemene ...)"`` into the outer name and the parenthetical parts."""
 
@@ -1211,6 +1449,8 @@ class PmSnapshot:
     aliases: list[dict[str, Any]]
     meta: dict[str, str]
     synced_at: datetime
+    arguments: list[dict[str, Any]] = field(default_factory=list)
+    mechanisms: list[dict[str, Any]] = field(default_factory=list)
 
     def counts(self) -> dict[str, int]:
         return {
@@ -1218,6 +1458,8 @@ class PmSnapshot:
             "relations": len(self.relations),
             "sources": len(self.sources),
             "aliases": len(self.aliases),
+            "arguments": len(self.arguments),
+            "mechanisms": len(self.mechanisms),
         }
 
     def to_json(self) -> str:
@@ -1227,6 +1469,8 @@ class PmSnapshot:
                 "relations": self.relations,
                 "sources": self.sources,
                 "aliases": self.aliases,
+                "arguments": self.arguments,
+                "mechanisms": self.mechanisms,
                 "meta": self.meta,
             },
             ensure_ascii=False,
@@ -1305,6 +1549,15 @@ def transform(raw: PmRawData, *, synced_at: datetime | None = None) -> PmSnapsho
         locations,
         unreviewed_owner_ids=auto_entities,
     )
+    argument_rows = collect_arguments(
+        (relation["id"] for relation in exported_relations),
+        arguments,
+        scores,
+        citations,
+        sources,
+        locations,
+        unreviewed_owner_ids=auto_relations,
+    )
 
     degree: dict[int, int] = defaultdict(int)
     relation_rows: list[dict[str, Any]] = []
@@ -1376,6 +1629,10 @@ def transform(raw: PmRawData, *, synced_at: datetime | None = None) -> PmSnapsho
         aliases=generate_aliases(entity_rows),
         meta=meta,
         synced_at=synced,
+        arguments=argument_rows,
+        mechanisms=mechanism_rows(
+            mechanisms, (relation.get("mechanism_id") for relation in exported_relations)
+        ),
     )
 
 
@@ -1436,6 +1693,8 @@ _SLICE_RELATION_FIELDS = (
     "source_count",
 )
 _SLICE_SOURCE_FIELDS = ("title", "url", "publisher", "published_at", "quote")
+_SLICE_ARGUMENT_FIELDS = ("id", "parent_id", "aspect", "stance", "status", "claim", "sources")
+_SLICE_MECHANISM_FIELDS = ("name", "description", "effect")
 
 
 def build_demo_slice(
@@ -1446,6 +1705,8 @@ def build_demo_slice(
     max_relations: int = DEMO_MAX_RELATIONS,
     max_sources_per_owner: int = MAX_SOURCES_PER_OWNER,
     per_filter: int = DEMO_PER_FILTER,
+    max_arguments_per_owner: int = DEMO_MAX_ARGUMENTS,
+    argument_focus: Iterable[int] = DEMO_ARGUMENT_FOCUS,
 ) -> dict[str, Any]:
     """Small slice of the graph for the Vercel demo (no Supabase).
 
@@ -1577,6 +1838,21 @@ def build_demo_slice(
         key = f"{row['owner_kind']}:{row['owner_id']}"
         if len(sources[key]) < max_sources_per_owner:
             sources[key].append({name: row.get(name) for name in _SLICE_SOURCE_FIELDS})
+    # The discussion behind the relations of the focus entities (format 5): for, against, nuance
+    focus = set(argument_focus)
+    argued = {
+        relation_id
+        for relation_id, relation in selected_relations.items()
+        if focus & {relation["source_id"], relation["target_id"]}
+    }
+    arguments: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in sorted(snapshot.arguments, key=lambda item: (item["owner_id"], item["position"])):
+        if row["owner_kind"] != "relation" or row["owner_id"] not in argued:
+            continue
+        key = f"relation:{row['owner_id']}"
+        if len(arguments[key]) < max_arguments_per_owner:
+            arguments[key].append({name: row.get(name) for name in _SLICE_ARGUMENT_FIELDS})
+    used_mechanisms = {selected_relations[relation_id].get("mechanism") for relation_id in argued}
 
     slice_data = {
         "meta": {
@@ -1595,6 +1871,12 @@ def build_demo_slice(
         ],
         "sources": dict(sorted(sources.items(), key=lambda item: _owner_sort_key(item[0]))),
         "aliases": [row for row in snapshot.aliases if row["entity_id"] in entity_ids],
+        "arguments": dict(sorted(arguments.items(), key=lambda item: _owner_sort_key(item[0]))),
+        "mechanisms": [
+            {name: row.get(name) for name in _SLICE_MECHANISM_FIELDS}
+            for row in sorted(snapshot.mechanisms, key=lambda item: item["name"])
+            if row["name"] in used_mechanisms
+        ],
     }
     assert_no_excluded_layers(slice_data)
     return slice_data
@@ -1616,15 +1898,22 @@ def dump_demo_slice(slice_data: Mapping[str, Any]) -> str:
             return "[]"
         return "[\n" + ",\n".join(dumps(item) for item in items) + "\n]"
 
-    sources = slice_data["sources"]
-    source_lines = ",\n".join(f"{dumps(key)}:{dumps(value)}" for key, value in sources.items())
+    def owners(key: str) -> str:
+        rows = slice_data.get(key) or {}
+        lines = ",\n".join(f"{dumps(owner)}:{dumps(value)}" for owner, value in rows.items())
+        return f'"{key}":{{\n{lines}\n}}' if rows else f'"{key}":{{}}'
+
     parts = [
         f'"meta":{dumps(slice_data["meta"])}',
         f'"entities":{array(slice_data["entities"])}',
         f'"relations":{array(slice_data["relations"])}',
-        f'"sources":{{\n{source_lines}\n}}' if sources else '"sources":{}',
+        owners("sources"),
         f'"aliases":{array(slice_data["aliases"])}',
     ]
+    if "arguments" in slice_data:
+        parts.append(owners("arguments"))
+    if "mechanisms" in slice_data:
+        parts.append(f'"mechanisms":{array(slice_data["mechanisms"])}')
     return "{\n" + ",\n".join(parts) + "\n}\n"
 
 
@@ -1696,17 +1985,19 @@ async def write_snapshot(
     problems = await verify_target_secured(session)
     if problems:
         raise UnsecuredTargetError(
-            "pm_* tables are not secured (run database/migrations/005_propagandamodel.sql): "
-            + "; ".join(problems)
+            "pm_* tables are not secured (run database/migrations/005_propagandamodel.sql and "
+            "010_pm_argumenten.sql): " + "; ".join(problems)
         )
     try:
-        for model in (PmSource, PmAlias, PmRelation, PmEntity, PmMeta):
+        for model in (PmSource, PmArgument, PmMechanism, PmAlias, PmRelation, PmEntity, PmMeta):
             await session.execute(delete(model))
         entity_rows = [{**row, "synced_at": snapshot.synced_at} for row in snapshot.entities]
         for model, rows in (
             (PmEntity, entity_rows),
             (PmRelation, snapshot.relations),
             (PmSource, snapshot.sources),
+            (PmArgument, snapshot.arguments),
+            (PmMechanism, snapshot.mechanisms),
             (PmAlias, snapshot.aliases),
             (PmMeta, [{"key": key, "value": value} for key, value in snapshot.meta.items()]),
         ):
@@ -1735,7 +2026,7 @@ async def table_counts(session: AsyncSession) -> dict[str, int]:
     """Row counts of the pm_* data tables."""
 
     counts: dict[str, int] = {}
-    for model in (PmEntity, PmRelation, PmSource, PmAlias):
+    for model in (PmEntity, PmRelation, PmSource, PmAlias, PmArgument, PmMechanism):
         counts[model.__tablename__] = int(
             (await session.execute(select(func.count()).select_from(model))).scalar_one()
         )
@@ -1887,6 +2178,7 @@ __all__ = [
     "assert_no_excluded_layers",
     "build_demo_slice",
     "certainty_label",
+    "collect_arguments",
     "collect_sources",
     "compute_primary_filters",
     "db_fingerprint",
@@ -1894,6 +2186,7 @@ __all__ = [
     "generate_aliases",
     "get_propaganda_sync_service",
     "load_snapshot",
+    "mechanism_rows",
     "pm_slug",
     "read_pm_database",
     "relation_filters",

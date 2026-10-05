@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.app.db.models import PmArgument, PmMechanism
 from backend.app.services import propaganda_model_sync as pm
 from backend.app.services.propaganda_model_sync import (
     CERTAINTY_PLAUSIBLE,
@@ -42,6 +43,7 @@ from backend.tests.unit._pm_fixtures import create_pm_database
 MIGRATION = (
     Path(__file__).resolve().parents[3] / "database" / "migrations" / ("005_propagandamodel.sql")
 )
+MIGRATION_010 = MIGRATION.with_name("010_pm_argumenten.sql")
 SYNCED_AT = datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)
 
 
@@ -479,6 +481,8 @@ def test_meta_and_counts(snapshot: pm.PmSnapshot, pm_db: Path) -> None:
         "relations": len(snapshot.relations),
         "sources": len(snapshot.sources),
         "aliases": len(snapshot.aliases),
+        "arguments": len(snapshot.arguments),
+        "mechanisms": len(snapshot.mechanisms),
     }
 
 
@@ -561,6 +565,113 @@ def test_sources_are_capped_per_owner() -> None:
     )
     assert len(rows) == 5 and counts == {7: 20}
     assert [row["position"] for row in rows] == list(range(5))
+
+
+# ---------------------------------------------------------------------------- arguments
+
+
+def test_relation_arguments(snapshot: pm.PmSnapshot) -> None:
+    rows: dict[int, list[dict]] = {}
+    for row in snapshot.arguments:
+        rows.setdefault(row["owner_id"], []).append(row)
+    # for first (the verified one with its reply right after it), then against; never the
+    # argument under the smaad hold (15) or the replaced one (14)
+    assert [(row["id"], row["parent_id"], row["stance"], row["status"]) for row in rows[100]] == [
+        (1, None, "supporting", "geverifieerd"),
+        (3, 1, "supporting", "ongecontroleerd"),
+        (2, None, "supporting", "ongecontroleerd"),
+        (4, None, "contradicting", "ongecontroleerd"),
+    ]
+    assert [row["position"] for row in rows[100]] == [0, 1, 2, 3]
+    first = rows[100][0]
+    assert first["claim"] == "Het jaarverslag noemt DPG Media als eigenaar van het AD."
+    assert [(source["title"], source["kind"]) for source in first["sources"]] == [
+        ("Mediamonitor 2021", "nieuwsartikel"),
+        ("Jaarverslag DPG Media", "rapport"),
+    ]
+    assert len(first["sources"][0]["quote"]) <= pm.MAX_QUOTE_LENGTH
+    assert rows[100][2]["sources"][0]["url"] == "https://www.dpgmedia.nl/jaarverslag"
+    # the unmerged proposal (13) does not count; an argument about the influence does
+    assert [(row["id"], row["aspect"]) for row in rows[101]] == [(5, None), (16, "influence")]
+    # the excluded layer is scrubbed from the claim; project material and the kleurmeter quote go
+    assert rows[104][0]["claim"] == "Het AD viel de NOS publiekelijk aan."
+    assert [source["title"] for source in rows[104][0]["sources"]] == ["Flak-bericht"]
+    # a reply against an argument travels along: the reader sees it is contested
+    assert [(row["id"], row["parent_id"], row["stance"]) for row in rows[110]] == [
+        (10, None, "supporting"),
+        (11, 10, "contradicting"),
+    ]
+    assert set(rows) == {100, 101, 103, 104, 110}
+    assert {row["owner_kind"] for row in snapshot.arguments} == {"relation"}
+    assert set(snapshot.arguments[0]) == set(PmArgument.__table__.columns.keys())
+
+
+def test_collect_arguments_statuses_aspects_and_cap() -> None:
+    def meta(owner: int, status: str, **extra) -> dict:
+        return {
+            "parent": None,
+            "relation_id": owner,
+            "entity_id": None,
+            "property": None,
+            "stance": "supporting",
+            "status": status,
+            "smaad_hold": False,
+            "contributed_by": "bot",
+            **extra,
+        }
+
+    metas = {
+        1: meta(7, "verworpen"),
+        2: meta(7, "voorgesteld"),
+        3: meta(7, "voorgesteld", contributed_by="nieuws-scout"),
+        4: meta(7, "betwist"),
+        5: meta(7, "ongecontroleerd", property="mechanism"),
+        6: meta(7, "verouderd"),
+        7: meta(7, "ongecontroleerd", stance="contextual"),
+        8: meta(8, "ongecontroleerd"),
+        9: meta(7, "ongecontroleerd", smaad_hold=True),
+        10: meta(7, "ongecontroleerd"),
+    }
+    scores = pm.ArgumentScores(sigma={key: 0.1 for key in metas}, meta=metas, children={})
+    arguments = [{"id": key, "claim": f"Claim {key}." if key != 10 else "  "} for key in metas]
+    sources = {i: {"id": i, "title": f"Bron {i}", "reliability": "regulier"} for i in range(5)}
+    citations = [{"argument_id": 4, "source_id": i, "quote": None} for i in (0, 1, 1, 2, 3, 4)]
+
+    rows = pm.collect_arguments([7, 8], arguments, scores, citations, sources, {})
+    # never rejected, unmerged, classification, smaad hold or empty claims; disputed before outdated
+    assert [(row["owner_id"], row["id"]) for row in rows] == [(7, 4), (7, 6), (7, 7), (8, 8)]
+    assert [source["title"] for source in rows[0]["sources"]] == ["Bron 0", "Bron 1", "Bron 2"]
+    assert rows[2]["stance"] == "contextual"
+    # automatically approved relation: the research agent's proposal shows, other proposals not
+    unreviewed = pm.collect_arguments([7], arguments, scores, [], {}, {}, unreviewed_owner_ids=[7])
+    assert [row["id"] for row in unreviewed] == [3, 4, 6, 7]
+    capped = pm.collect_arguments([7], arguments, scores, [], {}, {}, max_per_owner=2)
+    assert [row["id"] for row in capped] == [4, 6]
+    assert pm.collect_arguments([9], arguments, scores, [], {}, {}) == []
+
+
+def test_mechanism_rows(snapshot: pm.PmSnapshot) -> None:
+    rows = {row["name"]: row for row in snapshot.mechanisms}
+    # the mechanisms of exported relations, by display name; never the replaced one
+    assert set(rows) == {
+        "Eigendomsconcentratie",
+        "Commerciële afhankelijkheid",
+        "Bron afhankelijkheid",
+        "Publieke aanval",
+        "Verantwoording",
+    }
+    assert rows["Eigendomsconcentratie"] == {
+        "name": "Eigendomsconcentratie",
+        "filter": "eigendom",
+        "description": "Twee concerns bezitten bijna alle kranten.",
+        "effect": "Minder verschillende stemmen.",
+    }
+    # the excluded layer is scrubbed; identifiers read as words
+    assert rows["Bron afhankelijkheid"]["description"] == (
+        "Media leunen op vaste officiële bronnen. Zie ook pr-subsidie."
+    )
+    assert set(rows["Verantwoording"]) == set(PmMechanism.__table__.columns.keys())
+    assert pm.mechanism_rows({1: {"name": "oud", "vervangen": 1}}, [1, None]) == []
 
 
 def test_source_url_preferences() -> None:
@@ -721,6 +832,57 @@ def test_migration_contract() -> None:
     assert " ".join(neighborhood.split()).count(predicate) == 2  # total + picked
     assert sql.rstrip().endswith("NOTIFY pgrst, 'reload schema';")
     assert "BEGIN;" in sql and "COMMIT;" in sql and "DO $$" in sql
+
+
+def test_migration_010_contract() -> None:
+    sql = MIGRATION_010.read_text(encoding="utf-8")
+    for table in ("pm_arguments", "pm_mechanisms"):
+        assert f"CREATE TABLE IF NOT EXISTS {table}" in sql
+        assert f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY" in sql
+        assert table in pm.PM_TABLES  # the sync refuses to write while they are readable
+    assert "CREATE POLICY" not in sql
+    assert "REVOKE ALL ON pm_arguments, pm_mechanisms FROM PUBLIC, anon, authenticated;" in sql
+    functions = {"pm_details": "(text, integer)", "pm_relation_arguments": "(integer[])"}
+    for name, args in functions.items():
+        body = sql.split(f"CREATE OR REPLACE FUNCTION {name}(", 1)[1].split("$$;", 1)[0]
+        assert "SECURITY DEFINER" in body and "STABLE" in body
+        assert "SET search_path = public" in body and "RETURNS json" in body
+        assert f"REVOKE ALL ON FUNCTION {name}{args} FROM PUBLIC;" in sql
+        assert f"GRANT EXECUTE ON FUNCTION {name}{args} TO anon, authenticated;" in sql
+        assert f"'public.{name}{args}'" in sql  # verification block
+    details = sql.split("CREATE OR REPLACE FUNCTION pm_details(", 1)[1].split("$$;", 1)[0]
+    for key in (
+        "'arguments', v_arguments",
+        "'source', json_build_object('id', src.id",
+        "'target', json_build_object('id', tgt.id",
+        "'mechanism_description', m.description",
+        "LEFT JOIN pm_mechanisms m ON m.name = r.mechanism",
+        "LIMIT 12",
+    ):
+        assert key in details
+    # entities and the sources of a relation are exactly as in migration 005
+    old = MIGRATION.read_text(encoding="utf-8")
+    old_details = old.split("CREATE OR REPLACE FUNCTION pm_details(", 1)[1].split("$$;", 1)[0]
+
+    def flat(text: str) -> str:
+        return " ".join(text.split())
+
+    def entity(text: str) -> str:
+        return text.split("IF v_kind = 'entity' THEN", 1)[1].split("ELSE", 1)[0]
+
+    assert flat(entity(details)) == flat(entity(old_details))
+    head = old_details.split("IF v_kind = 'entity' THEN", 1)[0]
+    assert flat(head.split("BEGIN", 1)[1]) in flat(details)
+    batch = sql.split("CREATE OR REPLACE FUNCTION pm_relation_arguments(", 1)[1].split("$$;", 1)[0]
+    assert "LIMIT 40" in batch and "LIMIT 12" in batch
+    table = sql.split("CREATE TABLE IF NOT EXISTS pm_arguments (", 1)[1].split("\n);", 1)[0]
+    for column in PmArgument.__table__.columns.keys():
+        assert f"\n    {column} " in table
+    mechanisms = sql.split("CREATE TABLE IF NOT EXISTS pm_mechanisms (", 1)[1].split("\n);", 1)[0]
+    for column in PmMechanism.__table__.columns.keys():
+        assert f"\n    {column} " in mechanisms
+    assert sql.rstrip().endswith("NOTIFY pgrst, 'reload schema';")
+    assert "BEGIN;" in sql and "COMMIT;" in sql
 
 
 def test_migration_filters_contract() -> None:

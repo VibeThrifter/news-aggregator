@@ -4,11 +4,12 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ChevronDown, SlidersHorizontal } from "lucide-react";
 
-import { FILTERS } from "@/lib/explore/labels";
-import { mergeNeighborhoods, relationsByFilter } from "@/lib/explore/pm-graph";
+import { FILTERS, labelSourceId, pmRelationLabel } from "@/lib/explore/labels";
+import { mergeNeighborhoods, otherEnd, relationsByFilter } from "@/lib/explore/pm-graph";
 import { usePmStore } from "@/lib/explore/pm-store";
 import { eventFilterSignals } from "@/lib/explore/propaganda";
 import { touchpoints } from "@/lib/explore/why";
+import type { PmEntity, PmRelation } from "@/lib/types";
 
 import { useExplore } from "../ExploreContext";
 import { useWhyRoutes } from "../why/useWhyRoutes";
@@ -60,9 +61,7 @@ export function FiltersSheet() {
                           onClick={() => panel.open(`pm:relation:${relation.id}`)}
                           className="min-h-[36px] w-full text-left text-ink-800 hover:underline"
                         >
-                          {merged.entities.get(relation.source_id)?.name ?? relation.source_id}{" "}
-                          <span className="text-ink-500">{relation.relation_type}</span>{" "}
-                          {merged.entities.get(relation.target_id)?.name ?? relation.target_id}
+                          <RelationSentence relation={relation} entities={merged.entities} />
                         </button>
                       </li>
                     ))}
@@ -163,5 +162,17 @@ function Touchpoints() {
         })}
       </ul>
     </section>
+  );
+}
+
+/** "Heinen is lid van VVD": a relation read from the end its label starts with. */
+function RelationSentence({ relation, entities }: { relation: PmRelation; entities: ReadonlyMap<number, PmEntity> }) {
+  const first = labelSourceId(relation, (id) => entities.get(id)?.type);
+  const last = otherEnd(relation, first);
+  return (
+    <>
+      {entities.get(first)?.name ?? first} <span className="text-ink-500">{pmRelationLabel(relation.relation_type, relation.mechanism)}</span>{" "}
+      {entities.get(last)?.name ?? last}
+    </>
   );
 }

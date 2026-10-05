@@ -13,12 +13,14 @@ import type {
   ArticleRef,
   ArticleSearchResult,
   EntityArticleGroup,
+  PmArgument,
   PmDetails,
   PmEntity,
   PmMatch,
   PmMeta,
   PmNeighborhood,
   PmPaths,
+  RelationResearch,
   EventDetailMeta,
   EventFeedMeta,
   EventListItem,
@@ -1364,6 +1366,45 @@ export async function pmNeighborhood(
 export async function pmDetails(kind: 'entity' | 'relation', id: number, options: { demo?: boolean } = {}): Promise<PmDetails | null> {
   if (isDemoPm(options.demo)) return (await localPm()).details(kind, id);
   return pmRpc<PmDetails>('pm_details', { p_kind: kind, p_id: id });
+}
+
+/**
+ * Story 14.12: the arguments behind at most 40 relations at once (pm_relation_arguments, migration
+ * 010), per relation id. Null when the function does not exist yet (before the migration).
+ */
+export async function pmRelationArguments(ids: number[], options: { demo?: boolean } = {}): Promise<Map<number, PmArgument[]> | null> {
+  const clean = Array.from(new Set(ids.filter((id) => Number.isInteger(id)))).slice(0, 40);
+  if (clean.length === 0) return new Map();
+  const rows = isDemoPm(options.demo)
+    ? (await localPm()).relationArguments(clean)
+    : await pmRpc<{ relation_id: number; arguments: PmArgument[] }[]>('pm_relation_arguments', { p_ids: clean });
+  if (!rows) return null;
+  return new Map(rows.map((row) => [row.relation_id, row.arguments ?? []]));
+}
+
+/**
+ * Story 14.13: register that this event page shows thin links (request_relation_research,
+ * migration 011) and get their research status back. The database ignores well supported links
+ * and ties of persons, limits the rate and decides nothing: the backend queues within a budget.
+ * Null when the function does not exist yet or for the demo (no research there).
+ */
+export async function requestRelationResearch(
+  ids: number[],
+  eventSlug: string | null,
+  options: { demo?: boolean } = {},
+): Promise<Map<number, RelationResearch> | null> {
+  const clean = Array.from(new Set(ids.filter((id) => Number.isInteger(id) && id > 0))).slice(0, 12);
+  if (clean.length === 0 || isDemoPm(options.demo)) return null;
+  const rows = await pmRpc<RelationResearch[]>('request_relation_research', { p_ids: clean, p_event_slug: eventSlug ?? null });
+  return rows ? new Map(rows.map((row) => [row.relation_id, row])) : null;
+}
+
+/** Research status of at most 40 links (relation_research_status); null before migration 011. */
+export async function relationResearchStatus(ids: number[], options: { demo?: boolean } = {}): Promise<Map<number, RelationResearch> | null> {
+  const clean = Array.from(new Set(ids.filter((id) => Number.isInteger(id) && id > 0))).slice(0, 40);
+  if (clean.length === 0 || isDemoPm(options.demo)) return null;
+  const rows = await pmRpc<RelationResearch[]>('relation_research_status', { p_ids: clean });
+  return rows ? new Map(rows.map((row) => [row.relation_id, row])) : null;
 }
 
 /**

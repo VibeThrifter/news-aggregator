@@ -15,7 +15,7 @@ Wie zegt wat?      één beeld: bronnen, de sprekers die ze aan het woord laten,
                    genummerde markeringen (! claim, # cijfer, ↯ redeneerfout, ⚡ tegenspraak, lege stemmen)
 Tabs               Invalshoeken · Klopt het? · Wie praat? · Wat ontbreekt? · Hoe gebracht? · Tijdlijn
                    compacte rijen, inline openklappen; nummer ↔ ballon springen heen en terug
-Wie zit erachter?  de 3 meest specifieke routes uit het propagandamodel
+Wie zit erachter?  per partij uit het nieuws hoe ze de bronnen bereikt, met de toelichting uit het model
 Bronnen en artikelen
 ```
 
@@ -234,6 +234,211 @@ alleen admin**, met een admincode; betalende gebruikers later.
 - Tekst achter cookiemuren ophalen met de toestemming van de feedlezers (DPG, Telegraaf, NU.nl).
 - Betalende gebruikers: accounts en betalingen, en dan `pro` toelaten in `voice_search_role_allowed()`.
 
+## Story 14.11: Wie zit erachter? leesbaar
+
+**Status**: ✅ Done (2026-10-05)
+
+Feedback van de eigenaar: "beïnvloedt en wordt beïnvloed door klopt semantisch niet echt en deze graph geeft niet
+echt nuttige info". Wat er misging:
+- het label kwam van het kale relatietype `beinvloeding`; de betekenis zit in het mechanisme;
+- de vertaling ging uit van "bron → doel", maar het model slaat lidmaatschap en dienstverband beide kanten op op
+  ("CDA is lid van Kathleen Ferrier");
+- routes waarin twee partijen allebei een derde beïnvloeden, verschenen gewoon. Een voorbeeld: "de Volkskrant zet de
+  agenda van RTL, RIVM is bron voor RTL". Juist zulke routes kwamen bovenaan, omdat ze "alleen de Volkskrant" waren;
+- de toelichting van het model ("RIVM was primaire bron tijdens de coronacrisis") stond pas achter een tik.
+
+Wat het nu doet:
+- **Labels per mechanisme** (`lib/explore/labels.ts`):
+  - "is vaste bron voor" en omgekeerd "leunt als bron op";
+  - "levert experts en analyses aan", "zet de agenda van", "bepaalt het bereik van";
+  - voor alle mechanismen bij `beinvloeding`; onbekende worden "beïnvloedt via <mechanisme>".
+  - Affiliaties lezen vanuit de persoon, hoe het model ze ook opslaat (`labelSourceId`, `relationWords`). Dat geldt
+    overal: het netwerk, de actorpagina, het filterscherm, de minikaart en het detailvel.
+- **Alleen routes die iets verklaren** (`meaningfulRoute` in `lib/explore/why.ts`). Eén stap telt altijd. Bij twee
+  stappen hoort de tussenstap bij één van beide kanten: eigenaar, programma, medewerker, lid of geldgever (de
+  NOS-uitzending Nieuwsuur, PBL-directeur Hekkert). Anders moet het een bronketen zijn van de partij naar het
+  medium (bedrijf → ANP → NU.nl). "Europese Commissie censureert TikTok, TikTok bepaalt het bereik van de NOS" valt
+  dus weg. Dit filter geldt ook voor "Media verbonden met dit nieuws".
+- **Per partij gegroepeerd** (`behindParties`). Dat levert regels als:
+  - "**RIVM** is vaste bron voor NOS en de Volkskrant";
+  - "**PBL** heeft als medewerker Marko Hekkert ↳ Marko Hekkert treedt op als deskundige bij NOS".
+  Media met hetzelfde verband delen één regel. Eronder staat de toelichting van het model, met voorrang voor de stap
+  die de invloed draagt. "onzeker" en "historisch" staan erbij. Tik opent de bronnen. Na 3 partijen en 2 regels per
+  partij volgt "Nog n verbanden".
+- **Routekaarten** (`RouteList`, filterscherm en actorpagina): de route leest vanaf wie de invloed heeft. De pijl
+  toont de richting, ↕ bij wederzijds of erbij horen.
+- **Gemeten** op 12 echte nieuwsitems (26 sep–5 okt) plus het geval van de eigenaar: 14 routes gehouden, 9 vielen weg.
+- **Tests**:
+  - Jest `why.test.ts`: nu 8 tests, met het RIVM/PBL-geval;
+  - Playwright `waarom-zo.spec.ts` en de demo-test van `onderzoeksmodus.spec.ts` (desktop + Pixel 7).
+- **Data**: DPG Media → NU.nl/AD/de Volkskrant/Trouw (`eigendom`) staat in het propagandamodel nog op `voorgesteld`.
+  Daardoor valt "RIVM → DPG Media → NU.nl" (via zelfcensuur) weg. Na goedkeuring verschijnt hij vanzelf via eigendom.
+
+## Story 14.12: Waarop rust dit?
+
+**Status**: ✅ Done (2026-10-05). Live: migratie 010 gedraaid, backend herstart, sync geforceerd (2.418 argumenten, 157 mechanismen).
+
+Feedback van de eigenaar op 14.11:
+- "kan wat genuanceerder en betere uitleg"
+- "claim gebaseerd op 1 eerdere bron van NOS?"
+
+Wat er in het model zat, maar niet in de app:
+- PBL → NOS ("levert experts en analyses aan") rust op één ongecontroleerd argument: "De PBL Klimaat- en
+  Energieverkenning wordt door NOS als gezaghebbend feit doorgegeven (24 okt 2024)". De enige bron is het
+  PBL-persbericht zelf.
+- De beschrijving van RIVM → NOS ("Frame werd vrijwel onkritisch overgenomen") is de tekst van een vervangen
+  argument. Het huidige argument is genuanceerder: Medialogica/HUMAN, "het beeld ontstond dat …".
+- RIVM → de Volkskrant/AD/De Telegraaf/DPG: argumenten **betwist**, zonder bron.
+- De corona-relatie RIVM → NOS heeft nuance in het model ("een jaar later erkende het RIVM de aerogene route wél").
+
+Wat het nu doet:
+- **Sync, format 5** (`propaganda_model_sync.py`):
+  - `collect_arguments` exporteert per relatie de argumenten die een lezer mag zien: claim (≤ 600 tekens),
+    voor/tegen/nuance, reviewstatus, waar het over gaat, reacties onder hun ouder, en ≤ 3 bronnen (titel, url,
+    uitgever, datum, soort, citaat);
+  - nooit afgewezen of niet-gemergede argumenten (behalve het nieuws-scout-bewijs bij automatisch
+    goedgekeurde relaties), nooit onder smaad-hold, nooit classificatiedebatten of de uitgesloten lagen;
+  - `mechanism_rows` levert de uitleg per mechanisme (zonder de interne kruisverwijzingen van het model);
+  - live: 2.418 argumenten (2.216 ongecontroleerd, 125 betwist, 10 geverifieerd; 78 tegen, 51 nuance) en
+    157 mechanismen.
+- **Migratie `010_pm_argumenten.sql`**:
+  - tabellen `pm_arguments` en `pm_mechanisms`, beveiligd als 005 (RLS zonder policies, geen grants);
+  - `pm_details` geeft bij relaties ook `arguments`, `source`/`target` en `mechanism_description`/`_effect`;
+  - nieuw: `pm_relation_arguments(ids)`, de argumenten van ≤ 40 relaties in één keer.
+  - Lokaal getest op PostgreSQL 15: 005 → 007 → 008 → 010 (twee keer), echte snapshot geschreven, als `anon`
+    aangeroepen. `anon` kan de tabellen niet lezen.
+- **Frontend**:
+  - `lib/explore/evidence.ts` maakt van de argumenten een graad (gecontroleerd, met bron, zonder bron,
+    betwist, verouderd, geen) en één regel als "1 bron: persbericht · niet gecontroleerd" of "betwist ·
+    zonder bron", met "1 nuancering" en "2 tegenargumenten" erbij.
+  - In "Wie zit erachter?" staat onder elke regel de claim van het sterkste argument (3 regels) en die regel.
+    Regels splitsen op onderbouwing en staan sterkste eerst; betwist en verouderd zijn grijs (`behindParties`
+    met `rankOf`).
+  - Het detailvel (`PmEvidence.tsx`, ook op de actorpagina):
+    - de titel is een zin ("PBL levert experts en analyses aan NOS");
+    - eerst "Onderbouwing: …", dan "Wat het model bedoelt met …";
+    - daaronder "Waarop het rust", "Nuance" en "Tegenargumenten", elk met status en bronnen.
+  - Zonder migratie 010 valt alles terug op de oude weergave.
+- **Demo**: alleen de relaties van de echte instanties uit het demo-verhaal (RIVM, PBL, ANP, Ipsos I&O) krijgen
+  argumenten (`DEMO_ARGUMENT_FOCUS`, max 4 per relatie). De grens van de demo-slice ging van 480 naar 560 KB
+  (514 KB, alle bronnen behouden).
+- **Tests**:
+  - pytest: pm-sync, demo-slice, service en contract van migratie 010, samen 115;
+  - Jest: `evidence.test.ts` (5) en `why.test.ts` (9), in totaal 270 groen;
+  - Playwright explore: 82 groen (desktop + Pixel 7).
+
+**Aanzetten**:
+1. Migratie 010 draaien op Supabase.
+2. De backend herstarten: de sync weigert te schrijven zolang een pm-tabel leesbaar is voor `anon`.
+3. Sync forceren: `POST /admin/trigger/propagandamodel-sync?force=true`.
+
+Draait 005 ooit opnieuw, draai dan 010 daarna weer.
+
+## Story 14.13: Dun bewijs — tonen en laten uitzoeken
+
+**Status**: ✅ Gebouwd (2026-10-06). Propagandamodel-kant live. Nieuws-app: migratie 011 en een backendherstart
+nog niet gedaan; de agent `nieuws-bewijs` staat uit.
+
+Vraag van de eigenaar (2026-10-05):
+- "deze verbanden zullen er vast wel zijn alleen het bewijs mag wel beter … wat doen we met mager bewijs.. meer
+  bewijs zoeken en intussen laten zien dat bewijslast nog dun is ofzo?"
+- "Dit gaat natuurlijk ook over propaganda model"
+
+Stand van het model op 2026-10-05: van de 801 invloedsverbanden zijn er 25 "onderbouwd", 658 "aannemelijk"
+(meestal één bron) en 118 "onzeker". Dun bewijs is in het model de regel, geen uitzondering.
+
+Besluiten:
+- **Tonen.** Dun bewijs wordt niet verstopt en niet als feit gebracht:
+  - vooraan staat één oordeel: stevig onderbouwd, dun bewijs, onbewezen, betwist of verouderd;
+  - daarbij staat wat er ontbreekt;
+  - een bron van de partij zelf heet zo ("persbericht van PBL zelf").
+- **Uitzoeken in het propagandamodel**, waar het bewijs staat. Dat gaat via de pijplijn van Epic 12:
+  - de app zet een dun verband dat lezers zien als doel in de pm-wachtrij;
+  - een pm-agent zoekt bewijs vóór én tegen;
+  - een mens beoordeelt.
+- **Wat de agent vindt, blijft `voorgesteld`** tot de eigenaar het keurt. Invloedsclaims blijven mensenwerk; de
+  autokeur raakt ze niet. De lezer ziet "uitgezocht: 3 nieuwe argumenten wachten op beoordeling", niet de inhoud.
+- **Niets wat een lezer stuurt, bereikt de agent.** De aanvraag bevat alleen relatie-id's en een event-slug. Het
+  doel bouwt de backend uit het model en uit de eigen events.
+- **Rondes kosten Opus.** Ze staan standaard uit en gaan pas aan na een OK van de eigenaar: maximaal 2 per dag,
+  tussen 08 en 22 uur.
+
+Wat het doet:
+- **Frontend** (`lib/explore/evidence.ts`):
+  - `verdictOf`:
+    - stevig: het model noemt het verband "onderbouwd" (`certainty_label`, minstens twee onafhankelijke
+      bronclusters), of, zonder label, een gecontroleerd argument met twee onafhankelijke bronnen;
+    - dun: wel een bron, maar niet stevig;
+    - onbewezen: geen bron;
+    - betwist en verouderd: zoals de argumenten zeggen.
+  - `fromParty`/`ownSourcesOnly` herkennen een eigen bron aan de eigen website of de uitgever.
+  - Verder: `evidenceGaps`, `researchNote`, `VERDICT_RANK`.
+  - "Wie zit erachter?":
+    - het label met het oordeel staat vóór de onderbouwing;
+    - de regels staan in de volgorde van het oordeel;
+    - onbewezen, betwist en verouderd zijn grijs;
+    - de status van het uitzoeken staat eronder.
+  - De eventpagina meldt haar dunne verbanden aan (`request_relation_research`).
+  - Detailvel (ook op de actorpagina):
+    - "Onderbouwing: [dun bewijs] 1 bron: persbericht van PBL zelf · niet gecontroleerd";
+    - "Wat ontbreekt: …";
+    - de status van het uitzoeken;
+    - bij elke bron "van PBL zelf" waar dat zo is.
+- **Migratie `011_bewijs_zoeken.sql`**:
+  - tabel `relation_research`, RLS zonder policies;
+  - `request_relation_research(ids, slug)`:
+    - hooguit 12 id's per aanroep;
+    - alleen verbanden die niet onderbouwd zijn, en geen banden tussen persoon en organisatie;
+    - een herhaling binnen 10 minuten telt niet, en er gaan hooguit 300 aanmeldingen per uur in;
+  - `relation_research_status(ids)`: hooguit 40 id's, en nooit het verslag van de agent.
+  - Lokaal getest op PostgreSQL 15 met de echte pm-data: twee keer gedraaid en als `anon` aangeroepen.
+- **Backend** (`services/evidence_research.py`, job "Evidence Research", elke 15 minuten):
+  1. Haal de status uit de pm-wachtrij.
+  2. Zet aangevraagde dunne verbanden in de pm-wachtrij, hooguit 6 per dag. Het doel bevat de nieuwsberichten,
+     wat het verband nu draagt (`evidence_line`, bv. "1 argument vóór (niet gecontroleerd); 1 bron: persbericht
+     van PBL zelf; niets ertegen ingebracht") en wat ontbreekt.
+  3. Start een ronde van `nieuws-bewijs` als `NIEUWS_BEWIJS_ENABLED` aanstaat.
+
+  Admin: `POST /admin/trigger/evidence-research[/{relation_id}]` en `GET /admin/evidence-research/status`. De
+  runner van Epic 12 kan nu elke pm-agent starten (label, account, brief, extra argumenten).
+- **Propagandamodel** (zusterproject):
+  - `nieuws_doelen` kreeg de soort `relatie` en de kolom `relation_id`, via de herbouw
+    `scripts/migrate_nieuws_doelen_relatie.py`. Die is live gedraaid, met een backup.
+  - Claimen en bijwerken gaat per soort: `nieuws-scout` alleen namen, `nieuws-bewijs` alleen relaties. De
+    autokeur kijkt nooit naar bewijsdoelen.
+  - De missie `missies/nieuws_bewijs_brief.md`:
+    - toetst of de bestaande bron de claim draagt (zo niet: een ondergraving);
+    - zoekt vóór én tegen (het protocol van de documentalist);
+    - checkt of het mechanisme past (aspect `mechanism`);
+    - doet hooguit 2 doelen per ronde, en alles blijft `voorgesteld`.
+  - Account `nieuws-bewijs` (bijdrager).
+  - `agent_runner.py --doel-soort relatie`; de launchd-taak `nieuws-bewijs` in `agent_schedule.py` staat
+    standaard uit.
+  - `scout_indienen.py` kan nu ook reacties en clusters indienen.
+  - De pm-server is herstart.
+- **Tests**:
+  - pytest: `test_evidence_research.py` (11);
+  - Jest: `evidence.test.ts` (+4), in totaal 274 groen;
+  - pm: `scripts/test_nieuws_doelen.py` (stap 1b, 14 en 15), plus de autokeur-, fresh-build- en auth-tests;
+    `validate_model.py --strict` is groen;
+  - Playwright explore: 82 groen (desktop + Pixel 7);
+  - backend unit: 622 groen. 4 rood: Google News en de promptbouwer, die falen ook op de laatste commit.
+- **Gecontroleerd op echte data** (migratie 010 live), westnijlvirus: "RIVM is vaste bron voor NOS" toont dun
+  bewijs (1 bron, HUMAN/VPRO, niet gecontroleerd), en "is vaste bron voor DPG Media" is betwist en grijs. Zonder
+  migratie 011 ontbreekt alleen de status van het uitzoeken.
+
+**Aanzetten**:
+1. Migratie 011 draaien op Supabase. Doe dat vóór de backendherstart, anders maakt `create_all()` de tabel aan
+   zonder RLS.
+2. De backend herstarten.
+3. De rondes aanzetten: `NIEUWS_BEWIJS_ENABLED=true` in `.env`, en daarna opnieuw herstarten. Eén verband meteen
+   laten uitzoeken kan met `POST /admin/trigger/evidence-research/1564` (PBL → NOS).
+
 ### Open
+- PBL → NOS valt onder `expert_framing`. De definitie daarvan gaat over denktanks die sponsors betalen, en PBL
+  is een planbureau van de overheid. De missie `nieuws-bewijs` toetst of het mechanisme past (aspect `mechanism`).
+- `influenceOf` en `pm_influence_side` (migratie 008) gaan er nog van uit dat lidmaatschap/dienstverband als
+  "lid → groep" zijn opgeslagen. De vragen "Invloed op/van X" tellen omgekeerd opgeslagen affiliaties daardoor de
+  verkeerde kant op. Oplossen vergt een wijziging van 008 op Supabase.
 - `embedding_similarity`/`entity_overlap` worden nog niet gebruikt; "zelfde verhaal" werkt op gedeelde namen.
 - Oude events (dec 2025) hebben dunnere analyses; het beeld toont dan minder sprekers.

@@ -15,10 +15,11 @@ import {
   filterColor,
   filterLabel,
   frameLabel,
+  labelSourceId,
   pmRelationLabel,
-  pmRelationReverseLabel,
   pmTypeFamily,
   pmTypeLabel,
+  relationWords,
 } from "@/lib/explore/labels";
 import { layoutNetwork, type Positions } from "@/lib/explore/layout/network";
 import {
@@ -864,7 +865,7 @@ function PmNodeTip({
               {inView.slice(0, 40).map((relation) => {
                 const otherId = otherEnd(relation, pmId);
                 const other = pmx.merged.entities.get(otherId);
-                const outgoing = relation.source_id === pmId;
+                const outgoing = labelSourceId(relation, (id) => pmx.merged.entities.get(id)?.type) === pmId;
                 const filter = displayFilter(relation, { hidden: pmx.hiddenFilters });
                 return (
                   <li key={relation.id} className="flex items-center gap-1">
@@ -876,7 +877,7 @@ function PmNodeTip({
                       <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: filterColor(filter) }} aria-hidden="true" />
                       <span className="min-w-0 flex-1">
                         <span className="block text-xs text-ink-500">
-                          {outgoing ? `${pmRelationLabel(relation.relation_type)} →` : `← ${pmRelationLabel(relation.relation_type)}`}
+                          {outgoing ? `${pmRelationLabel(relation.relation_type, relation.mechanism)} →` : `← ${pmRelationLabel(relation.relation_type, relation.mechanism)}`}
                         </span>
                         <span className="font-semibold text-ink-900">{other?.name ?? otherId}</span>
                       </span>
@@ -919,9 +920,9 @@ function PmNodeTip({
 }
 
 /** "is bron voor NOS" / "is eigendom van DPG Media": how a neighbour relates to the node, read from the neighbour. */
-function relationPhrase(relation: PmRelation, anchor: PmEntity): string {
-  const label = relation.source_id === anchor.id ? pmRelationReverseLabel(relation.relation_type) : pmRelationLabel(relation.relation_type);
-  return `${label} ${shortName(anchor.name)}`;
+function relationPhrase(relation: PmRelation, anchor: PmEntity, neighbour: PmEntity): string {
+  const typeOf = (id: number) => (id === anchor.id ? anchor.type : id === neighbour.id ? neighbour.type : null);
+  return `${relationWords(relation, neighbour.id, typeOf)} ${shortName(anchor.name)}`;
 }
 
 /**
@@ -1085,7 +1086,7 @@ function PmBundleTip({
                 <span className="min-w-0 flex-1">
                   <span className="block font-semibold leading-snug text-ink-900">{row.entity.name}</span>
                   <span className="block text-xs text-ink-500">
-                    {pmTypeLabel(row.entity.type)} · {relationPhrase(row.relations[0], anchor)}
+                    {pmTypeLabel(row.entity.type)} · {relationPhrase(row.relations[0], anchor, row.entity)}
                   </span>
                 </span>
                 <Plus size={16} className="shrink-0 text-ink-400" aria-hidden="true" />
@@ -1129,6 +1130,8 @@ function PmBundleTip({
 
 function PmEdgeTip({ relation, pmx, pinned, goTo }: { relation: PmRelation; pmx: Pmx; pinned: boolean; goTo: (nodeId: string) => void }) {
   const { panel } = useExplore();
+  const first = labelSourceId(relation, (id) => pmx.merged.entities.get(id)?.type);
+  const last = otherEnd(relation, first);
   const source = pmx.merged.entities.get(relation.source_id);
   const target = pmx.merged.entities.get(relation.target_id);
   const filters = relationFilters(relation);
@@ -1136,9 +1139,9 @@ function PmEdgeTip({ relation, pmx, pinned, goTo }: { relation: PmRelation; pmx:
   return (
     <div className="space-y-2">
       <p className="text-sm leading-snug">
-        <span className="font-semibold text-ink-900">{source?.name ?? relation.source_id}</span>{" "}
-        <span className="text-ink-600">{pmRelationLabel(relation.relation_type)}</span>{" "}
-        <span className="font-semibold text-ink-900">{target?.name ?? relation.target_id}</span>
+        <span className="font-semibold text-ink-900">{pmx.merged.entities.get(first)?.name ?? first}</span>{" "}
+        <span className="text-ink-600">{pmRelationLabel(relation.relation_type, relation.mechanism)}</span>{" "}
+        <span className="font-semibold text-ink-900">{pmx.merged.entities.get(last)?.name ?? last}</span>
         {relation.bidirectional ? <span className="text-ink-500"> (wederzijds)</span> : null}
       </p>
       <div className="flex flex-wrap gap-1.5">

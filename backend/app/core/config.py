@@ -686,6 +686,63 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Dun bewijs (Epic 14, Story 14.13): evidence research for thin propaganda-model links
+    evidence_research_enabled: bool = Field(
+        default=True,
+        description=(
+            "Queue thin links that readers see under 'Wie zit erachter?' as research targets in "
+            "the propaganda model and pull the outcome (requires migration 011)"
+        ),
+    )
+    evidence_research_interval_minutes: int = Field(
+        default=15,
+        ge=5,
+        le=1440,
+        description="Interval of the evidence research job (status, queue, rounds)",
+    )
+    evidence_research_daily_targets: int = Field(
+        default=6,
+        ge=0,
+        le=200,
+        description="Maximum links queued for evidence research per day",
+    )
+    evidence_research_request_window_days: int = Field(
+        default=7,
+        ge=1,
+        le=90,
+        description="Only links requested by the app within this many days are queued",
+    )
+    evidence_research_cooldown_days: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        description="Days after which a link that is still thin may be researched again",
+    )
+    nieuws_bewijs_enabled: bool = Field(
+        default=False,
+        description=(
+            "Start rounds of the propaganda-model agent nieuws-bewijs (each round is a Claude "
+            "session); off until the owner switches it on"
+        ),
+    )
+    nieuws_bewijs_max_rounds_per_day: int = Field(
+        default=2,
+        ge=0,
+        le=24,
+        description="Maximum evidence research rounds per day (each round is a Claude session)",
+    )
+    nieuws_bewijs_min_minutes_between_rounds: int = Field(
+        default=60,
+        ge=5,
+        le=1440,
+        description="Minimum minutes between two evidence research rounds",
+    )
+    nieuws_bewijs_model: str = Field(default="opus", description="Model of the evidence agent")
+    nieuws_bewijs_effort: str = Field(default="high", description="Effort of the evidence agent")
+    nieuws_bewijs_timeout_seconds: int = Field(
+        default=2700, ge=300, le=14400, description="Hard timeout of one evidence research round"
+    )
+
     @field_validator("propaganda_db_path", mode="before")
     @classmethod
     def _resolve_propaganda_db_path(cls, value: object) -> str:

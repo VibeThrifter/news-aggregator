@@ -7,6 +7,7 @@
 
 import type { PmEntity, PmNeighborhood, PmRelation } from "@/lib/types";
 
+import { labelSourceId } from "./labels";
 import { displayFilter, isHistoric, otherEnd } from "./pm-graph";
 import { relationRank } from "./pm-local";
 
@@ -76,7 +77,7 @@ export function egoLayout(
       x: Math.round((middle + radius * Math.cos(angle)) * 10) / 10,
       y: Math.round((middle + radius * Math.sin(angle)) * 10) / 10,
       relation,
-      outgoing: relation.source_id === centerId,
+      outgoing: labelSourceId(relation, (other) => (other === centerId ? hood.center.type : entities.get(other)?.type)) === centerId,
       filter: displayFilter(relation, { hidden: options.hiddenFilters }),
       historic: isHistoric(relation, options.now),
       autoApproved: Boolean(relation.auto_approved),

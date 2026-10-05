@@ -15,7 +15,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.app.core.config import DEFAULT_PROPAGANDA_DB_PATH, REPO_ROOT
-from backend.app.db.models import PmAlias, PmEntity, PmMeta, PmRelation, PmSource
+from backend.app.db.models import PmAlias, PmArgument, PmEntity, PmMeta, PmRelation, PmSource
 from backend.app.services import propaganda_model_sync as pm
 from backend.app.services.propaganda_model_sync import (
     PropagandaModelSyncService,
@@ -114,7 +114,15 @@ async def test_write_snapshot_full_refresh(pm_db: Path) -> None:
                 "pm_relations": len(snapshot.relations),
                 "pm_sources": len(snapshot.sources),
                 "pm_aliases": len(snapshot.aliases),
+                "pm_arguments": len(snapshot.arguments),
+                "pm_mechanisms": len(snapshot.mechanisms),
             }
+            argument = await session.get(PmArgument, 1)
+            assert argument.owner_id == 100 and argument.status == "geverifieerd"
+            assert [source["title"] for source in argument.sources] == [
+                "Mediamonitor 2021",
+                "Jaarverslag DPG Media",
+            ]
             entity = await session.get(PmEntity, 1)
             assert entity.slug == "1-dpg-media" and entity.degree == 2
             assert entity.synced_at is not None
@@ -300,6 +308,8 @@ async def test_status(pm_db: Path, tmp_path: Path) -> None:
             "pm_relations": 0,
             "pm_sources": 0,
             "pm_aliases": 0,
+            "pm_arguments": 0,
+            "pm_mechanisms": 0,
         }
         await service.sync()
         after = await service.status()
