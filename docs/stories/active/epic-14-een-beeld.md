@@ -336,8 +336,8 @@ Draait 005 ooit opnieuw, draai dan 010 daarna weer.
 
 ## Story 14.13: Dun bewijs — tonen en laten uitzoeken
 
-**Status**: ✅ Gebouwd (2026-10-06). Propagandamodel-kant live. Nieuws-app: migratie 011 en een backendherstart
-nog niet gedaan; de agent `nieuws-bewijs` staat uit.
+**Status**: ✅ Done (2026-10-06). Live: migratie 011, de backend is herstart en de rondes staan aan
+(`NIEUWS_BEWIJS_ENABLED=true`, max 2 per dag, 08–22 uur).
 
 Vraag van de eigenaar (2026-10-05):
 - "deze verbanden zullen er vast wel zijn alleen het bewijs mag wel beter … wat doen we met mager bewijs.. meer
@@ -427,12 +427,23 @@ Wat het doet:
   bewijs (1 bron, HUMAN/VPRO, niet gecontroleerd), en "is vaste bron voor DPG Media" is betwist en grijs. Zonder
   migratie 011 ontbreekt alleen de status van het uitzoeken.
 
-**Aanzetten**:
-1. Migratie 011 draaien op Supabase. Doe dat vóór de backendherstart, anders maakt `create_all()` de tabel aan
-   zonder RLS.
-2. De backend herstarten.
-3. De rondes aanzetten: `NIEUWS_BEWIJS_ENABLED=true` in `.env`, en daarna opnieuw herstarten. Eén verband meteen
-   laten uitzoeken kan met `POST /admin/trigger/evidence-research/1564` (PBL → NOS).
+**Aangezet (2026-10-06, op verzoek van de eigenaar)**:
+1. Migratie 011 gedraaid op Supabase, vóór de backendherstart (anders maakt `create_all()` de tabel zonder RLS).
+2. `NIEUWS_BEWIJS_ENABLED=true` in `.env` gezet en de backend herstart.
+3. Proefronde op PBL → NOS (`POST /admin/trigger/evidence-research/1564`, daarna handmatig één ronde, want het was
+   buiten de actieve uren): 214 s, Opus.
+   - **Ondergraving** op argument 2322: de bron is het persbericht van PBL zelf en zegt niets over hoe de NOS het
+     bracht.
+   - **3 vóór**: NOS-berichten bij de KEV van 2024, 2025 en 2026, met PBL als enige deskundige of als maatstaf.
+   - **3 tegen**: NOS bracht kritiek op het PBL (CDA en GroenLinks 2019, Aedes 2020) en een kanttekening van een
+     kabinetsbron (2022).
+   - **Mechanisme**: `institutioneel_gezag` past beter dan `expert_framing`; precedent is CPB → NOS.
+   - Alle 6 bronnen zijn NOS-artikelen, dus één broncluster. Vier citaten steekproefsgewijs gecontroleerd op
+     nos.nl: ze staan er letterlijk.
+   - Negatieve resultaten (ombudsman, NOS-verantwoording, geen inhoudsanalyse gevonden) staan alleen in het
+     ronde-log.
+   - In de app: "Uitgezocht: 8 nieuwe argumenten wachten op beoordeling". Ze tellen pas mee na een merge in
+     `/overleg`.
 
 ### Open
 - PBL → NOS valt onder `expert_framing`. De definitie daarvan gaat over denktanks die sponsors betalen, en PBL
