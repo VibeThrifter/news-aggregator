@@ -168,7 +168,10 @@ Respond with ONLY the category name in lowercase, nothing else.""",
         "key": "provider_classification",
         "value": "mistral",
         "config_type": "provider",
-        "description": "LLM provider voor event type classificatie (mistral|deepseek|gemini)",
+        "description": (
+            "LLM provider voor event type classificatie "
+            "(mistral|deepseek|gemini|claude-code[:model])"
+        ),
     },
     {
         "key": "provider_event_assignment",
@@ -180,13 +183,37 @@ Respond with ONLY the category name in lowercase, nothing else.""",
         "key": "provider_factual",
         "value": "mistral",
         "config_type": "provider",
-        "description": "LLM provider voor fase 1: feitelijke analyse (mistral|deepseek|gemini)",
+        "description": (
+            "LLM provider voor fase 1: feitelijke analyse "
+            "(mistral|deepseek|gemini|claude-code[:model])"
+        ),
     },
     {
         "key": "provider_critical",
         "value": "deepseek",
         "config_type": "provider",
-        "description": "LLM provider voor fase 2: kritische analyse (mistral|deepseek|gemini)",
+        "description": (
+            "LLM provider voor fase 2: kritische analyse "
+            "(mistral|deepseek|gemini|claude-code[:model])"
+        ),
+    },
+    {
+        "key": "provider_digest",
+        "value": "deepseek",
+        "config_type": "provider",
+        "description": (
+            "LLM provider voor de Nederlandse kern van buitenlandse artikelen "
+            "(zonder deze sleutel: die van de feitenanalyse)"
+        ),
+    },
+    {
+        "key": "provider_voice_search",
+        "value": "deepseek",
+        "config_type": "provider",
+        "description": (
+            "LLM provider voor Zoek met AI: ontbrekende stemmen zoeken en controleren "
+            "(zonder deze sleutel: die van de feitenanalyse)"
+        ),
     },
     {
         "key": "deepseek_use_reasoner",

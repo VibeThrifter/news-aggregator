@@ -25,8 +25,9 @@ const configTypeColors: Record<string, string> = {
   provider: "bg-orange-500",
 };
 
-// Available LLM providers
-const LLM_PROVIDERS = ["mistral", "gemini", "deepseek", "deepseek-r1"];
+// Available LLM providers. claude-code[:model] runs the Claude Code CLI on the backend machine
+// (the owner's subscription, no API key): selectable per step like the others.
+const LLM_PROVIDERS = ["mistral", "gemini", "deepseek", "deepseek-r1", "claude-code:haiku", "claude-code:sonnet", "claude-code:opus"];
 
 // Provider display info
 const PROVIDER_INFO: Record<string, { label: string; description: string; color: string }> = {
@@ -50,14 +51,39 @@ const PROVIDER_INFO: Record<string, { label: string; description: string; color:
     description: "Gratis, 1500/dag",
     color: "bg-pink-600",
   },
+  "claude-code:haiku": {
+    label: "Claude Code · Haiku",
+    description: "Lokaal, snel",
+    color: "bg-orange-600",
+  },
+  "claude-code:sonnet": {
+    label: "Claude Code · Sonnet",
+    description: "Lokaal, sterk",
+    color: "bg-orange-700",
+  },
+  "claude-code:opus": {
+    label: "Claude Code · Opus",
+    description: "Lokaal, sterkst, traag",
+    color: "bg-orange-800",
+  },
 };
+
+/** A value that is not in the list (e.g. "claude-code" without a model) still shows. */
+function providerInfo(provider: string) {
+  return PROVIDER_INFO[provider] ?? { label: provider, description: "", color: "bg-slate-600" };
+}
 
 // Phase display names
 const PHASE_LABELS: Record<string, string> = {
   provider_classification: "Classificatie",
+  provider_event_assignment: "Event-toewijzing",
   provider_factual: "Fase 1: Feitelijk",
   provider_critical: "Fase 2: Kritisch",
+  provider_digest: "Kern buitenlandse artikelen",
+  provider_voice_search: "Zoek met AI (ontbrekende stemmen)",
+  provider_bias: "Bias per zin",
 };
+const PHASE_ORDER = Object.keys(PHASE_LABELS);
 
 function TypeBadge({ type }: { type: string }) {
   const colorClass = configTypeColors[type] || "bg-slate-500";
@@ -87,16 +113,16 @@ function ProviderToggle({
         <h3 className="font-medium text-slate-100">{phaseLabel}</h3>
         <p className="text-xs text-slate-400">{config.description}</p>
       </div>
-      <div className="flex gap-2">
-        {LLM_PROVIDERS.map((provider) => {
-          const info = PROVIDER_INFO[provider];
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {(LLM_PROVIDERS.includes(currentProvider) ? LLM_PROVIDERS : [...LLM_PROVIDERS, currentProvider]).map((provider) => {
+          const info = providerInfo(provider);
           const isActive = currentProvider === provider;
           return (
             <button
               key={provider}
               onClick={() => !isActive && onToggle(provider)}
               disabled={disabled || isActive}
-              className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+              className={`rounded-lg px-3 py-2 text-sm font-medium transition-all ${
                 isActive
                   ? `${info.color} text-white ring-2 ring-offset-2 ring-offset-slate-800 ring-white/30`
                   : "bg-slate-700 text-slate-300 hover:bg-slate-600 disabled:opacity-50"
@@ -335,8 +361,8 @@ export default function LlmConfigPage() {
 
   // Sort provider configs in logical order
   const sortedProviderConfigs = [...phaseProviderConfigs].sort((a, b) => {
-    const order = ["provider_classification", "provider_factual", "provider_critical"];
-    return order.indexOf(a.key) - order.indexOf(b.key);
+    const rank = (key: string) => (PHASE_ORDER.indexOf(key) < 0 ? PHASE_ORDER.length : PHASE_ORDER.indexOf(key));
+    return rank(a.key) - rank(b.key);
   });
 
   // Filter out providers from table when showing all

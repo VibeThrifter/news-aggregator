@@ -202,7 +202,9 @@ alleen admin**, met een admincode; betalende gebruikers later.
   - stappen: plan (LLM) → eigen database (A) + hetzelfde nieuws op Google News (D) → teksten (betaalmuur telt als
     geen tekst, ANP-kopieën één keer) → controle (LLM). Niets gevonden bij een concrete groep of context? Dan de twee
     zoekopdrachten (B);
-  - wat blijft: hetzelfde nieuws, de stem zelf (of de context concreet), de tekst gelezen, zekerheid ≥ 0,7;
+  - wat blijft: hetzelfde nieuws, de stem zelf (of de context concreet), de tekst gelezen, zekerheid ≥ 0,6. Eerst
+    was dat 0,7, maar de zekerheid schommelt per run rond die grens en jij keurt toch alles goed. Elk oordeel staat in
+    `voice_searches.stats.verdicts`, voor het bijstellen;
   - de provider komt uit `llm_config.provider_voice_search`, anders `provider_factual`;
   - handmatig: `POST /admin/trigger/voice-search`.
 - **Beeld, voor iedereen**:
@@ -220,13 +222,17 @@ alleen admin**, met een admincode; betalende gebruikers later.
   - migratie 009 lokaal getest op PostgreSQL 15: twee keer draaien, rollen, limieten, goedkeuren en terugdraaien;
   - de job tegen die database gedraaid met een gestubde LLM.
 
-### Handmatig
-1. DeepSeek opwaarderen. Het tegoed is sinds 3 oktober rond 11:10 op ("402 Payment Required"), en daarmee alle
-   LLM-stappen; Mistral staat op 0.
-2. Migratie 009 draaien in de Supabase SQL-editor.
-3. Een admincode maken met `PYTHONPATH=. .venv/bin/python scripts/access_code.py create --role admin --label Eigenaar`
-   en die invullen op /admin → Toegangscode.
-4. De backend herstarten, zodat de job "Voice Search" draait.
+### Aangezet (2026-10-04)
+- Migratie 009 is gedraaid op Supabase. Admincode 1 (Eigenaar) is gemaakt; je vult hem in op /admin →
+  Toegangscode. De backend is herstart en de job "Voice Search" draait.
+- LLM: het DeepSeek-tegoed was op. Op verzoek van de eigenaar doet Claude Code nu alle AI-stappen.
+  - Provider `claude-code[:model]` in `backend/app/llm/claude_code.py` start lokaal `claude -p`: het abonnement, geen
+    API-sleutel, geen tools, geen projectcontext. Het schema gaat mee als `--json-schema`.
+  - Kiesbaar per stap op /admin/llm-config.
+  - Nu ingesteld:
+    - feitelijk, kritisch en Zoek met AI: `claude-code:sonnet`;
+    - classificatie, event-toewijzing, kern buitenlandse artikelen en bias: `claude-code:haiku`.
+  - Proef: een echte feitelijke analyse duurde 12 s (Sonnet), een kern 12 s (Haiku).
 
 ### Later
 - Elk gevonden artikel tegen álle ontbrekende stemmen van het item controleren: één artikel beantwoordt soms een

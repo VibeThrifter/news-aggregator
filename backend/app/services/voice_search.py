@@ -15,7 +15,8 @@ voice of one event. This service runs it:
 5. nothing kept and the voice is a concrete group or missing context: Google News NL with the two
    planned queries (B), checked the same way
 
-Kept: same news, own voice, text read, confidence >= 0.7. The admin approves in the app
+Kept: same news, own voice, text read, confidence >= 0.6 (the LLM's confidence varies around a
+threshold between runs; the admin reviews every find). The admin approves in the app
 (``review_voice_candidate``): only then does an article join the event. Nothing else is written.
 
 Practical test (2026-10-03, 45 missing voices of 15 real news items, ``scripts/
@@ -56,7 +57,7 @@ from .country_detector import Country, GoogleNewsParams
 logger = structlog.get_logger(__name__)
 
 WINDOW_DAYS = 7
-MIN_CONFIDENCE = 0.7
+MIN_CONFIDENCE = 0.6
 A_MAX = 3
 B_PER_QUERY = 2
 D_SEARCH = 6
@@ -704,7 +705,9 @@ class VoiceSearchService:
         seen: dict[str, Candidate] = {}
         copies: set[str] = set()
         checked = await self._collect(context, found, seen, copies)
-        kept = await self.check(context, job, checked, terms) if checked else []
+        verdicts: list[dict[str, Any]] = []
+        stats["verdicts"] = verdicts
+        kept = await self.check(context, job, checked, terms, verdicts) if checked else []
 
         # Nothing yet for a concrete group or missing context: the planned queries (B)
         if not kept and "B" in self.strategies and plan.kind.strip().lower() in B_KINDS:
@@ -715,7 +718,7 @@ class VoiceSearchService:
             more = await self._collect(context, found_b, seen, copies)
             if more:
                 stats["checked_b"] = len(more)
-                kept = await self.check(context, job, more, terms)
+                kept = await self.check(context, job, more, terms, verdicts)
                 checked += more
         stats["counts"] = {strategy: len(items) for strategy, items in found.items()}
         stats["candidates"] = len(seen)
@@ -777,8 +780,13 @@ class VoiceSearchService:
         job: VoiceSearchJob,
         candidates: list[Candidate],
         terms: Sequence[str],
+        log: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
-        """One LLM call for all candidates; keeps those where the voice itself speaks about this news."""
+        """One LLM call for all candidates; keeps those where the voice itself speaks about this news.
+
+        ``log`` receives every verdict (outlet, link and the yes/no answers; never text) for the
+        stats of the search: only the admin and the backend see them, to tune the check.
+        """
 
         readable = [c for c in candidates if c.text]
         if not readable:
@@ -791,6 +799,19 @@ class VoiceSearchService:
         for candidate in readable:
             verdict = verdicts.get(candidate.aid)
             confidence = float(verdict.confidence or 0.0) if verdict else 0.0
+            if log is not None:
+                log.append(
+                    {
+                        "outlet": candidate.outlet,
+                        "url": candidate.url,
+                        "strategy": ",".join(candidate.strategies),
+                        "same_news": bool(verdict and verdict.same_news),
+                        "voiced": bool(verdict and verdict.voiced),
+                        "own_voice": bool(verdict and verdict.own_voice),
+                        "confidence": round(confidence, 2),
+                        "who": (verdict.who or None) if verdict else None,
+                    }
+                )
             if verdict and verdict.same_news and verdict.own_voice and confidence >= MIN_CONFIDENCE:
                 kept.append((confidence, candidate, verdict))
         kept.sort(key=lambda item: -item[0])

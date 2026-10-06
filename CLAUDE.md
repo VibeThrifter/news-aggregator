@@ -141,7 +141,7 @@ make clean             # Clean up generated files
 - **LLM Insights**: Auto-generation working with Mistral API, narrative summaries, frames, coverage gaps
 - **REST API**: Backend endpoints for admin/trigger functions
 - **Event Detail**: Epic 14 "Eén beeld": "Wie zegt wat?" as one picture (outlets, the speakers they quote, missing voices, numbered findings) with tabs Klopt het? / Wie praat? / Wat ontbreekt? / Hoe gebracht? / Tijdlijn, plus "Wie zit erachter?" (propagandamodel). Readers can add their own answers (doubt, speaker, missing voice, question, remark, moment; `lib/explore/own.ts`, marked "jij", numbered after the analysis, stored on this device only). No game mechanics. Spec: `docs/stories/active/epic-14-een-beeld.md`
-- **LLM provider per step**: `llm_config` keys `provider_<step>` (event assignment, classification, factual, critical, digest) via `backend/app/llm/providers.py`; never hard-wire a provider
+- **LLM provider per step**: `llm_config` keys `provider_<step>` (event assignment, classification, factual, critical, digest, voice search, bias) via `backend/app/llm/providers.py`; never hard-wire a provider. Values: mistral, deepseek, deepseek-r1, gemini or `claude-code[:haiku|sonnet|opus]`, which runs the local Claude Code CLI (`claude -p`, the owner's subscription, no API key; `backend/app/llm/claude_code.py`, `CLAUDE_CODE_*`). Selectable on /admin/llm-config. Since 2026-10-04 every step runs on Claude Code (DeepSeek credit ran out): analyses and voice search on Sonnet, the per-article steps on Haiku
 - **RSS Polling**: Automated every 15 minutes via APScheduler (backend)
 - **Insight Backfill**: Scheduled job every 30 minutes catches up on missing LLM insights
 

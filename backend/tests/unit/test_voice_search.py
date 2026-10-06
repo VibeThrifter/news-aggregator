@@ -141,7 +141,7 @@ async def test_keeps_only_the_voice_itself_about_the_same_news():
                 hit("a1"),
                 hit("a2", own_voice=False),  # someone talking about the farmers
                 hit("a3", same_news=False),
-                hit("a4", confidence=0.6),  # not sure enough
+                hit("a4", confidence=0.5),  # not sure enough
             ]
         ],
     )

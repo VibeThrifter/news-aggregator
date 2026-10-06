@@ -299,6 +299,11 @@ export function GhostCard({ findingId, onNavigate }: { findingId: string; onNavi
         </div>
         <NumberBadge findingId={finding.id} type="gap" />
       </div>
+      {/* First, not at the bottom: a long card scrolls inside the popover and the button got lost */}
+      <VoiceSearchCompact
+        target={{ findingId: finding.id, perspective: gap.perspective, context: [gap.description, gap.relevance].filter(Boolean).join(" "), origin: "analyse" }}
+        onNavigate={onNavigate}
+      />
       <p className="text-sm leading-relaxed text-ink-800">
         <EntityText text={gap.description} />
       </p>
@@ -319,10 +324,6 @@ export function GhostCard({ findingId, onNavigate }: { findingId: string; onNavi
         </div>
       ) : null}
       <FoundVoices findingId={finding.id} label={gap.perspective} onNavigate={onNavigate} />
-      <VoiceSearchCompact
-        target={{ findingId: finding.id, perspective: gap.perspective, context: [gap.description, gap.relevance].filter(Boolean).join(" "), origin: "analyse" }}
-        onNavigate={onNavigate}
-      />
       <Chip
         icon={<Pin size={14} />}
         aria-pressed={isPinned(pinId)}
@@ -365,6 +366,7 @@ function OwnGhostCard({ findingId, onNavigate }: { findingId: string; onNavigate
         <NumberBadge findingId={finding.id} type="gap" />
       </div>
       <OwnManage id={finding.id} onNavigate={onNavigate} />
+      <VoiceSearchCompact target={{ findingId: finding.id, perspective: entry.text, context: entry.detail ?? null, origin: "eigen" }} onNavigate={onNavigate} />
       {entry.detail ? (
         <p className="whitespace-pre-line text-sm text-ink-700">
           <span className="text-ink-500">Waarom het ertoe doet: </span>
@@ -372,7 +374,6 @@ function OwnGhostCard({ findingId, onNavigate }: { findingId: string; onNavigate
         </p>
       ) : null}
       <FoundVoices findingId={finding.id} label={entry.text} onNavigate={onNavigate} />
-      <VoiceSearchCompact target={{ findingId: finding.id, perspective: entry.text, context: entry.detail ?? null, origin: "eigen" }} onNavigate={onNavigate} />
       <Chip
         icon={<Pin size={14} />}
         aria-pressed={isPinned(pinId)}

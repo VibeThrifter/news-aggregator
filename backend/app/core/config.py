@@ -216,6 +216,29 @@ class Settings(BaseSettings):
         description="Maximum number of queued searches per scheduled run"
     )
 
+    # Claude Code as LLM provider (llm_config value "claude-code" or "claude-code:<model>"): the
+    # local `claude` CLI with the login of the user running the backend, not an API key
+    claude_code_bin: str = Field(
+        default="claude",
+        description="The Claude Code command (path or name on PATH)"
+    )
+    claude_code_model: Optional[str] = Field(
+        default=None,
+        description="Model when llm_config says only 'claude-code' (e.g. sonnet, haiku); empty = the CLI default"
+    )
+    claude_code_timeout_seconds: int = Field(
+        default=600,
+        ge=30,
+        le=3600,
+        description="Seconds one Claude Code call may take"
+    )
+    claude_code_max_parallel: int = Field(
+        default=2,
+        ge=1,
+        le=8,
+        description="Claude Code calls that may run at the same time"
+    )
+
     # Database Configuration
     database_url: str = Field(
         default="sqlite+aiosqlite:///./data/db.sqlite",

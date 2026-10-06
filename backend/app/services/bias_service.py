@@ -12,6 +12,7 @@ from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
 from backend.app.db.models import Article, ArticleBiasAnalysis
 from backend.app.db.session import get_sessionmaker
+from backend.app.llm.claude_code import is_claude_code
 from backend.app.llm.client import (
     BaseLLMClient,
     DeepSeekClient,
@@ -22,6 +23,7 @@ from backend.app.llm.client import (
     LLMTimeoutError,
     MistralClient,
 )
+from backend.app.llm.providers import build_llm_client
 from backend.app.llm.schemas import BiasAnalysisPayload
 from backend.app.repositories.bias_repo import BiasRepository
 from backend.app.services.llm_config_service import get_llm_config_service
@@ -55,6 +57,8 @@ class BiasDetectionService:
     def _build_client(self, provider: str | None = None) -> BaseLLMClient:
         """Build an LLM client for the specified provider."""
         provider = (provider or self.settings.llm_provider or "mistral").lower()
+        if is_claude_code(provider):
+            return build_llm_client(provider, self.settings)
         if provider == "mistral":
             return MistralClient(settings=self.settings)
         if provider == "deepseek":

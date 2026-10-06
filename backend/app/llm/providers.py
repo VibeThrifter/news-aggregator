@@ -13,6 +13,7 @@ from typing import TypeVar
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
+from backend.app.llm.claude_code import ClaudeCodeClient, is_claude_code, provider_model
 from backend.app.llm.client import (
     BaseLLMClient,
     DeepSeekClient,
@@ -29,9 +30,14 @@ T = TypeVar("T")
 
 
 def build_llm_client(provider: str | None, settings: Settings) -> BaseLLMClient:
-    """The client for a provider name from llm_config: mistral, deepseek, deepseek-r1 or gemini."""
+    """The client for a provider name from llm_config.
+
+    mistral, deepseek, deepseek-r1, gemini, or claude-code[:model] (the local Claude Code CLI).
+    """
 
     name = (provider or "mistral").strip().lower()
+    if is_claude_code(name):
+        return ClaudeCodeClient(settings=settings, model=provider_model(name))
     if name == "deepseek":
         return DeepSeekClient(settings=settings, use_reasoner=False)
     if name == "deepseek-r1":
