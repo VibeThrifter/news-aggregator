@@ -927,10 +927,18 @@ def test_sources_an_independent_re_read_confirmed_are_marked_checked():
     checked = pm.checked_sources(checks, arguments)
     assert checked == {1: {10}, 4: {None}}
     sources = {
-        10: {"id": 10, "title": "NOS-bericht", "source_type": "nieuwsartikel",
-             "reliability": "regulier"},
-        11: {"id": 11, "title": "Persbericht", "source_type": "persbericht",
-             "reliability": "primair"},
+        10: {
+            "id": 10,
+            "title": "NOS-bericht",
+            "source_type": "nieuwsartikel",
+            "reliability": "regulier",
+        },
+        11: {
+            "id": 11,
+            "title": "Persbericht",
+            "source_type": "persbericht",
+            "reliability": "primair",
+        },
     }
     citations = [{"source_id": 10, "quote": "Citaat."}, {"source_id": 11, "quote": "Ander."}]
     rows = pm._argument_sources(citations, sources, {}, checked=checked[1])
@@ -938,3 +946,77 @@ def test_sources_an_independent_re_read_confirmed_are_marked_checked():
     everything = pm._argument_sources(citations, sources, {}, checked=checked[4])
     assert all(row.get("checked") for row in everything)
     assert "checked" not in pm._argument_sources(citations, sources, {})[0]
+
+
+def test_what_an_independent_re_read_found_when_it_did_not_hold():
+    """Agents do everything (2026-10-06): a reader sees what the check found - the source carries
+    the claim in part, does not carry it, or the quote is not in it - never a technical failure,
+    nor the author's own verdict."""
+
+    arguments = [{"id": n, "contributed_by": "nieuws-bewijs"} for n in range(1, 7)]
+    checks = [
+        {
+            "argument_id": 1,
+            "bron_id": 10,
+            "verdict": "twijfel",
+            "door": "bronchecker",
+            "detail": "[bronchecker v2] citaat letterlijk gevonden (pbl.nl); niets over NOS",
+        },
+        {
+            "argument_id": 2,
+            "bron_id": 20,
+            "verdict": "twijfel",
+            "door": "bronchecker",
+            "detail": "[bronchecker v2] citaat niet teruggevonden in de bron (nos.nl)",
+        },
+        {
+            "argument_id": 3,
+            "bron_id": 30,
+            "verdict": "klopt-niet",
+            "door": "bronchecker",
+            "detail": "[bronchecker v2] zonder citaat gevonden (x.nl); zegt iets anders",
+        },
+        {
+            "argument_id": 4,
+            "bron_id": 40,
+            "verdict": "twijfel",
+            "door": "bronchecker",
+            "detail": "[bronchecker v2] 3 keer bron niet te lezen: HTTP 403",
+        },
+        {
+            "argument_id": 5,
+            "bron_id": 50,
+            "verdict": "twijfel",
+            "door": "nieuws-bewijs",
+            "detail": "citaat letterlijk gevonden (eigen oordeel)",
+        },
+        {
+            "argument_id": 6,
+            "bron_id": 60,
+            "verdict": "twijfel",
+            "door": "bronchecker",
+            "detail": "[bronchecker v2] citaat bijna letterlijk gevonden (a.nl); deels",
+        },
+        {"argument_id": 6, "bron_id": 60, "verdict": "klopt", "door": "bronchecker"},
+    ]
+    assert pm.source_doubts(checks, arguments) == {
+        1: {10: "deels"},
+        2: {20: "citaat_weg"},
+        3: {30: "draagt_niet"},
+    }
+    sources = {
+        10: {
+            "id": 10,
+            "title": "Persbericht PBL",
+            "source_type": "persbericht",
+            "reliability": "primair",
+        }
+    }
+    rows = pm._argument_sources(
+        [{"source_id": 10, "quote": "Citaat."}], sources, {}, doubts={10: "deels"}
+    )
+    assert rows[0]["check"] == "deels" and "checked" not in rows[0]
+    confirmed = pm._argument_sources(
+        [{"source_id": 10, "quote": "Citaat."}], sources, {}, checked={10}, doubts={10: "deels"}
+    )
+    assert confirmed[0]["checked"] is True and "check" not in confirmed[0]

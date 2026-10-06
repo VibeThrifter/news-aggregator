@@ -613,3 +613,85 @@ Tests:
   verkeerde kant op. Oplossen vergt een wijziging van 008 op Supabase.
 - `embedding_similarity`/`entity_overlap` worden nog niet gebruikt; "zelfde verhaal" werkt op gedeelde namen.
 - Oude events (dec 2025) hebben dunnere analyses; het beeld toont dan minder sprekers.
+
+## Story 14.17: Agents doen alles
+
+**Status**: ✅ Done (2026-10-06). Live: de automatische beoordeling van het propagandamodel draait elk uur.
+
+Eigenaar (2026-10-06), bij RIVM → De Telegraaf ("betwist · zonder bron") en RIVM → NOS ("niet gecontroleerd"):
+"als er geen bronnen zijn moet een agent op zoek gaan", "hier staat niet gecontroleerd.. laat een agent het dan
+controleren.. haal human uit de loop en laat agents alles doen in propaganda model".
+
+Waarom het niet soepel liep:
+- de automatische beoordeling las alleen nieuwe voorstellen. Wat al in het model stond (≈2.400 argumenten onder
+  verbanden, ≈800 onder entiteiten), was nooit gecontroleerd, en alleen een mens kon "geverifieerd" zetten;
+- 125 oude argumenten hadden geen enkele bron. In juli zette de eigenaar ze op "betwist" ("onvoldoende te
+  sourcen"); de app toonde dat als "betwist", alsof iemand ze had weerlegd;
+- diep onderzoek (Opus) volgt alleen verbanden die een lezer zag, met hooguit 6 per dag.
+
+Wat er nu gebeurt, in het propagandamodel (§ "Vervolg dezelfde dag: agents doen alles" in zijn `CLAUDE.md`):
+1. **Bronzoeker** (`scripts/bronzoeker.py`): bij argumenten zonder (goede) bron zoekt Claude Sonnet op het web een
+   bron met een letterlijk citaat. Het script haalt die bron zelf op en zoekt het citaat terug. Wat standhoudt,
+   wordt een revisie, die langs de gewone controles gaat. Een herformulering moet dezelfde partijen noemen.
+   Een argument dat om de inhoud betwist werd (perifeer, weerlegd), raakt hij niet aan.
+2. **Controle van alles**: de bronchecker leest ook wat al gemerged is, en wat lezers zien gaat voor.
+3. **Verificatie**: draagt de bron de bewering, dan wordt het argument "geverifieerd" (telt in het model twee keer
+   zo zwaar als "ongecontroleerd"). Draagt hij haar niet, dan "bronvermelding nodig", en de bronzoeker zoekt een
+   betere. Wat een mens zelf besliste, blijft staan.
+4. **Heropenen**: wat de eerste bronchecker te streng opruimde, haalt de beoordeling zelf terug zodra de bron
+   bevestigd is.
+
+In de nieuws-app:
+- **Voorrang**: elke cyclus meldt alle aangevraagde verbanden bij het propagandamodel (`POST /api/nieuws/voorrang`,
+  zonder budget; `EvidenceResearchService.prioritise`).
+- **Onbewezen**: een verband dat alleen rust op bronloze, "betwiste" argumenten zonder tegenargument heet nu
+  "onbewezen · zonder bron" (`unsourcedOnly`).
+- **Controle-uitkomst**: wat de controle vond, staat erbij in plaats van "niet gecontroleerd": "bron draagt het
+  deels", "bron draagt het niet" of "citaat niet teruggevonden". Dat loopt via sync format 7 (`check` in de
+  bron-JSON) en `checkOf`/`CHECK_LABELS`.
+- **Automatisch gecontroleerd**: zo heet het ook als de automaat de status "geverifieerd" zette (`autoChecked`).
+  "Gecontroleerd" zonder meer betekent een mens.
+
+Eerste ronde (2026-10-06, 23:00, 9 minuten):
+- 60 bestaande argumenten gecontroleerd en 134 geverifieerd;
+- van de 10 ten onrechte opgeruimde argumenten zijn er 6 terug en geverifieerd;
+- de bronzoeker vond voor RIVM → Telegraaf, AD en Volkskrant geen bron met een letterlijk citaat. Dat klopt met
+  het onderzoek uit juli; die verbanden heten nu "onbewezen".
+- Twee revisies van de bronzoeker waren te algemeen (Google → "Nederlandse nieuwssites") of veranderden de
+  strekking (de Volkskrant stopte met Facebook). Ze zijn verworpen, en de bronzoeker eist sindsdien dat een
+  herformulering de partijen zelf noemt.
+
+Tests:
+- propagandamodel: `scripts/test_automatische_beoordeling.py` stap 8–12. `test_auto_merge`, `test_immuunsysteem`,
+  `test_fase2`, `test_nieuws_doelen`, `test_nieuws_autokeur`, `test_fresh_build`, `test_publieke_intake`,
+  `test_admin_veto`, `test_bezwaar_resolutie`, `test_dedup` en `test_scoring` zijn groen.
+- nieuws-app: pytest (voorrang, sync format 7) en Jest (`evidence.test.ts`) zijn groen.
+
+Vervolg dezelfde avond. Eigenaar: "niks door mensen doen.. alles door agents.. laat de smaad firewall gewoon checken
+of het feitelijk is en als het niet feitelijk is dan koppel het terug en anders is het geen smaad". In het
+propagandamodel:
+- **Smaadtoets** (`scripts/smaadtoets.py`, Claude Opus, account `smaadtoets`): een claim over een persoon gaat door
+  als ze feitelijk is, de bron haar draagt (niet verder dan de bron, geen insinuatie) en ze over de publieke rol
+  gaat. Anders wordt ze teruggekoppeld: verworpen met de reden en een feitelijke formulering. Die feitelijke versie
+  dient de bronzoeker met dezelfde bronnen opnieuw in, en ze gaat weer langs alle controles. Neutrale
+  structuurfeiten (lid van, werkt bij) hebben geen toets nodig.
+- Eerste ronde (2026-10-06, 23:38, 7 minuten):
+  - smaadtoets: 8 persoonsclaims, waarvan 4 feitelijk en 4 teruggekoppeld. Voorbeelden: Van Mulligen duidt de
+    inflatie "maandelijks", maar de bron toont één maand; Sophie Straat: de bedreigingen hoorden bij een ander
+    festival dan de claim noemde;
+  - RfC's: De Persgroep is samengevoegd met DPG Media, het mechanisme `overheidssubsidie_ngo` is aangenomen, en
+    `betaalde_content` is afgewezen omdat het overlapt met `supportive_selling_environment`;
+  - 9 van 12 kandidaat-verbanden kregen een mechanisme; voor 3 paste er geen (opleiding ↔ hogeschool);
+  - 7 verbanden goedgekeurd en 37 argumenten geverifieerd; pdf-bronnen zijn nu leesbaar (3 van 3 klopten).
+- **Kandidaat-verbanden**: de mechanisme-toewijzer geeft verbanden zonder mechanisme er een, en daarna beslist de
+  gewone bewijspoort.
+- **RfC's**: twee agents met elk een eigen rol en model beoordelen ze (een toetser en een criticus). Twee keer
+  akkoord betekent aangenomen; één afwijzing met reden betekent afgewezen.
+- **Breder**: ook duiding, aspecten (zoals politieke positie), theorie-argumenten en steunende reacties gaan nu langs
+  bron-check en aanklager, in plaats van na 14 dagen ongezien te worden opgeruimd. De aanklager krijgt 4 rondes per
+  dag (was 2).
+
+### Open
+- De aanklager (Opus) draait alleen tussen 08:00 en 22:00 uur. Wat 's avonds klaar staat, wacht tot de ochtend.
+- Diep onderzoek (`nieuws-bewijs`, Opus) blijft begrensd op 6 verbanden per dag. De bron-check en de bronzoeker
+  hebben geen dagbudget.

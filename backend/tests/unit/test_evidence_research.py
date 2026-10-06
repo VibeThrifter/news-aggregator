@@ -104,8 +104,13 @@ def test_describes_what_a_thin_link_rests_on_and_what_it_lacks():
         "controle of de bron de claim werkelijk draagt",
         "tegenbewijs: er is nog niets tegenin gebracht",
     ]
-    empty = RelationEvidence(id=220, source_name="RIVM", target_name="de Volkskrant",
-                             relation_type="beinvloeding", disputed=1)
+    empty = RelationEvidence(
+        id=220,
+        source_name="RIVM",
+        target_name="de Volkskrant",
+        relation_type="beinvloeding",
+        disputed=1,
+    )
     assert empty.evidence_line() == "geen geldig argument vóór; 1 betwist; niets ertegen ingebracht"
     assert empty.missing()[0] == "een geldig argument met een bron die de claim draagt"
 
@@ -233,6 +238,7 @@ def test_migration_011_is_secured_and_validates_what_readers_send():
 class FakePmClient:
     def __init__(self) -> None:
         self.calls: list[tuple[dict[str, Any], bool]] = []
+        self.prioritised: list[list[int]] = []
         self.fail: Exception | None = None
         self.next_id = 500
 
@@ -245,6 +251,12 @@ class FakePmClient:
 
     async def health(self):
         return True
+
+    async def prioritise(self, relation_ids):
+        if self.fail is not None:
+            raise self.fail
+        self.prioritised.append(list(relation_ids))
+        return len(relation_ids)
 
 
 class FakeRunner:
@@ -304,26 +316,46 @@ async def seed(factory) -> None:
         await session.flush()
         session.add_all(
             [
-                PmRelation(id=100, source_id=1, target_id=3, relation_type="eigendom",
-                           certainty_label="onderbouwd"),
-                PmRelation(id=101, source_id=1, target_id=4, relation_type="eigendom",
-                           certainty_label="aannemelijk"),
-                PmRelation(id=110, source_id=2, target_id=11, relation_type="adverteerder",
-                           certainty_label="aannemelijk"),
+                PmRelation(
+                    id=100,
+                    source_id=1,
+                    target_id=3,
+                    relation_type="eigendom",
+                    certainty_label="onderbouwd",
+                ),
+                PmRelation(
+                    id=101,
+                    source_id=1,
+                    target_id=4,
+                    relation_type="eigendom",
+                    certainty_label="aannemelijk",
+                ),
+                PmRelation(
+                    id=110,
+                    source_id=2,
+                    target_id=11,
+                    relation_type="adverteerder",
+                    certainty_label="aannemelijk",
+                ),
             ]
         )
         session.add_all(
             [
                 # requested now, from the event
-                RelationResearch(relation_id=110, requested_count=4, last_requested_at=NOW,
-                                 request_events=["westnijlvirus", "onbekend-bericht"]),
+                RelationResearch(
+                    relation_id=110,
+                    requested_count=4,
+                    last_requested_at=NOW,
+                    request_events=["westnijlvirus", "onbekend-bericht"],
+                ),
                 RelationResearch(relation_id=101, requested_count=1, last_requested_at=NOW),
                 # well supported by now, and gone from the model
                 RelationResearch(relation_id=100, requested_count=1, last_requested_at=NOW),
                 RelationResearch(relation_id=999, requested_count=1, last_requested_at=NOW),
                 # requested too long ago
-                RelationResearch(relation_id=104, requested_count=9,
-                                 last_requested_at=NOW - timedelta(days=30)),
+                RelationResearch(
+                    relation_id=104, requested_count=9, last_requested_at=NOW - timedelta(days=30)
+                ),
             ]
         )
         await session.commit()
@@ -382,6 +414,34 @@ async def test_queues_requested_thin_links_with_their_news_within_the_budget(tmp
         assert state[104].status == "nieuw"  # requested too long ago
         # rounds are off until the owner switches them on
         assert outcome["round_started"] is False and runner.started == 0
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_tells_the_propaganda_model_which_links_readers_see(tmp_path):
+    service, factory, engine, _, client, _ = await make_service(
+        tmp_path, evidence_research_daily_targets=1
+    )
+    try:
+        outcome = await service.run_cycle()
+        # beyond the research budget too, but not what is well supported, gone or stale
+        assert client.prioritised == [[101, 110]]
+        assert outcome["prioritised"] == {"sent": 2}
+        await service.run_cycle()
+        assert client.prioritised == [[101, 110]]  # nothing new requested since
+        later = NOW + timedelta(minutes=15)
+        async with factory() as session:
+            row = await session.get(RelationResearch, 101)
+            row.last_requested_at = later - timedelta(minutes=5)
+            await session.commit()
+        service._clock = lambda: later
+        client.fail = PmApiUnavailableError("down")
+        outcome = await service.run_cycle()
+        assert outcome["prioritised"]["sent"] == 0 and "error" in outcome["prioritised"]
+        client.fail = None
+        await service.run_cycle()
+        assert client.prioritised[-1] == [101]  # retried after the failure, only the new one
     finally:
         await engine.dispose()
 
@@ -457,22 +517,39 @@ class _StubEvidenceService:
     async def run_cycle(self, correlation_id: str | None = None):
         if self.behaviour == "error":
             raise RuntimeError("kapot")
-        return {"skipped": False, "status": {"updated": 0}, "enqueue": {"queued": 1, "skipped": {}},
-                "round_started": False}
+        return {
+            "skipped": False,
+            "status": {"updated": 0},
+            "enqueue": {"queued": 1, "skipped": {}},
+            "round_started": False,
+        }
 
     async def research_relation(self, relation_id: int, correlation_id: str | None = None):
         self.ids.append(relation_id)
         if relation_id == 999:
             return {"relation_id": 999, "found": False, "reason": NOT_IN_MODEL}
-        return {"relation_id": relation_id, "found": True, "label": "PBL → NOS (expert framing)",
-                "evidence": "1 argument vóór", "missing": ["controle"], "status": "wachtrij",
-                "round_started": False}
+        return {
+            "relation_id": relation_id,
+            "found": True,
+            "label": "PBL → NOS (expert framing)",
+            "evidence": "1 argument vóór",
+            "missing": ["controle"],
+            "status": "wachtrij",
+            "round_started": False,
+        }
 
     async def status(self):
-        return {"enabled": True, "rounds_enabled": False, "pm_db": "/pm.db", "pm_db_exists": True,
-                "pm_server": True, "counts": {"wachtrij": 1},
-                "budget": {"queued_today": 1, "max_per_day": 6}, "runner": {"running": False},
-                "last_runs": {"cycle": None}}
+        return {
+            "enabled": True,
+            "rounds_enabled": False,
+            "pm_db": "/pm.db",
+            "pm_db_exists": True,
+            "pm_server": True,
+            "counts": {"wachtrij": 1},
+            "budget": {"queued_today": 1, "max_per_day": 6},
+            "runner": {"running": False},
+            "last_runs": {"cycle": None},
+        }
 
 
 @pytest.mark.asyncio

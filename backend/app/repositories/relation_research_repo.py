@@ -61,6 +61,21 @@ class RelationResearchRepository:
             query = query.limit(limit)
         return list((await self.session.execute(query)).scalars())
 
+    async def requested_since(
+        self, since: datetime, excluded: Sequence[str] = ("niet_nodig", "overgeslagen")
+    ) -> list[int]:
+        """Relations requested after ``since`` that still need evidence."""
+
+        result = await self.session.execute(
+            select(RelationResearch.relation_id)
+            .where(
+                RelationResearch.last_requested_at > since,
+                RelationResearch.status.not_in(tuple(excluded)),
+            )
+            .order_by(RelationResearch.relation_id)
+        )
+        return [int(i) for i in result.scalars()]
+
     async def count_queued_since(self, since: datetime) -> int:
         result = await self.session.execute(
             select(func.count())
@@ -86,9 +101,9 @@ async def event_context(session: AsyncSession, slugs: Sequence[str]) -> list[dic
     events = {
         row.slug: row
         for row in (
-            await session.execute(select(Event.id, Event.slug, Event.title).where(
-                Event.slug.in_(wanted)
-            ))
+            await session.execute(
+                select(Event.id, Event.slug, Event.title).where(Event.slug.in_(wanted))
+            )
         ).all()
     }
     if not events:

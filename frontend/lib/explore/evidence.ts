@@ -6,7 +6,7 @@
  * says what is missing and how far the research of the link is (migration 011). Pure.
  */
 
-import type { PmArgument, PmArgumentSource, RelationResearch } from "@/lib/types";
+import type { PmArgument, PmArgumentSource, PmSourceCheck, RelationResearch } from "@/lib/types";
 
 /** How well a link is supported, best first */
 export type EvidenceGrade = "gecontroleerd" | "met_bron" | "zonder_bron" | "betwist" | "verouderd" | "geen";
@@ -67,7 +67,28 @@ const aboutExistence = (argument: PmArgument) => !argument.aspect || argument.as
  * automatic review found the quote in the source and that it carries the claim.
  */
 export function isChecked(argument: PmArgument): boolean {
-  return argument.status === "geverifieerd" || argument.sources.some((source) => source.checked);
+  return argument.status === "geverifieerd" || autoChecked(argument);
+}
+
+/** Checked by the automatic review (which since 2026-10-06 also sets "geverifieerd" itself) */
+export function autoChecked(argument: PmArgument): boolean {
+  return argument.sources.some((source) => source.checked);
+}
+
+/** What the automatic source check found when it did not hold, in a reader's words */
+export const CHECK_LABELS: Readonly<Record<PmSourceCheck, string>> = {
+  draagt_niet: "bron draagt het niet",
+  deels: "bron draagt het deels",
+  citaat_weg: "citaat niet teruggevonden",
+};
+
+const CHECK_ORDER: readonly PmSourceCheck[] = ["draagt_niet", "deels", "citaat_weg"];
+
+/** The automatic check of an argument that did not hold (the worst of its sources), else null */
+export function checkOf(argument: PmArgument): PmSourceCheck | null {
+  if (autoChecked(argument)) return null;
+  const found = new Set(argument.sources.map((source) => source.check).filter(Boolean));
+  return CHECK_ORDER.find((check) => found.has(check)) ?? null;
 }
 
 function uniqueSources(sources: readonly PmArgumentSource[]): PmArgumentSource[] {
@@ -192,14 +213,25 @@ export const VERDICT_RANK: Readonly<Record<EvidenceVerdict, number>> = { stevig:
  * independent sources. Everything else that has a source is thin.
  */
 export function verdictOf(evidence: Evidence, certaintyLabel?: string | null): EvidenceVerdict {
+  if (unsourcedOnly(evidence)) return "onbewezen";
   if (evidence.grade === "betwist" || evidence.grade === "verouderd") return evidence.grade;
   if (evidence.grade === "geen" || evidence.grade === "zonder_bron") return "onbewezen";
   if (certaintyLabel) return certaintyLabel === "onderbouwd" ? "stevig" : "dun";
   return evidence.grade === "gecontroleerd" && independentOrigins(evidence.sources) >= 2 ? "stevig" : "dun";
 }
 
+/**
+ * Set aside only for want of a source: the arguments for the link are "betwist" but have no source
+ * and nothing was brought in against them. The propaganda model marks claims nobody could source
+ * that way; to a reader that is unproven, not contested.
+ */
+export function unsourcedOnly(evidence: Evidence): boolean {
+  return evidence.grade === "betwist" && evidence.against === 0 && evidence.sources.length === 0;
+}
+
 /** What a thin link lacks, in a reader's words: "een bron die niet van PBL zelf komt", … */
 export function evidenceGaps(evidence: Evidence, party?: string | null): string[] {
+  if (unsourcedOnly(evidence)) return ["een bron die het verband draagt"];
   if (evidence.grade === "betwist") return ["een argument dat de tegenspraak doorstaat"];
   if (evidence.grade === "verouderd") return ["actueel bewijs"];
   if (evidence.grade === "geen" || evidence.grade === "zonder_bron") return ["een bron die het verband draagt"];
@@ -280,13 +312,19 @@ export function evidenceSummary(evidence: Evidence, party?: string | null, verdi
       : count === 1
         ? `1 bron: ${own ? `${SOURCE_KINDS[first.kind ?? ""] ?? "bron"}${own}` : sourceLabel(first)}`
         : `${count} bronnen${own}${span}`;
+  if (unsourcedOnly(evidence)) return verdictShown ? sources : `onbewezen · ${sources}`;
   if (evidence.grade === "betwist" || evidence.grade === "verouderd") return verdictShown ? sources : `${evidence.grade} · ${sources}`;
+  // The automatic review sets "geverifieerd" itself once its source check holds: the checked
+  // source says it was a machine, a verified argument without one was checked by a person
+  const check = evidence.lead ? checkOf(evidence.lead) : null;
   const status =
     evidence.grade === "gecontroleerd"
-      ? evidence.lead?.status === "geverifieerd"
-        ? "gecontroleerd"
-        : "automatisch gecontroleerd"
-      : (ARGUMENT_STATUS_LABELS[evidence.lead?.status ?? ""]?.label ?? null);
+      ? evidence.lead && autoChecked(evidence.lead)
+        ? "automatisch gecontroleerd"
+        : "gecontroleerd"
+      : check
+        ? CHECK_LABELS[check]
+        : (ARGUMENT_STATUS_LABELS[evidence.lead?.status ?? ""]?.label ?? null);
   return [sources, status].filter(Boolean).join(" · ");
 }
 

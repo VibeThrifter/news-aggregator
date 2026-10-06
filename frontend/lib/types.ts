@@ -456,7 +456,12 @@ export interface PmArgumentSource {
   quote?: string | null;
   /** An independent re-read found the quote and that the source carries the claim (automatic review) */
   checked?: boolean;
+  /** What that re-read found when it did not hold (sync format 7) */
+  check?: PmSourceCheck;
 }
+
+/** The source carries the claim only in part, does not carry it, or the quote is not in it */
+export type PmSourceCheck = "deels" | "draagt_niet" | "citaat_weg";
 
 /** Review status of an argument in the propaganda model */
 export type PmArgumentStatus = "geverifieerd" | "ongecontroleerd" | "bronvermelding_nodig" | "betwist" | "verouderd" | "voorgesteld";

@@ -8,7 +8,7 @@ propaganda-model agent ``nieuws-scout``.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -112,6 +112,21 @@ class PmClient:
             return {"doel": body.get("doel") or {}, "created": False, "finished": True}
         if response.status_code == 429:
             raise PmApiRateLimitError(429, str(body.get("error") or "rate limit"))
+        raise PmApiError(response.status_code, str(body.get("error") or response.text[:200]))
+
+    async def prioritise(self, relation_ids: Sequence[int]) -> int:
+        """POST /api/nieuws/voorrang: links readers see go first in the propaganda model's
+        automatic check and source search. Returns how many it took (unknown ids are ignored)."""
+
+        payload = {"relation_ids": [int(i) for i in relation_ids]}
+        try:
+            async with self._client(self._token()) as client:
+                response = await client.post("/api/nieuws/voorrang", json=payload)
+        except httpx.HTTPError as exc:
+            raise PmApiUnavailableError(str(exc)) from exc
+        body = _json(response)
+        if response.status_code == 200:
+            return int(body.get("bijgewerkt") or 0)
         raise PmApiError(response.status_code, str(body.get("error") or response.text[:200]))
 
 

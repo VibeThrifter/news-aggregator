@@ -242,8 +242,9 @@ UNFILTERED = "overig"
 # Version of the pm_* row format (pm_meta.format). A sync is never skipped as "unchanged" while
 # the stored format differs, so a new column is filled right after the migration adds it.
 # 4: auto_approved + unreviewed sources (Epic 12); 5: arguments + mechanisms; 6: sources an
-# independent A1 re-read found to carry the argument ("checked", automatic review 2026-10-06)
-SNAPSHOT_FORMAT = "6"
+# independent A1 re-read found to carry the argument ("checked", automatic review 2026-10-06);
+# 7: what that re-read found when it did not hold ("check": deels / draagt_niet / citaat_weg)
+SNAPSHOT_FORMAT = "7"
 MAX_SOURCES_PER_OWNER = 12
 MAX_QUOTE_LENGTH = 300
 # Arguments shown with a relation (migration 010): whether it exists, how strong, when it held and
@@ -667,7 +668,7 @@ def read_pm_database(path: Path | str) -> PmRawData:
             raw.checks = [
                 dict(row)
                 for row in connection.execute(
-                    "SELECT id, argument_id, bron_id, verdict, door, created_at "
+                    "SELECT id, argument_id, bron_id, verdict, door, detail, created_at "
                     "FROM immuun_oordelen WHERE fase = 'herverificatie' ORDER BY created_at, id"
                 )
             ]
@@ -1204,15 +1205,54 @@ def checked_sources(
     }
 
 
+# What the bronchecker wrote when it read the source (its verdict detail): then 'twijfel' means
+# the source carries the claim only in part; else the quote was not found or the check failed
+SOURCE_READ_PATTERN = re.compile(r"(citaat (letterlijk|bijna letterlijk)|zonder citaat) gevonden")
+QUOTE_MISSING_PATTERN = re.compile(r"citaat niet teruggevonden")
+
+
+def source_doubts(
+    checks: Sequence[Mapping[str, Any]], arguments: Sequence[Mapping[str, Any]]
+) -> dict[int, dict[int | None, str]]:
+    """Per argument what an independent re-read found when it did not confirm it: the newest
+    A1 verdict (not by the author) is 'klopt-niet' ("draagt_niet"), or 'twijfel' after reading
+    the source ("deels") or without finding the quote in it ("citaat_weg"). A technical failure
+    says nothing. Keys are source ids (``None`` = the verdict named no source)."""
+
+    authors = {row["id"]: row.get("contributed_by") for row in arguments}
+    newest: dict[int, Mapping[str, Any]] = {}
+    for check in checks:  # oldest first: the last one wins
+        newest[check["argument_id"]] = check
+    doubts: dict[int, dict[int | None, str]] = {}
+    for arg_id, check in newest.items():
+        if not check.get("door") or check.get("door") == authors.get(arg_id):
+            continue
+        detail = str(check.get("detail") or "")
+        if check.get("verdict") == "klopt-niet":
+            found = "draagt_niet"
+        elif check.get("verdict") != "twijfel":
+            continue
+        elif SOURCE_READ_PATTERN.search(detail):
+            found = "deels"
+        elif QUOTE_MISSING_PATTERN.search(detail):
+            found = "citaat_weg"
+        else:
+            continue
+        doubts[arg_id] = {check.get("bron_id"): found}
+    return doubts
+
+
 def _argument_sources(
     citations: Sequence[Mapping[str, Any]],
     sources: Mapping[int, Mapping[str, Any]],
     locations: Mapping[int, Sequence[Mapping[str, Any]]],
     limit: int = MAX_SOURCES_PER_ARGUMENT,
     checked: set[int | None] | None = None,
+    doubts: Mapping[int | None, str] | None = None,
 ) -> list[dict[str, Any]]:
     """The sources an argument cites (in citation order, once each, never project material).
-    ``checked``: the sources an independent re-read confirmed (``None`` in it = all)."""
+    ``checked``: the sources an independent re-read confirmed (``None`` in it = all);
+    ``doubts``: what it found for the sources it did not confirm (``None`` key = all)."""
 
     rows: list[dict[str, Any]] = []
     seen: set[int] = set()
@@ -1237,6 +1277,10 @@ def _argument_sources(
         }
         if checked and (None in checked or source["id"] in checked):
             row["checked"] = True
+        elif doubts:
+            found = doubts.get(source["id"]) or doubts.get(None)
+            if found:
+                row["check"] = found
         rows.append(row)
         if len(rows) >= limit:
             break
@@ -1255,6 +1299,7 @@ def collect_arguments(
     unreviewed_owner_ids: Iterable[int] = (),
     unreviewed_contributors: frozenset[str] = AUTO_RESEARCH_CONTRIBUTORS,
     checked: Mapping[int, set[int | None]] | None = None,
+    doubts: Mapping[int, Mapping[int | None, str]] | None = None,
 ) -> list[dict[str, Any]]:
     """pm_arguments rows: what a reader may see of the discussion about each exported relation.
 
@@ -1339,6 +1384,7 @@ def collect_arguments(
                         sources,
                         locations,
                         checked=(checked or {}).get(arg_id),
+                        doubts=(doubts or {}).get(arg_id),
                     ),
                     "position": position,
                 }
@@ -1599,6 +1645,7 @@ def transform(raw: PmRawData, *, synced_at: datetime | None = None) -> PmSnapsho
         locations,
         unreviewed_owner_ids=auto_relations,
         checked=checked_sources(raw.checks, raw.arguments),
+        doubts=source_doubts(raw.checks, raw.arguments),
     )
 
     degree: dict[int, int] = defaultdict(int)
@@ -2221,6 +2268,7 @@ __all__ = [
     "build_demo_slice",
     "certainty_label",
     "checked_sources",
+    "source_doubts",
     "collect_arguments",
     "collect_sources",
     "compute_primary_filters",

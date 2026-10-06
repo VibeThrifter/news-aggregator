@@ -11,7 +11,11 @@ one cycle of this service (scheduler job, every 15 minutes) then does:
 2. **enqueue** - requested links that are still thin go to ``POST /api/nieuws/doelen`` (soort
    ``relatie``) within a daily budget, with the news they appeared in, what they rest on now and
    what is missing
-3. **round**   - when targets are open and rounds are switched on (``NIEUWS_BEWIJS_ENABLED``),
+3. **priority** - every requested link goes to ``POST /api/nieuws/voorrang`` (no budget, it only
+   changes the order): the propaganda model's automatic review checks the sources of what
+   readers see first (bronchecker) and its source finder (bronzoeker) looks for a source where
+   there is none (owner decision 2026-10-06: agents do everything in the propaganda model)
+4. **round**   - when targets are open and rounds are switched on (``NIEUWS_BEWIJS_ENABLED``),
    start a round of the propaganda-model agent ``nieuws-bewijs``. It looks for evidence for AND
    against; everything lands ``voorgesteld``. Right after the round the propaganda model's
    automatic review decides (owner decision 2026-10-06: nobody reviews by hand): the
@@ -91,9 +95,11 @@ WELL_SUPPORTED = "onderbouwd"
 NOT_IN_MODEL = "Dit verband staat niet (meer) in het model"
 WELL_SUPPORTED_REASON = "Stevig onderbouwd: niet nodig"
 RETRY_FAILED_AFTER = timedelta(days=1)
-# Finished research keeps being refreshed this long (a human reviews what was found)
+# Finished research keeps being refreshed this long (the automatic review decides on what was found)
 FOLLOW_UP = timedelta(days=30)
 SUMMARY_LIMIT = 4000
+# Relation ids per call to the propaganda model's priority endpoint (its maximum)
+PRIORITY_BATCH = 200
 
 SOURCE_KINDS: dict[str, str] = {
     "nieuwsartikel": "nieuwsartikel",
@@ -547,6 +553,7 @@ class EvidenceResearchService:
         )
         self._clock = clock
         self._lock = asyncio.Lock()
+        self._prioritised_at: datetime | None = None
         self.last_runs: dict[str, dict[str, Any] | None] = {"cycle": None, "after_round": None}
 
     @property
@@ -574,11 +581,13 @@ class EvidenceResearchService:
         async with self._lock:
             status = await self.sync_status()
             enqueue = await self.enqueue()
+            prioritised = await self.prioritise()
         round_started = await self.maybe_start_round()
         outcome = {
             "skipped": False,
             "status": status,
             "enqueue": enqueue,
+            "prioritised": prioritised,
             "round_started": round_started,
         }
         self.last_runs["cycle"] = {
@@ -697,6 +706,27 @@ class EvidenceResearchService:
                 budget -= 1
             await session.commit()
         return {"queued": queued, "skipped": dict(skipped)}
+
+    # ------------------------------------------------------------------ priority
+    async def prioritise(self) -> dict[str, Any]:
+        """Tell the propaganda model which links readers see (requested since the last call):
+        its automatic check and source search take those first. No daily budget: it costs
+        nothing extra, it only changes the order."""
+
+        now = self._now()
+        window = timedelta(days=self.settings.evidence_research_request_window_days)
+        since = self._prioritised_at or now - window
+        async with self._write() as session:
+            ids = await RelationResearchRepository(session).requested_since(since)
+        sent = 0
+        try:
+            for start in range(0, len(ids), PRIORITY_BATCH):
+                sent += await self.pm_client.prioritise(ids[start : start + PRIORITY_BATCH])
+        except (PmApiUnavailableError, PmApiError) as exc:
+            logger.warning("evidence_research_prioritise_failed", error=str(exc))
+            return {"sent": sent, "error": str(exc)[:200]}
+        self._prioritised_at = now
+        return {"sent": sent}
 
     # ------------------------------------------------------------------ status
     async def sync_status(self) -> dict[str, Any]:

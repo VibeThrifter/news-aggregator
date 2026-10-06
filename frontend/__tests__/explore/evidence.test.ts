@@ -1,4 +1,7 @@
 import {
+  autoChecked,
+  CHECK_LABELS,
+  checkOf,
   evidenceExtras,
   evidenceGaps,
   evidenceOf,
@@ -11,6 +14,7 @@ import {
   researchNote,
   shortName,
   sourceLabel,
+  unsourcedOnly,
   VERDICT_RANK,
   verdictOf,
   yearOf,
@@ -52,9 +56,17 @@ describe("what a link rests on", () => {
   });
 
   it("calls disputed, countered and outdated links what they are", () => {
+    // set aside because nobody could source it, nothing against it: unproven, not contested
     const disputed = evidenceOf([arg(222, { status: "betwist" })]);
     expect(disputed.grade).toBe("betwist");
-    expect(evidenceSummary(disputed)).toBe("betwist · zonder bron");
+    expect(unsourcedOnly(disputed)).toBe(true);
+    expect(evidenceSummary(disputed)).toBe("onbewezen · zonder bron");
+    expect(evidenceSummary(disputed, null, true)).toBe("zonder bron");
+    expect(verdictOf(disputed)).toBe("onbewezen");
+    expect(evidenceGaps(disputed)).toEqual(["een bron die het verband draagt"]);
+    const contested = evidenceOf([arg(20, { status: "betwist" }), arg(21, { stance: "contradicting", sources: [medialogica] })]);
+    expect(unsourcedOnly(contested)).toBe(false);
+    expect(verdictOf(contested)).toBe("betwist");
     // a reply against an argument disputes it
     const countered = evidenceOf([arg(10, { sources: [medialogica] }), arg(11, { parent_id: 10, stance: "contradicting" })]);
     expect(countered.grade).toBe("betwist");
@@ -119,11 +131,12 @@ describe("thin evidence: verdict, own sources and research (Story 14.13)", () =>
     expect(verdictOf(sameOrigin)).toBe("dun");
     expect(verdictOf(evidenceOf([arg(3, { sources: [medialogica] })]), "onderbouwd")).toBe("stevig");
     // what the arguments show wins over the label when nothing holds
-    expect(verdictOf(evidenceOf([arg(4, { status: "betwist" })]), "onderbouwd")).toBe("betwist");
+    expect(verdictOf(evidenceOf([arg(4, { status: "betwist" })]), "onderbouwd")).toBe("onbewezen");
+    expect(verdictOf(evidenceOf([arg(4, { status: "betwist", sources: [medialogica] })]), "onderbouwd")).toBe("betwist");
     expect(verdictOf(evidenceOf([arg(5)]), "aannemelijk")).toBe("onbewezen");
     expect(verdictOf(evidenceOf(null))).toBe("onbewezen");
     expect(verdictOf(evidenceOf([arg(6, { status: "verouderd", sources: [medialogica] })]))).toBe("verouderd");
-    expect(evidenceGaps(evidenceOf([arg(7, { status: "betwist" })]))).toEqual(["een argument dat de tegenspraak doorstaat"]);
+    expect(evidenceGaps(evidenceOf([arg(7, { status: "betwist", sources: [medialogica] })]))).toEqual(["een argument dat de tegenspraak doorstaat"]);
     // next to the verdict label the grade is not repeated
     expect(evidenceSummary(evidenceOf([arg(7, { status: "betwist" })]), null, true)).toBe("zonder bron");
     expect(evidenceGaps(evidenceOf([arg(8)]))).toEqual(["een bron die het verband draagt"]);
@@ -142,6 +155,17 @@ describe("thin evidence: verdict, own sources and research (Story 14.13)", () =>
     expect(evidenceGaps(evidence, PBL)).toEqual(["een tweede, onafhankelijke bron"]);
     const human = evidenceOf([arg(1, { status: "geverifieerd", sources: [medialogica] })]);
     expect(evidenceSummary(human)).toBe("1 bron: nieuwsartikel · HUMAN / VPRO, 2021 · gecontroleerd");
+    // the automatic review verifies on its own source check: still a machine, and it says so
+    const machine = evidenceOf([arg(2, { status: "geverifieerd", sources: [{ ...medialogica, checked: true }] })]);
+    expect(evidenceSummary(machine)).toBe("1 bron: nieuwsartikel · HUMAN / VPRO, 2021 · automatisch gecontroleerd");
+    // checked but it did not hold: say what the check found instead of "niet gecontroleerd"
+    const partly = arg(3, { sources: [{ ...pressRelease, check: "deels" }] });
+    expect(checkOf(partly)).toBe("deels");
+    expect(evidenceSummary(evidenceOf([partly]))).toBe("1 bron: persbericht · bron draagt het deels");
+    expect(checkOf(arg(4, { sources: [{ ...pressRelease, check: "citaat_weg" }, { ...medialogica, check: "draagt_niet" }] }))).toBe("draagt_niet");
+    expect(checkOf(arg(5, { sources: [{ ...pressRelease, check: "deels" }, { ...medialogica, checked: true }] }))).toBeNull();
+    expect(CHECK_LABELS.citaat_weg).toBe("citaat niet teruggevonden");
+    expect(autoChecked(machine.lead as PmArgument) && !autoChecked(human.lead as PmArgument)).toBe(true);
   });
 
   it("recognises a source of the party itself, not a news article about it", () => {
