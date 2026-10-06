@@ -445,6 +445,63 @@ Wat het doet:
    - In de app: "Uitgezocht: 8 nieuwe argumenten wachten op beoordeling". Ze tellen pas mee na een merge in
      `/overleg`.
 
+## Story 14.16: Niemand beoordeelt met de hand
+
+**Status**: ✅ Done (2026-10-06). Live: de automatische beoordeling draait elke 2 uur en direct na elke bewijsronde.
+
+Eigenaar (2026-10-06), op "beoordeel de 8 voorstellen in /overleg": "ik ga niks handmatig beoordelen.. veel te
+veel werk.. maak dat beter en schoon ook op". De wachtrij in het propagandamodel telde toen 177 argumenten, 91
+relaties en 31 entiteiten. Het oudste item stond er sinds juli.
+
+Besluit: het propagandamodel beslist zelf, met onafhankelijke controles. De mens kan alles terugdraaien maar
+hoeft niets te doen. Theorielaag en RfC's blijven buiten de automaat. Vastgelegd in de `CLAUDE.md` van het
+propagandamodel, § "Automatische beoordeling".
+
+Wat het doet (`scripts/automatische_beoordeling.py` in het propagandamodel):
+1. **Bronchecker** (A1, `scripts/bronchecker.py`, account `bronchecker`):
+   - haalt elke bron opnieuw op (live, het archief of Wayback);
+   - zoekt het citaat letterlijk terug;
+   - laat Claude Sonnet oordelen of de bron de feitelijke inhoud van de bewering draagt;
+   - een storing geeft geen oordeel, maar een nieuwe poging in de volgende ronde.
+2. **Aanklager** (A2, Opus, max 2 rondes per dag): probeert elke invloedsclaim te weerleggen.
+3. **Immuunpoort** (A7). Twee nieuwe routes:
+   - neutrale structuurfeiten (lid van, werkt bij, bestuurder van) mergen op de bronchecker alleen;
+   - een bezwaar dat de bronchecker bevestigt, merget ook.
+
+   Invloedsclaims vergen beide controles. Wat een persoon raakt en geen structuurfeit is, merget nooit
+   automatisch.
+4. **Relaties en entiteiten** met gecontroleerd bewijs gaan de graaf in.
+5. **Opruimen**: wat de bron niet draagt, of na 14 dagen niet te bevestigen is, wordt verworpen of afgewezen. De
+   reden staat in het `edit_log`, en het is terug te draaien.
+
+In de app:
+- "Uitgezocht: 3 nieuwe argumenten worden gecontroleerd" in plaats van "wachten op beoordeling".
+- Een argument met een automatisch nagelezen bron heet "automatisch gecontroleerd". In het detailvel staat bij
+  die bron "citaat teruggevonden". Dat gebeurt via sync format 6: `checked` in de bron-JSON, zonder migratie.
+- Dun bewijs blijft dun: twee NOS-artikelen zijn één bewijslijn. "Stevig" komt pas met twee onafhankelijke
+  bronnen (het model noemt dat "onderbouwd").
+
+Eerste rondes (2026-10-06):
+- **Ronde 1**:
+  - 165 argumenten gecontroleerd en 102 gemerged;
+  - 24 relaties en 19 entiteiten goedgekeurd;
+  - 51 argumenten en 31 relaties of entiteiten opgeruimd;
+  - één aanklager-ronde.
+- **Steekproef**: de eerste versie van de bronchecker eiste dat een bron ook de duiding van het model noemde
+  (bv. "tegenmacht" bij PILP/SyRI). Daardoor zijn 10 argumenten ten onrechte opgeruimd. Versie 2 beoordeelt
+  alleen de feiten.
+- **Ronde 2**: 26 twijfelgevallen opnieuw bekeken en 8 gemerged.
+- **PBL → NOS**:
+  - vóór: KEV 2024 en 2025, automatisch gecontroleerd;
+  - tegen: kritiek van CDA en GroenLinks (2019) en van Aedes (2020);
+  - het oude argument op basis van het persbericht van PBL zelf is aangevochten;
+  - het argument over de kabinetsbron viel bij de aanklager af.
+
+Tests:
+- propagandamodel: `scripts/test_automatische_beoordeling.py` (nieuw); `test_auto_merge`, `test_immuunsysteem`,
+  `test_nieuws_autokeur`, `test_nieuws_doelen` en `test_fresh_build` groen;
+- nieuws-app: pytest (sync format 6, de ronde na een bewijsronde) en Jest groen.
+
 ### Open
 - PBL → NOS valt onder `expert_framing`. De definitie daarvan gaat over denktanks die sponsors betalen, en PBL
   is een planbureau van de overheid. De missie `nieuws-bewijs` toetst of het mechanisme past (aspect `mechanism`).

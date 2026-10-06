@@ -904,3 +904,37 @@ def test_migration_filters_contract() -> None:
     assert f"ARRAY[{quoted}]" in flat
     details = sql.split("CREATE OR REPLACE FUNCTION pm_details(", 1)[1].split("$$;", 1)[0]
     assert "'filters', NULL::json" in details and "'filters', r.filters" in details
+
+
+def test_sources_an_independent_re_read_confirmed_are_marked_checked():
+    """Automatic review (2026-10-06): the newest A1 'klopt' by another account than the author
+    marks the source it re-read as checked; the author's own verdict or an older one never."""
+
+    arguments = [
+        {"id": 1, "contributed_by": "nieuws-bewijs"},
+        {"id": 2, "contributed_by": "nieuws-bewijs"},
+        {"id": 3, "contributed_by": "bronchecker"},
+        {"id": 4, "contributed_by": "assistent"},
+    ]
+    checks = [
+        {"argument_id": 1, "bron_id": 10, "verdict": "twijfel", "door": "bronchecker"},
+        {"argument_id": 1, "bron_id": 10, "verdict": "klopt", "door": "bronchecker"},
+        {"argument_id": 2, "bron_id": 20, "verdict": "klopt", "door": "bronchecker"},
+        {"argument_id": 2, "bron_id": 20, "verdict": "twijfel", "door": "verificatie-agent"},
+        {"argument_id": 3, "bron_id": 30, "verdict": "klopt", "door": "bronchecker"},
+        {"argument_id": 4, "bron_id": None, "verdict": "klopt", "door": "bronchecker"},
+    ]
+    checked = pm.checked_sources(checks, arguments)
+    assert checked == {1: {10}, 4: {None}}
+    sources = {
+        10: {"id": 10, "title": "NOS-bericht", "source_type": "nieuwsartikel",
+             "reliability": "regulier"},
+        11: {"id": 11, "title": "Persbericht", "source_type": "persbericht",
+             "reliability": "primair"},
+    }
+    citations = [{"source_id": 10, "quote": "Citaat."}, {"source_id": 11, "quote": "Ander."}]
+    rows = pm._argument_sources(citations, sources, {}, checked=checked[1])
+    assert [row.get("checked") for row in rows] == [True, None]
+    everything = pm._argument_sources(citations, sources, {}, checked=checked[4])
+    assert all(row.get("checked") for row in everything)
+    assert "checked" not in pm._argument_sources(citations, sources, {})[0]

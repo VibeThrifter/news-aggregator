@@ -10,6 +10,7 @@ import {
   evidenceOf,
   evidenceSummary,
   fromParty,
+  isChecked,
   researchNote,
   shortName,
   sourceLabel,
@@ -39,7 +40,9 @@ export function relationSentence(details: RelationEnds): string | null {
   return ends && details.type ? `${ends.first.name} ${pmRelationLabel(details.type, details.mechanism)} ${ends.last.name}` : null;
 }
 
-export function ArgumentStatusTag({ status }: { status: string }) {
+export function ArgumentStatusTag({ status, checked = false }: { status: string; checked?: boolean }) {
+  // Checked by the automatic review of the propaganda model (not by a person)
+  if (checked && status !== "geverifieerd") return <Tag tone="green">automatisch gecontroleerd</Tag>;
   const known = ARGUMENT_STATUS_LABELS[status];
   return <Tag tone={known?.tone ?? "neutral"}>{known?.label ?? status.replace(/_/g, " ")}</Tag>;
 }
@@ -56,7 +59,7 @@ function SourceItem({ source, party }: { source: PmArgumentSource; party?: strin
       ) : (
         <p className="text-sm font-semibold">{source.title}</p>
       )}
-      <p className="text-xs text-ink-500">{[sourceLabel(source), own].filter(Boolean).join(" · ")}</p>
+      <p className="text-xs text-ink-500">{[sourceLabel(source), own, source.checked ? "citaat teruggevonden" : null].filter(Boolean).join(" · ")}</p>
       {source.quote ? <p className="mt-1 text-xs italic text-ink-700">“{source.quote}”</p> : null}
     </li>
   );
@@ -70,7 +73,7 @@ function ArgumentItem({ argument, all, party, depth = 0 }: { argument: PmArgumen
         {depth ? <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">{argument.stance === "contradicting" ? "Reactie: tegen" : argument.stance === "contextual" ? "Reactie: nuance" : "Reactie: steun"}</p> : null}
         <p className="leading-relaxed text-ink-800">{argument.claim}</p>
         <div className="flex flex-wrap gap-1.5">
-          <ArgumentStatusTag status={argument.status} />
+          <ArgumentStatusTag status={argument.status} checked={isChecked(argument)} />
           {argument.aspect && argument.aspect !== "existence" ? <Tag>over: {ASPECT_LABELS[argument.aspect] ?? argument.aspect.replace(/_/g, " ")}</Tag> : null}
           {argument.sources.length === 0 ? <Tag>zonder bron</Tag> : null}
         </div>

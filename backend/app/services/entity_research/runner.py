@@ -10,7 +10,9 @@ Budget: at most N rounds per day (counted from the pm run records, so rounds sta
 count too), a minimum gap between rounds and only during active hours.
 
 The same runner starts the pm agent ``nieuws-bewijs`` (Story 14.13, evidence for thin links):
-another label, account and brief, ``--doel-soort relatie`` and no auto-approval afterwards.
+another label, account and brief, ``--doel-soort relatie``; afterwards it runs the
+propaganda-model's automatic review (``scripts/automatische_beoordeling.py``: bronchecker,
+prosecutor, immune gate) instead of the auto-approval of names.
 """
 
 from __future__ import annotations
@@ -40,6 +42,8 @@ BRIEF = "missies/nieuws_scout_brief.md"
 EVIDENCE_LABEL = "nieuws-bewijs"
 EVIDENCE_ACCOUNT = "nieuws-bewijs"
 EVIDENCE_BRIEF = "missies/nieuws_bewijs_brief.md"
+# The pm's automatic review (owner decision 2026-10-06: nobody reviews by hand)
+AUTOMATIC_REVIEW_SCRIPT = "scripts/automatische_beoordeling.py"
 
 
 @dataclass(slots=True)
@@ -121,6 +125,8 @@ class RunnerConfig:
     active_end_hour: int = 22
     autokeur_enabled: bool = True
     autokeur_timeout_seconds: int = 300
+    # The pm script that decides on what the round proposed (prints one JSON line last)
+    autokeur_script: str = "scripts/nieuws_autokeur_service.py"
     label: str = RUN_LABEL
     account: str = AGENT_ACCOUNT
     brief: str = BRIEF
@@ -196,7 +202,7 @@ class NieuwsScoutRunner:
         return [caffeinate, "-i", *command] if caffeinate else command
 
     def autokeur_command(self) -> list[str]:
-        return [self._python(), "scripts/nieuws_autokeur_service.py", "--once", "--json"]
+        return [self._python(), self.config.autokeur_script, "--once", "--json"]
 
     # ------------------------------------------------------------------ budget
     @property
@@ -281,7 +287,7 @@ class NieuwsScoutRunner:
     async def run_autokeur(self) -> dict[str, Any] | None:
         """Run the pm auto-approval once; parsed JSON summary (None on failure)."""
 
-        if not (self.config.project_dir / "scripts" / "nieuws_autokeur_service.py").exists():
+        if not (self.config.project_dir / self.config.autokeur_script).exists():
             return None
         result = await self._spawn(
             self.autokeur_command(), self.config.project_dir, self.config.autokeur_timeout_seconds
@@ -351,6 +357,7 @@ class NieuwsScoutRunner:
 
 
 __all__ = [
+    "AUTOMATIC_REVIEW_SCRIPT",
     "EVIDENCE_ACCOUNT",
     "EVIDENCE_BRIEF",
     "EVIDENCE_LABEL",

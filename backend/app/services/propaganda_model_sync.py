@@ -241,7 +241,9 @@ FILTERS: tuple[str, ...] = (
 UNFILTERED = "overig"
 # Version of the pm_* row format (pm_meta.format). A sync is never skipped as "unchanged" while
 # the stored format differs, so a new column is filled right after the migration adds it.
-SNAPSHOT_FORMAT = "5"  # 4: auto_approved + unreviewed sources (Epic 12); 5: arguments + mechanisms
+# 4: auto_approved + unreviewed sources (Epic 12); 5: arguments + mechanisms; 6: sources an
+# independent A1 re-read found to carry the argument ("checked", automatic review 2026-10-06)
+SNAPSHOT_FORMAT = "6"
 MAX_SOURCES_PER_OWNER = 12
 MAX_QUOTE_LENGTH = 300
 # Arguments shown with a relation (migration 010): whether it exists, how strong, when it held and
@@ -529,6 +531,8 @@ class PmRawData:
     citations: list[dict[str, Any]] = field(default_factory=list)
     sources: list[dict[str, Any]] = field(default_factory=list)
     source_locations: list[dict[str, Any]] = field(default_factory=list)
+    # A1 re-verifications (immuun_oordelen, fase 'herverificatie'), oldest first
+    checks: list[dict[str, Any]] = field(default_factory=list)
     maintainers: set[str] = field(default_factory=set)
     # {"entities": {ids}, "relations": {ids}} whose latest status change is an automatic approval
     auto_approved: dict[str, set[int]] = field(default_factory=dict)
@@ -659,6 +663,16 @@ def read_pm_database(path: Path | str) -> PmRawData:
             ]
         except sqlite3.OperationalError:  # older database without the link table
             raw.mechanism_filters = []
+        try:
+            raw.checks = [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT id, argument_id, bron_id, verdict, door, created_at "
+                    "FROM immuun_oordelen WHERE fase = 'herverificatie' ORDER BY created_at, id"
+                )
+            ]
+        except sqlite3.OperationalError:  # older database without the immune system
+            raw.checks = []
         try:
             raw.maintainers = {
                 row[0]
@@ -1170,13 +1184,35 @@ def collect_sources(
     return rows, counts
 
 
+def checked_sources(
+    checks: Sequence[Mapping[str, Any]], arguments: Sequence[Mapping[str, Any]]
+) -> dict[int, set[int | None]]:
+    """Per argument the sources an independent re-read found to carry it: the newest A1 verdict
+    is 'klopt' and came from another account than the author (the bronchecker of the automatic
+    review, 2026-10-06, or the verification agent). ``None`` = the verdict named no source."""
+
+    authors = {row["id"]: row.get("contributed_by") for row in arguments}
+    newest: dict[int, Mapping[str, Any]] = {}
+    for check in checks:  # oldest first: the last one wins
+        newest[check["argument_id"]] = check
+    return {
+        arg_id: {check.get("bron_id")}
+        for arg_id, check in newest.items()
+        if check.get("verdict") == "klopt"
+        and check.get("door")
+        and check.get("door") != authors.get(arg_id)
+    }
+
+
 def _argument_sources(
     citations: Sequence[Mapping[str, Any]],
     sources: Mapping[int, Mapping[str, Any]],
     locations: Mapping[int, Sequence[Mapping[str, Any]]],
     limit: int = MAX_SOURCES_PER_ARGUMENT,
+    checked: set[int | None] | None = None,
 ) -> list[dict[str, Any]]:
-    """The sources an argument cites (in citation order, once each, never project material)."""
+    """The sources an argument cites (in citation order, once each, never project material).
+    ``checked``: the sources an independent re-read confirmed (``None`` in it = all)."""
 
     rows: list[dict[str, Any]] = []
     seen: set[int] = set()
@@ -1191,16 +1227,17 @@ def _argument_sources(
         if EXCLUDED_TEXT_PATTERN.search(title or "") or EXCLUDED_TEXT_PATTERN.search(quote or ""):
             continue
         seen.add(source["id"])
-        rows.append(
-            {
-                "title": title,
-                "url": _source_url(locations.get(source["id"], ())),
-                "publisher": _as_text(source.get("publisher")),
-                "published_at": _as_text(source.get("date_published")),
-                "kind": _as_text(source.get("source_type")),
-                "quote": quote,
-            }
-        )
+        row = {
+            "title": title,
+            "url": _source_url(locations.get(source["id"], ())),
+            "publisher": _as_text(source.get("publisher")),
+            "published_at": _as_text(source.get("date_published")),
+            "kind": _as_text(source.get("source_type")),
+            "quote": quote,
+        }
+        if checked and (None in checked or source["id"] in checked):
+            row["checked"] = True
+        rows.append(row)
         if len(rows) >= limit:
             break
     return rows
@@ -1217,6 +1254,7 @@ def collect_arguments(
     max_per_owner: int = MAX_ARGUMENTS_PER_OWNER,
     unreviewed_owner_ids: Iterable[int] = (),
     unreviewed_contributors: frozenset[str] = AUTO_RESEARCH_CONTRIBUTORS,
+    checked: Mapping[int, set[int | None]] | None = None,
 ) -> list[dict[str, Any]]:
     """pm_arguments rows: what a reader may see of the discussion about each exported relation.
 
@@ -1297,7 +1335,10 @@ def collect_arguments(
                     "status": meta["status"],
                     "claim": claim_of(arg_id),
                     "sources": _argument_sources(
-                        citations_by_arg.get(arg_id, ()), sources, locations
+                        citations_by_arg.get(arg_id, ()),
+                        sources,
+                        locations,
+                        checked=(checked or {}).get(arg_id),
                     ),
                     "position": position,
                 }
@@ -1557,6 +1598,7 @@ def transform(raw: PmRawData, *, synced_at: datetime | None = None) -> PmSnapsho
         sources,
         locations,
         unreviewed_owner_ids=auto_relations,
+        checked=checked_sources(raw.checks, raw.arguments),
     )
 
     degree: dict[int, int] = defaultdict(int)
@@ -2178,6 +2220,7 @@ __all__ = [
     "assert_no_excluded_layers",
     "build_demo_slice",
     "certainty_label",
+    "checked_sources",
     "collect_arguments",
     "collect_sources",
     "compute_primary_filters",

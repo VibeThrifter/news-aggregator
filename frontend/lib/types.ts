@@ -454,6 +454,8 @@ export interface PmArgumentSource {
   /** nieuwsartikel, persbericht, rapport, academisch_artikel, … */
   kind?: string | null;
   quote?: string | null;
+  /** An independent re-read found the quote and that the source carries the claim (automatic review) */
+  checked?: boolean;
 }
 
 /** Review status of an argument in the propaganda model */

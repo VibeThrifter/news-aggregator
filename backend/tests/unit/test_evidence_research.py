@@ -330,6 +330,8 @@ async def seed(factory) -> None:
 
 
 async def make_service(tmp_path, **settings):
+    # Rounds off unless a test switches them on (the developer's .env may have them on)
+    settings.setdefault("nieuws_bewijs_enabled", False)
     factory, engine = await make_session_factory()
     await seed(factory)
     db = pm_database(tmp_path)
@@ -495,3 +497,37 @@ async def test_admin_endpoints_for_evidence_research(monkeypatch):
     with pytest.raises(HTTPException) as broken:
         await admin.trigger_evidence_research()
     assert broken.value.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_after_a_round_the_automatic_review_decides_and_the_app_syncs(tmp_path):
+    from backend.app.services.entity_research.runner import AUTOMATIC_REVIEW_SCRIPT, RoundState
+
+    factory, engine = await make_session_factory()
+    syncs: list[int] = []
+    try:
+        service = EvidenceResearchService(
+            settings=make_settings(propaganda_db_path=str(pm_database(tmp_path))),
+            write_session_factory=factory,
+            read_session_factory=factory,
+            pm_client=FakePmClient(),
+            pm_sync=lambda: syncs.append(1),
+            clock=lambda: NOW,
+        )
+        # The real runner of the service runs the pm's automatic review after a round
+        config = service.runner.config
+        assert config.autokeur_enabled and config.autokeur_script == AUTOMATIC_REVIEW_SCRIPT
+        command = service.runner.autokeur_command()
+        assert command[1:] == [AUTOMATIC_REVIEW_SCRIPT, "--once", "--json"]
+        assert config.autokeur_timeout_seconds > config.timeout_seconds
+        # nothing merged: no extra sync; merged evidence: sync right away
+        await service._after_round(RoundState(returncode=0, autokeur={"gemerged": 0}))
+        assert syncs == []
+        await service._after_round(RoundState(returncode=0, autokeur={"gemerged": 3}))
+        await service._after_round(
+            RoundState(returncode=0, autokeur={"gemerged": 0, "goedgekeurd": {"relations": 1}})
+        )
+        assert syncs == [1, 1]
+        assert service.last_runs["after_round"]["review"]["goedgekeurd"] == {"relations": 1}
+    finally:
+        await engine.dispose()

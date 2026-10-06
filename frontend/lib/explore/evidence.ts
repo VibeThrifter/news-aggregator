@@ -62,6 +62,14 @@ export interface Evidence {
 /** About whether the link exists, not about its strength or dates */
 const aboutExistence = (argument: PmArgument) => !argument.aspect || argument.aspect === "existence";
 
+/**
+ * Checked: reviewed by a person (geverifieerd), or an independent re-read of the propaganda model's
+ * automatic review found the quote in the source and that it carries the claim.
+ */
+export function isChecked(argument: PmArgument): boolean {
+  return argument.status === "geverifieerd" || argument.sources.some((source) => source.checked);
+}
+
 function uniqueSources(sources: readonly PmArgumentSource[]): PmArgumentSource[] {
   const seen = new Set<string>();
   return sources.filter((source) => {
@@ -85,7 +93,7 @@ export function evidenceOf(args: readonly PmArgument[] | null | undefined): Evid
   const disputed = forIt.filter((argument) => argument.status !== "verouderd" && (argument.status === "betwist" || countered(argument)));
   const current = forIt.filter((argument) => !outdated.includes(argument) && !disputed.includes(argument));
   const sourced = current.filter((argument) => argument.sources.length > 0 && argument.status !== "bronvermelding_nodig");
-  const verified = sourced.filter((argument) => argument.status === "geverifieerd");
+  const verified = sourced.filter(isChecked);
   const grade: EvidenceGrade = verified.length
     ? "gecontroleerd"
     : sourced.length
@@ -223,10 +231,11 @@ export function researchNote(research: RelationResearch | null | undefined, now 
     case "fout":
       return "uitzoeken mislukte, volgt opnieuw";
     case "klaar":
-      if (pending) return `uitgezocht: ${pending === 1 ? "1 nieuw argument wacht" : `${pending} nieuwe argumenten wachten`} op beoordeling`;
+      // The propaganda model checks them automatically (bronchecker, prosecutor, immune gate)
+      if (pending) return `uitgezocht: ${pending === 1 ? "1 nieuw argument wordt" : `${pending} nieuwe argumenten worden`} gecontroleerd`;
       return date ? `uitgezocht op ${date}` : "uitgezocht";
     case "twijfel":
-      return "uitgezocht: het bewijs spreekt elkaar tegen, wacht op beoordeling";
+      return "uitgezocht: het bewijs spreekt elkaar tegen";
     case "niets_gevonden":
       return `uitgezocht${date ? ` op ${date}` : ""}: geen nieuwe bron gevonden`;
     default:
@@ -272,7 +281,12 @@ export function evidenceSummary(evidence: Evidence, party?: string | null, verdi
         ? `1 bron: ${own ? `${SOURCE_KINDS[first.kind ?? ""] ?? "bron"}${own}` : sourceLabel(first)}`
         : `${count} bronnen${own}${span}`;
   if (evidence.grade === "betwist" || evidence.grade === "verouderd") return verdictShown ? sources : `${evidence.grade} · ${sources}`;
-  const status = evidence.grade === "gecontroleerd" ? "gecontroleerd" : ARGUMENT_STATUS_LABELS[evidence.lead?.status ?? ""]?.label ?? null;
+  const status =
+    evidence.grade === "gecontroleerd"
+      ? evidence.lead?.status === "geverifieerd"
+        ? "gecontroleerd"
+        : "automatisch gecontroleerd"
+      : (ARGUMENT_STATUS_LABELS[evidence.lead?.status ?? ""]?.label ?? null);
   return [sources, status].filter(Boolean).join(" · ");
 }
 

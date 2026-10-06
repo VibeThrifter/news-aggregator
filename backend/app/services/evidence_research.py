@@ -13,8 +13,11 @@ one cycle of this service (scheduler job, every 15 minutes) then does:
    what is missing
 3. **round**   - when targets are open and rounds are switched on (``NIEUWS_BEWIJS_ENABLED``),
    start a round of the propaganda-model agent ``nieuws-bewijs``. It looks for evidence for AND
-   against; everything stays ``voorgesteld`` until a human reviews it in the propaganda model,
-   and only then does the pm sync bring it to the app.
+   against; everything lands ``voorgesteld``. Right after the round the propaganda model's
+   automatic review decides (owner decision 2026-10-06: nobody reviews by hand): the
+   bronchecker re-reads every source (A1), the prosecutor attacks influence claims (A2), the
+   immune gate merges what holds and the rest is cleaned up. The pm sync then brings the
+   merged evidence to the app.
 
 Nothing a reader sends reaches the research agent: the request carries relation ids and an event
 slug; the research target is built from the propaganda model and the app's own events only.
@@ -53,6 +56,7 @@ from backend.app.services.entity_research.pm_client import (
 )
 from backend.app.services.entity_research.pm_coverage import read_doelen
 from backend.app.services.entity_research.runner import (
+    AUTOMATIC_REVIEW_SCRIPT,
     EVIDENCE_ACCOUNT,
     EVIDENCE_BRIEF,
     EVIDENCE_LABEL,
@@ -508,9 +512,11 @@ class EvidenceResearchService:
         read_session_factory: SessionFactory | None = None,
         pm_client: PmClient | None = None,
         runner: NieuwsScoutRunner | None = None,
+        pm_sync: Callable[[], Any] | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now().astimezone(),
     ) -> None:
         self.settings = settings or get_settings()
+        self._pm_sync = pm_sync
         self._write = write_session_factory or _default_write_factory
         self._read = read_session_factory or _default_read_factory
         self.pm_client = pm_client or PmClient(
@@ -528,7 +534,11 @@ class EvidenceResearchService:
                 min_minutes_between_rounds=self.settings.nieuws_bewijs_min_minutes_between_rounds,
                 active_start_hour=self.settings.nieuws_scout_active_start_hour,
                 active_end_hour=self.settings.nieuws_scout_active_end_hour,
-                autokeur_enabled=False,
+                # After a round: the automatic review of the propaganda model (its A2 step may
+                # run one prosecutor round, hence the long timeout)
+                autokeur_enabled=True,
+                autokeur_script=AUTOMATIC_REVIEW_SCRIPT,
+                autokeur_timeout_seconds=self.settings.nieuws_bewijs_timeout_seconds + 1800,
                 label=EVIDENCE_LABEL,
                 account=EVIDENCE_ACCOUNT,
                 brief=EVIDENCE_BRIEF,
@@ -740,12 +750,32 @@ class EvidenceResearchService:
         started_at = datetime.now(timezone.utc)
         async with self._lock:
             status = await self.sync_status()
+        review = state.autokeur or {}
+        approved = review.get("goedgekeurd") or {}
+        if review.get("gemerged") or approved.get("entities") or approved.get("relations"):
+            await self._trigger_pm_sync()
         self.last_runs["after_round"] = {
             "finished_at": started_at.isoformat(),
             "returncode": state.returncode,
             "timed_out": state.timed_out,
+            "review": review,
             "status": status,
         }
+
+    async def _trigger_pm_sync(self) -> None:
+        """Bring newly merged evidence to Supabase right away (the hourly sync catches up)."""
+
+        try:
+            if self._pm_sync is not None:
+                result = self._pm_sync()
+            else:
+                from backend.app.services.propaganda_model_sync import get_propaganda_sync_service
+
+                result = get_propaganda_sync_service().sync(correlation_id="evidence-research")
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception as exc:  # the hourly sync job catches up
+            logger.warning("evidence_research_pm_sync_failed", error=str(exc))
 
     # ------------------------------------------------------------------ admin
     async def research_relation(

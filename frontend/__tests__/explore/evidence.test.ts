@@ -130,6 +130,20 @@ describe("thin evidence: verdict, own sources and research (Story 14.13)", () =>
     expect(Object.entries(VERDICT_RANK).sort((a, b) => a[1] - b[1]).map(([verdict]) => verdict)).toEqual(["stevig", "dun", "onbewezen", "betwist", "verouderd"]);
   });
 
+  it("counts an automatic re-read of the source as checked, but stays thin on one line of evidence", () => {
+    const nos = (n: number, year: string) => ({ title: `NOS ${n}`, kind: "nieuwsartikel", publisher: "NOS", published_at: year, checked: true });
+    const evidence = evidenceOf([arg(3913, { sources: [nos(1, "2024-10-24")] }), arg(3914, { sources: [nos(2, "2025-09-16")] })]);
+    expect(evidence.grade).toBe("gecontroleerd");
+    expect(evidenceSummary(evidence, PBL)).toBe("2 bronnen, 2024–2025 · automatisch gecontroleerd");
+    // both from NOS: one line of evidence, so thin unless the model calls it onderbouwd
+    expect(independentOrigins(evidence.sources)).toBe(1);
+    expect(verdictOf(evidence)).toBe("dun");
+    expect(verdictOf(evidence, "aannemelijk")).toBe("dun");
+    expect(evidenceGaps(evidence, PBL)).toEqual(["een tweede, onafhankelijke bron"]);
+    const human = evidenceOf([arg(1, { status: "geverifieerd", sources: [medialogica] })]);
+    expect(evidenceSummary(human)).toBe("1 bron: nieuwsartikel · HUMAN / VPRO, 2021 · gecontroleerd");
+  });
+
   it("recognises a source of the party itself, not a news article about it", () => {
     expect(fold("Planbureau voor de Leefomgeving")).toBe("planbureauvoordeleefomgeving");
     expect(fold("Élan Médiagroep")).toBe("elanmediagroep");
@@ -155,11 +169,11 @@ describe("thin evidence: verdict, own sources and research (Story 14.13)", () =>
     expect(researchNote(row("niet_nodig"))).toBeNull();
     expect(researchNote(row("wachtrij"))).toBe("staat op de lijst om uit te zoeken");
     expect(researchNote(row("bezig"))).toBe("wordt nu uitgezocht");
-    expect(researchNote(row("klaar", { found: { arguments: 3, pending: 3 } }))).toBe("uitgezocht: 3 nieuwe argumenten wachten op beoordeling");
-    expect(researchNote(row("klaar", { found: { pending: 1 } }))).toBe("uitgezocht: 1 nieuw argument wacht op beoordeling");
+    expect(researchNote(row("klaar", { found: { arguments: 3, pending: 3 } }))).toBe("uitgezocht: 3 nieuwe argumenten worden gecontroleerd");
+    expect(researchNote(row("klaar", { found: { pending: 1 } }))).toBe("uitgezocht: 1 nieuw argument wordt gecontroleerd");
     expect(researchNote(row("klaar", { found: { pending: 0, merged: 2 }, researched_at: "2026-10-06T09:00:00Z" }), now)).toBe("uitgezocht op 6 okt");
     expect(researchNote(row("niets_gevonden", { researched_at: "2025-12-01T09:00:00Z" }), now)).toBe("uitgezocht op 1 dec 2025: geen nieuwe bron gevonden");
-    expect(researchNote(row("twijfel"))).toBe("uitgezocht: het bewijs spreekt elkaar tegen, wacht op beoordeling");
+    expect(researchNote(row("twijfel"))).toBe("uitgezocht: het bewijs spreekt elkaar tegen");
     expect(researchNote(row("fout"))).toBe("uitzoeken mislukte, volgt opnieuw");
   });
 });
