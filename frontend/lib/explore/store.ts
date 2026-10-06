@@ -10,7 +10,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { legacyFindingId, TAB_OF_TYPE } from "./findings";
-import { isTabId } from "./labels";
+import { FALLACY_LABELS, isTabId } from "./labels";
 import { OWN_KIND_IDS, OWN_LIMITS } from "./own";
 import { backupRawValue, safeStorage } from "./storage";
 import type { AnalysisType, OwnEntry, TabId } from "./types";
@@ -76,7 +76,9 @@ interface CompareState {
   b: string | null;
 }
 
-export type OwnPatch = Partial<Pick<OwnEntry, "text" | "detail" | "quote" | "anchor" | "url" | "date">>;
+export type OwnPatch = Partial<
+  Pick<OwnEntry, "text" | "detail" | "quote" | "anchor" | "against" | "about" | "fallacy" | "url" | "title" | "date" | "sharedAt" | "from">
+>;
 
 export interface ExploreState {
   events: Record<string, EventProgress>;
@@ -88,7 +90,7 @@ export interface ExploreState {
 
   touchEvent(eventId: number, meta: { slug: string | null; title: string }): void;
   /** Put an outlet in or out of "Wie zegt wat?" */
-  setOutletShown(eventId: number, outlet: { key: string; isInternational: boolean; foundVoice?: boolean }, shown: boolean): void;
+  setOutletShown(eventId: number, outlet: { key: string; isInternational: boolean; foundVoice?: boolean; own?: boolean }, shown: boolean): void;
 
   addOwn(eventId: number, entry: OwnEntry): "added" | "full" | "invalid";
   updateOwn(eventId: number, id: string, patch: OwnPatch): void;
@@ -149,6 +151,10 @@ type PersistedV1 = {
 const OWN_ID = /^own:[\w-]{1,40}$/;
 const OWN_ANCHOR = /^(outlet|speaker):\S{1,200}$/;
 const OWN_DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** A finding of the analysis (`claim:1kl927v`), not an own entry */
+const FINDING_ID = /^(?!own:)[a-z]+:[\w-]{1,40}$/;
+/** The id of a shared entry it was taken over from (negative in the demo) */
+const SHARED_ID = /^-?\d{1,18}$/;
 
 function cleanText(value: unknown, max: number): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -164,8 +170,15 @@ export function sanitizeOwnEntry(raw: unknown): OwnEntry | null {
   const text = cleanText(data.text, OWN_LIMITS.text);
   if (!kind || !text || typeof data.id !== "string" || !OWN_ID.test(data.id)) return null;
   const anchor = typeof data.anchor === "string" && OWN_ANCHOR.test(data.anchor) ? data.anchor : undefined;
+  const against = kind === "contradiction" && typeof data.against === "string" && OWN_ANCHOR.test(data.against) ? data.against : undefined;
   const date = typeof data.date === "string" && OWN_DATE.test(data.date) ? data.date : undefined;
+  const url = safeUrl(typeof data.url === "string" ? data.url.trim() : undefined);
+  const fallacy = typeof data.fallacy === "string" && Object.prototype.hasOwnProperty.call(FALLACY_LABELS, data.fallacy) ? data.fallacy : undefined;
+  // What each kind cannot do without
   if (kind === "moment" && !date) return null;
+  if (kind === "source" && !url) return null;
+  if (kind === "fallacy" && !fallacy) return null;
+  if (kind === "contradiction" && (!anchor || !against || anchor === against)) return null;
   const entry: OwnEntry = {
     id: data.id,
     kind,
@@ -173,8 +186,14 @@ export function sanitizeOwnEntry(raw: unknown): OwnEntry | null {
     detail: cleanText(data.detail, OWN_LIMITS.detail),
     quote: cleanText(data.quote, OWN_LIMITS.quote),
     anchor,
-    url: safeUrl(typeof data.url === "string" ? data.url.trim() : undefined),
+    against,
+    about: kind === "error" && typeof data.about === "string" && FINDING_ID.test(data.about) ? data.about : undefined,
+    fallacy: kind === "fallacy" ? fallacy : undefined,
+    url,
+    title: kind === "source" ? cleanText(data.title, OWN_LIMITS.title) : undefined,
     date,
+    sharedAt: typeof data.sharedAt === "string" && !Number.isNaN(Date.parse(data.sharedAt)) ? data.sharedAt : undefined,
+    from: typeof data.from === "string" && SHARED_ID.test(data.from) ? data.from : undefined,
     createdAt: typeof data.createdAt === "string" ? data.createdAt : new Date().toISOString(),
     updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : undefined,
   };
@@ -290,8 +309,8 @@ export const useExploreStore = create<ExploreState>()(
           };
           const added = new Set(existing.sources?.added ?? []);
           const removed = new Set(existing.sources?.removed ?? []);
-          // Foreign outlets are added; Dutch ones, and one added for a missing voice, are left out
-          if (outlet.isInternational && !outlet.foundVoice) {
+          // Foreign outlets are added; Dutch ones, and one added for a missing voice or by the reader, are left out
+          if (outlet.isInternational && !outlet.foundVoice && !outlet.own) {
             if (shown) added.add(outlet.key);
             else added.delete(outlet.key);
           } else if (shown) removed.delete(outlet.key);

@@ -10,6 +10,7 @@ import {
 } from "@/lib/api";
 import { getSpectrumLabel, isAlternativeSource } from "@/lib/format";
 import { AccessCodeForm } from "@/components/admin/AccessCodeForm";
+import { ReportedShared } from "@/components/admin/ReportedShared";
 
 function SpectrumBadge({ spectrum }: { spectrum: string | number | null }) {
   if (spectrum === null || spectrum === undefined) return null;
@@ -203,6 +204,7 @@ export default function AdminPage() {
       </div>
 
       <AccessCodeForm />
+      <ReportedShared />
 
       {/* Quick Links */}
       <div className="grid gap-4 sm:grid-cols-2">

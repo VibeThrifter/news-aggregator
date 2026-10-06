@@ -295,6 +295,7 @@ Currently, schema changes are applied manually:
 | `006_entity_research.sql` | `entity_research` (RLS without policies) + RPC functions `request_entity_research`, `entity_research_status`, `entity_cooccurrence`; converts `event_entities.aliases` to `TEXT[]` when `create_all()` made it `VARCHAR[]` (Epic 12) |
 | `007_waarom_zo.sql` | RPC function `pm_paths` (routes between entities of the propaganda model; Epic 13, Story 13.1) |
 | `009_stemmen_zoeken.sql` | `access_codes`, `voice_searches` (RLS without policies) + RPC functions `access_code_role`, `request_voice_search`, `voice_searches_for_event`, `review_voice_candidate` ("Zoek met AI" for missing voices; Epic 14, Story 14.10) |
+| `012_van_anderen.sql` | `shared_entries`, `shared_entry_adoptions`, `shared_entry_reports` (RLS without policies) + RPC functions `share_entry`, `unshare_entry`, `shared_entries_for_event`, `adopt_shared_entry`, `report_shared_entry`, `shared_entries_reported`, `moderate_shared_entry` (readers share what they added and take over what others shared; Epic 14, Story 14.15) |
 
 ```bash
 # plain postgresql:// connection string (not the postgresql+asyncpg:// SQLAlchemy URL)
@@ -390,6 +391,15 @@ hash is stored; the code is printed once) and enter it on /admin → Toegangscod
 psql "postgresql://postgres:<password>@<host>:5432/postgres" \
   -f database/migrations/009_stemmen_zoeken.sql
 PYTHONPATH=. .venv/bin/python scripts/access_code.py create --role admin --label Eigenaar
+```
+
+**012 - "Van anderen" (Epic 14, Story 14.15).** Three tables (no access for anon: only the
+functions) and seven SECURITY DEFINER functions; safe to re-run. Needs 009 (the admin functions
+check the access code). No backend job: the app calls the functions directly.
+
+```bash
+psql "postgresql://postgres:<password>@<host>:5432/postgres" \
+  -f database/migrations/012_van_anderen.sql
 ```
 
 **Future**: Alembic migrations for version-controlled schema evolution.

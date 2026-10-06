@@ -9,7 +9,7 @@
  * Demo events: simulated client-side (fixtures/demo-voices.ts).
  */
 
-import { getSupabase } from './supabase';
+import { rpcOrNull as rpc } from './rpc';
 
 export type AccessRole = 'admin' | 'pro';
 
@@ -68,24 +68,6 @@ export type VoiceRequestResult =
   | { ok: false; reason: 'geen_toegang' | 'ongeldig' | 'onbekend_event' | 'limiet' | 'druk' | 'niet_beschikbaar' };
 
 const DEMO_ENABLED = process.env.NEXT_PUBLIC_ENABLE_DEMO === 'true';
-
-function isMissing(error: { code?: string; message?: string }): boolean {
-  return (
-    error.code === 'PGRST202' ||
-    error.code === '42883' ||
-    /could not find the function|does not exist|schema cache/i.test(error.message ?? '')
-  );
-}
-
-/** null when the function does not exist yet (migration 009 not run) */
-async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T | null> {
-  const { data, error } = await getSupabase().rpc(fn, args);
-  if (error) {
-    if (isMissing(error)) return null;
-    throw new Error(error.message);
-  }
-  return (data ?? null) as T | null;
-}
 
 async function demo() {
   return import('./explore/fixtures/demo-voices');

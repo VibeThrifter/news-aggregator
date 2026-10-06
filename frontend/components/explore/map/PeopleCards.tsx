@@ -4,7 +4,8 @@ import { ChevronRight, FileText, MicOff, Pin, Plus, Sparkles, UserSearch } from 
 
 import { useFocusStore } from "@/lib/explore/focus";
 import { findingLabel, findingTitle } from "@/lib/explore/findings";
-import { OWN_KINDS, ownEntryOf } from "@/lib/explore/own";
+import { OWN_KIND_LABELS } from "@/lib/explore/labels";
+import { OWN_KINDS, ownEntryOf, resolveOwnAgainst, resolveOwnAnchor } from "@/lib/explore/own";
 import { initials, type Speaker } from "@/lib/explore/speakers";
 import { truncate } from "@/lib/explore/summary";
 
@@ -13,6 +14,7 @@ import { EntityText } from "../entity/EntityText";
 import { Chip, Eyebrow, Favicon, Tag } from "../ui/primitives";
 import { NumberBadge } from "./Markers";
 import { FoundTag, OwnTag } from "./OwnForm";
+import { OthersAbout, ShareControl } from "./Others";
 import { FoundVoices, VoiceSearchCompact } from "./VoiceSearch";
 
 const KIND_COLORS: Record<Speaker["kind"], string> = {
@@ -37,11 +39,13 @@ export function Avatar({ speaker, size = 28 }: { speaker: Pick<Speaker, "name" |
 
 /** "Pas aan · Verwijder" for an entry of your own (the form opens in its row). */
 export function OwnManage({ id, onNavigate }: { id: string; onNavigate?: () => void }) {
-  const { toFinding, removeOwn } = useExplore();
+  const { exploration, toFinding, removeOwn } = useExplore();
   const setEditing = useFocusStore((state) => state.setEditing);
+  const entry = ownEntryOf(exploration.findingById.get(id));
+  const adopted = Boolean(entry?.from);
   return (
-    <p className="flex items-center gap-1 text-xs">
-      <OwnTag />
+    <p className="flex flex-wrap items-center gap-1 text-xs">
+      <OwnTag adopted={adopted} />
       <button
         type="button"
         onClick={() => {
@@ -66,6 +70,7 @@ export function OwnManage({ id, onNavigate }: { id: string; onNavigate?: () => v
       >
         Verwijder
       </button>
+      {entry ? <ShareControl entry={entry} compact /> : null}
     </p>
   );
 }
@@ -73,7 +78,15 @@ export function OwnManage({ id, onNavigate }: { id: string; onNavigate?: () => v
 /** What you added that hangs on this speaker or outlet, numbered; a tap opens it in its tab. */
 export function OwnAbout({ anchor, onNavigate }: { anchor: string; onNavigate?: () => void }) {
   const { exploration, anchorOf, toFinding } = useExplore();
-  const own = exploration.findings.filter((finding) => finding.type === "own" && anchorOf.get(finding.id) === anchor);
+  const own = exploration.findings.filter((finding) => {
+    const entry = ownEntryOf(finding);
+    if (!entry) return false;
+    // Numbered on this balloon, or hanging on it without a number (a source), or the other side of a contradiction
+    return (
+      (anchorOf.get(finding.id) ?? resolveOwnAnchor(entry, exploration)) === anchor ||
+      (entry.kind === "contradiction" && (resolveOwnAnchor(entry, exploration) === anchor || resolveOwnAgainst(entry, exploration) === anchor))
+    );
+  });
   if (own.length === 0) return null;
   return (
     <div className="space-y-1">
@@ -93,7 +106,10 @@ export function OwnAbout({ anchor, onNavigate }: { anchor: string; onNavigate?: 
                 className="flex min-h-[44px] w-full items-start gap-2 rounded-lg px-1 py-1.5 text-left text-sm hover:bg-paper-100"
               >
                 {marker ? <NumberBadge findingId={finding.id} type={marker} /> : null}
-                <span className={`flex-1 text-ink-800 ${entry.kind === "claim" ? "italic" : ""}`}>{truncate(entry.text, 160)}</span>
+                <span className="min-w-0 flex-1 text-ink-800">
+                  <span className="mr-1 text-xs font-semibold text-ink-500">{OWN_KIND_LABELS[entry.kind]}</span>
+                  <span className={entry.kind === "claim" || entry.kind === "fallacy" ? "italic" : ""}>{truncate(entry.text, 160)}</span>
+                </span>
                 <ChevronRight size={14} className="mt-1 shrink-0 text-ink-400" aria-hidden="true" />
               </button>
             </li>
@@ -225,6 +241,7 @@ export function SpeakerCard({ speakerId, onNavigate, inSheet = false }: { speake
       ) : null}
 
       <OwnAbout anchor={anchor} onNavigate={onNavigate} />
+      <OthersAbout anchor={anchor} onNavigate={onNavigate} />
 
       <div className={`flex flex-wrap gap-2 ${inSheet ? "hidden" : ""}`}>
         {speaker.kind !== "anonymous" ? (
@@ -261,7 +278,7 @@ export function SpeakerCard({ speakerId, onNavigate, inSheet = false }: { speake
             {isPinned(pinId) ? "Bewaard" : "Bewaar"}
           </Chip>
         ) : null}
-        {(["claim", "question"] as const).map((kind) => (
+        {(["claim", "fallacy", "question"] as const).map((kind) => (
           <Chip
             key={kind}
             icon={<Plus size={14} />}
@@ -270,7 +287,7 @@ export function SpeakerCard({ speakerId, onNavigate, inSheet = false }: { speake
               compose(kind, anchor);
             }}
           >
-            {kind === "claim" ? "Twijfel" : "Vraag"}
+            {OWN_KIND_LABELS[kind]}
           </Chip>
         ))}
       </div>

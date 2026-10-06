@@ -10,8 +10,9 @@ import { useExplore } from "../ExploreContext";
 export const MARKER_STYLE: Record<MarkerType, { color: string; sign: string; label: string; ownLabel: string }> = {
   claim: { color: "#E30613", sign: "!", label: "Claim zonder bewijs", ownLabel: "Twijfel van jou" },
   statistic: { color: "#d97706", sign: "#", label: "Cijfer", ownLabel: "Cijfer" },
-  fallacy: { color: "#7c3aed", sign: "↯", label: "Redeneerfout", ownLabel: "Redeneerfout" },
-  contradiction: { color: "#E30613", sign: "⚡", label: "Tegenspraak", ownLabel: "Tegenspraak" },
+  fallacy: { color: "#7c3aed", sign: "↯", label: "Redeneerfout", ownLabel: "Drogreden van jou" },
+  contradiction: { color: "#E30613", sign: "⚡", label: "Tegenspraak", ownLabel: "Tegenspraak van jou" },
+  error: { color: "#c2410c", sign: "✕", label: "Fout", ownLabel: "Fout volgens jou" },
   gap: { color: "#0f766e", sign: "", label: "Ontbrekende stem", ownLabel: "Ontbrekende stem van jou" },
   question: { color: "#0f766e", sign: "?", label: "Niet gestelde vraag", ownLabel: "Vraag van jou" },
   note: { color: "#475569", sign: "✎", label: "Opmerking", ownLabel: "Opmerking van jou" },

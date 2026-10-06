@@ -5,7 +5,8 @@
  * Numbers are fixed per event: Dutch outlets by first publication → their speakers → foreign
  * outlets → contradictions → missing voices → findings without an anchor → what the reader added
  * (own.ts, in the order they added it). They do not change when the reader adds or removes
- * outlets or entries of their own. Pure.
+ * outlets or entries of their own. Sources the reader added join the picture after the outlets of
+ * the news; they do not change how it is grouped. Pure.
  */
 
 import { newsStart } from "./chronology";
@@ -13,12 +14,12 @@ import type { Exploration } from "./exploration";
 import { frameLabel, toneLabel } from "./labels";
 import { perspectiveEstimates } from "./nearest";
 import { outletSentences } from "./outlet-sentences";
-import { OWN_KINDS, resolveOwnAnchor } from "./own";
+import { OWN_KINDS, ownEntryOf, resolveOwnAgainst, resolveOwnAnchor, sourceOutletKey } from "./own";
 import type { Speaker, SpeakerModel } from "./speakers";
 import type { ExploreOutlet, Finding } from "./types";
 
 export type FigureMode = "perBron" | "perInvalshoek";
-export type MarkerType = "claim" | "statistic" | "fallacy" | "contradiction" | "gap" | "question" | "note";
+export type MarkerType = "claim" | "statistic" | "fallacy" | "contradiction" | "error" | "gap" | "question" | "note";
 
 /** Anchors are what a finding hangs on: `outlet:<key>`, `speaker:<id>` or `gap:<findingId>`. */
 export const outletAnchor = (key: string) => `outlet:${key}`;
@@ -37,9 +38,9 @@ export interface OutletBalloonModel {
   anchor: string;
   outletKey: string;
   /** What the outlet says: its stance, else the summary sentence naming it, else a foreign gist,
-   * else which missing voice it was added for */
+   * else which missing voice it was added for; for a source of the reader what they wrote */
   text: string | null;
-  textKind: "stance" | "sentence" | "digest" | "found" | "none";
+  textKind: "stance" | "sentence" | "digest" | "found" | "own" | "none";
   /** Placed in a perspective by estimate (perspective mode) */
   estimated: boolean;
   /** Media and agencies the outlet leans on */
@@ -51,7 +52,8 @@ export interface OutletBalloonModel {
 
 export interface FigureGroup {
   key: string;
-  kind: "outlet" | "perspective" | "unclassified" | "foreign" | "missing";
+  /** "own": sources the reader added, when the outlets are grouped per perspective */
+  kind: "outlet" | "perspective" | "unclassified" | "foreign" | "own" | "missing";
   label: string;
   color: string;
   /** Outlet groups: time of the first article, tone and own frames */
@@ -61,6 +63,8 @@ export interface FigureGroup {
   speakers: Speaker[];
   /** Missing voices (`own`: added by the reader; `found`: where an AI search found them speaking) */
   ghosts: { anchor: string; findingId: string; label: string; own?: boolean; found?: FoundSpeakerRef[] }[];
+  /** An outlet the reader added (a source of their own) */
+  own?: boolean;
 }
 
 export interface FigureModel {
@@ -72,7 +76,16 @@ export interface FigureModel {
   markers: Map<string, Marker[]>;
   /** Finding id → anchor (claims, statistics, fallacies, missing voices) */
   anchorOf: Map<string, string>;
-  contradictions: { findingId: string; number: number; from: string; to: string }[];
+  /** Lines between two sides that contradict each other (`own`: the reader's) */
+  contradictions: ContradictionLine[];
+}
+
+export interface ContradictionLine {
+  findingId: string;
+  number: number;
+  from: string;
+  to: string;
+  own?: boolean;
 }
 
 export interface FoundSpeakerRef {
@@ -95,6 +108,7 @@ export function foundVoicesFor(speakers: Pick<SpeakerModel, "speakers">, finding
 export const GROUP_COLORS = ["#0ea5e9", "#f59e0b", "#8b5cf6", "#ef4444", "#10b981", "#ec4899", "#64748b"];
 const FOREIGN_COLOR = "#64748b";
 const MISSING_COLOR = "#0f766e";
+const OWN_COLOR = "#475569";
 /** Foreign coverage this far from the event gets its date in the balloon */
 const OFF_DATE_DAYS = 3;
 
@@ -107,7 +121,8 @@ function byFirstPublication(a: ExploreOutlet, b: ExploreOutlet): number {
   return ta - tb || a.name.localeCompare(b.name);
 }
 
-function markerType(finding: Finding): MarkerType | null {
+/** The marker a finding has on the picture (own entries by their kind), or null. */
+export function markerTypeOf(finding: Finding): MarkerType | null {
   switch (finding.body.type) {
     case "claim":
       return "claim";
@@ -135,7 +150,7 @@ export function numberFindings(exploration: Exploration): Pick<FigureModel, "num
   let next = 1;
   const add = (finding: Finding | undefined, anchor: string | null) => {
     if (!finding || numbers.has(finding.id)) return;
-    const type = markerType(finding);
+    const type = markerTypeOf(finding);
     if (!type) return;
     numbers.set(finding.id, next);
     if (anchor) {
@@ -174,10 +189,14 @@ export function numberFindings(exploration: Exploration): Pick<FigureModel, "num
   }
   // Findings that hang on nothing visible still get a number for the list
   for (const finding of findings) if (finding.type !== "own") add(finding, null);
-  // Then what the reader added: on the outlet or speaker they chose, a missing voice on itself
+  // Then what the reader added: on the outlet or speaker they chose, a missing voice on itself, an
+  // error next to what it corrects, a contradiction on its line (buildFigure)
   for (const finding of findings) {
-    if (finding.body.type !== "own") continue;
-    add(finding, finding.body.entry.kind === "gap" ? gapAnchor(finding.id) : resolveOwnAnchor(finding.body.entry, exploration));
+    const entry = ownEntryOf(finding);
+    if (!entry) continue;
+    if (entry.kind === "gap") add(finding, gapAnchor(finding.id));
+    else if (entry.kind === "contradiction") add(finding, null);
+    else add(finding, (entry.kind === "error" && entry.about ? anchorOf.get(entry.about) : null) ?? resolveOwnAnchor(entry, exploration));
   }
   return { numbers, markers, anchorOf };
 }
@@ -188,6 +207,11 @@ function outletText(
   exploration: Exploration,
   sentences: ReturnType<typeof outletSentences>,
 ): Pick<OutletBalloonModel, "text" | "textKind"> {
+  if (outlet.own) {
+    // A source the reader added: what they wrote it brings
+    const entry = exploration.findings.map(ownEntryOf).find((item) => item?.kind === "source" && sourceOutletKey(item.url) === outlet.key);
+    return entry ? { text: entry.text, textKind: "own" } : { text: null, textKind: "none" };
+  }
   for (const finding of exploration.findings) {
     if (finding.body.type !== "perspective") continue;
     const stance = finding.body.stances.find((entry) => entry.outletKey === outlet.key)?.stance?.trim();
@@ -235,7 +259,13 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
   const numbered = numberFindings(exploration);
   const sentences = outletSentences(input);
   const dutch = input.outlets.filter((outlet) => !outlet.isInternational && shown(outlet)).sort(byFirstPublication);
-  const foreign = input.outlets.filter((outlet) => outlet.isInternational && shown(outlet)).sort(byFirstPublication);
+  // Sources the reader added: after the outlets of the news, never a reason to group differently
+  const ownOutlets = (exploration.ownOutlets ?? []).filter(shown);
+  const ownDutch = ownOutlets.filter((outlet) => !outlet.isInternational);
+  const foreign = [
+    ...input.outlets.filter((outlet) => outlet.isInternational && shown(outlet)).sort(byFirstPublication),
+    ...ownOutlets.filter((outlet) => outlet.isInternational),
+  ];
   const perspectives = findings.filter((finding) => finding.body.type === "perspective");
   const mode: FigureMode = dutch.length >= 3 && perspectives.length > 0 ? "perInvalshoek" : "perBron";
 
@@ -251,16 +281,17 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
 
   const groups: FigureGroup[] = [];
   if (mode === "perBron") {
-    dutch.forEach((outlet, i) => {
+    [...dutch, ...ownDutch].forEach((outlet, i) => {
       groups.push({
         key: `o:${outlet.key}`,
         kind: "outlet",
         label: outlet.name,
         color: GROUP_COLORS[i % GROUP_COLORS.length],
-        meta: outletMeta(outlet, exploration),
+        meta: outlet.own ? null : outletMeta(outlet, exploration),
         outlets: [balloon(outlet)],
         speakers: speakers.byOutlet.get(outlet.key) ?? [],
         ghosts: [],
+        ...(outlet.own ? { own: true } : {}),
       });
     });
   } else {
@@ -302,6 +333,19 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
         ghosts: [],
       });
     }
+    if (ownDutch.length) {
+      groups.push({
+        key: "own",
+        kind: "own",
+        label: "Bronnen van jou",
+        color: OWN_COLOR,
+        meta: null,
+        outlets: ownDutch.map((outlet) => balloon(outlet)),
+        speakers: [],
+        ghosts: [],
+        own: true,
+      });
+    }
   }
 
   if (foreign.length) {
@@ -339,8 +383,8 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
   });
 
   // Contradiction lines between two outlets that are both in the picture
-  const visible = new Set([...dutch, ...foreign].map((outlet) => outlet.key));
-  const contradictions = findings.flatMap((finding) => {
+  const visible = new Set([...dutch, ...ownDutch, ...foreign].map((outlet) => outlet.key));
+  const contradictions: ContradictionLine[] = findings.flatMap((finding) => {
     if (finding.body.type !== "contradiction") return [];
     const a = finding.body.outletsA.find((key) => visible.has(key));
     const b = finding.body.outletsB.find((key) => visible.has(key) && key !== a);
@@ -358,6 +402,31 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
         const fromSpeakers = balloon.speakers.flatMap((speaker) => numbered.markers.get(speakerAnchor(speaker.id)) ?? []);
         if (fromSpeakers.length) markers.set(balloon.anchor, [...own, ...fromSpeakers].sort((a, b) => a.number - b.number));
       }
+    }
+  }
+
+  // The reader's contradictions: a line between the two balloons as drawn (a speaker without a
+  // balloon of their own is in their outlet's), else the number on the one side that is there
+  const drawn = (anchor: string | null): string | null => {
+    if (!anchor) return null;
+    if (anchor.startsWith("outlet:")) return visible.has(anchor.slice("outlet:".length)) ? anchor : null;
+    const speaker = speakers.byId.get(anchor.slice("speaker:".length));
+    if (!speaker || !visible.has(speaker.outletKey)) return null;
+    const outlet = exploration.index.outlet(speaker.outletKey);
+    return speaker.found || (mode === "perBron" && outlet && !outlet.isInternational) ? anchor : outletAnchor(speaker.outletKey);
+  };
+  for (const finding of findings) {
+    const entry = ownEntryOf(finding);
+    const number = numbered.numbers.get(finding.id);
+    if (entry?.kind !== "contradiction" || !number) continue;
+    const from = drawn(resolveOwnAnchor(entry, exploration));
+    const to = drawn(resolveOwnAgainst(entry, exploration));
+    if (from && to && from !== to) {
+      contradictions.push({ findingId: finding.id, number, from, to, own: true });
+    } else if (from ?? to) {
+      if (markers === numbered.markers) markers = new Map(numbered.markers);
+      const anchor = (from ?? to) as string;
+      markers.set(anchor, [...(markers.get(anchor) ?? []), { findingId: finding.id, number, type: "contradiction" as const, own: true }]);
     }
   }
 

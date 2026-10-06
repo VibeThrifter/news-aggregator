@@ -5,7 +5,7 @@
 import { deriveFindings, findingsByTab } from "./findings";
 import { ArticleIndex, buildExploreInput, type RawExploration } from "./input";
 import { buildSpeakers, type SpeakerModel } from "./speakers";
-import type { ExploreInput, Finding, TabId } from "./types";
+import type { ExploreInput, ExploreOutlet, Finding, TabId } from "./types";
 
 export interface Exploration {
   input: ExploreInput;
@@ -15,6 +15,8 @@ export interface Exploration {
   byTab: Map<TabId, Finding[]>;
   /** Who speaks in this news, per outlet (Epic 14) */
   speakers: SpeakerModel;
+  /** Outlets of sources the reader added that the news does not have (own.ts; not in `input`) */
+  ownOutlets?: ExploreOutlet[];
 }
 
 export function buildExploration(raw: RawExploration): Exploration {

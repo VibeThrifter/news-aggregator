@@ -4,8 +4,10 @@ import type { ReactNode } from "react";
 import { ExternalLink, ScanText, UserSearch } from "lucide-react";
 
 import { objectivity } from "@/lib/explore/bias";
+import { findingTitle } from "@/lib/explore/findings";
 import { FRAME_DESCRIPTIONS, VERIFICATION_LABELS, biasTypeLabel, fallacyLabel, frameLabel } from "@/lib/explore/labels";
 import { actorKeys } from "@/lib/explore/normalize";
+import { truncate } from "@/lib/explore/summary";
 import { formatLag } from "@/lib/explore/timeline";
 import type { Finding, OwnEntry } from "@/lib/explore/types";
 
@@ -375,9 +377,21 @@ export function formatOwnDate(date: string | undefined): string | null {
 
 /** What the reader wrote besides the title: why, what the speaker says, their source. */
 function OwnDetail({ entry }: { entry: OwnEntry }) {
-  if (!entry.detail && !entry.quote && !entry.url) return null;
+  const { exploration, toFinding } = useExplore();
+  const about = entry.about ? exploration.findingById.get(entry.about) : undefined;
+  if (!entry.detail && !entry.quote && !entry.url && !about && !entry.title) return null;
   return (
     <div className="space-y-3">
+      {about ? (
+        <button
+          type="button"
+          onClick={() => toFinding(about.id)}
+          className="flex min-h-[44px] w-full items-start gap-2 rounded-xl bg-orange-50 px-2.5 py-2 text-left text-sm text-ink-800"
+        >
+          <span className="shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-wider text-orange-800">Over</span>
+          <span className="min-w-0 flex-1">{findingTitle(about, exploration.index)}</span>
+        </button>
+      ) : null}
       {entry.quote ? <p className="text-sm italic leading-relaxed text-ink-800">{entry.quote}</p> : null}
       {entry.detail ? (
         <div className="space-y-0.5">
@@ -392,7 +406,7 @@ function OwnDetail({ entry }: { entry: OwnEntry }) {
           rel="noopener noreferrer"
           className="inline-flex min-h-[36px] items-center gap-1.5 text-sm font-semibold text-accent-blue"
         >
-          Bron: {hostOf(entry.url)} <ExternalLink size={14} aria-hidden="true" />
+          {entry.kind === "source" && entry.title ? truncate(entry.title, 140) : `Bron: ${hostOf(entry.url)}`} <ExternalLink size={14} aria-hidden="true" />
         </a>
       ) : null}
     </div>
@@ -449,7 +463,14 @@ export function findingHeadline(finding: Finding): { title: string; meta: string
     case "own":
       return {
         title: body.entry.text,
-        meta: body.entry.kind === "moment" ? formatOwnDate(body.entry.date) : body.entry.url ? `bron: ${hostOf(body.entry.url)}` : null,
+        meta:
+          body.entry.kind === "moment"
+            ? formatOwnDate(body.entry.date)
+            : body.entry.kind === "fallacy"
+              ? fallacyLabel(body.entry.fallacy)
+              : body.entry.url
+                ? `${body.entry.kind === "source" ? "" : "bron: "}${hostOf(body.entry.url)}`
+                : null,
       };
     default:
       return { title: "", meta: null };

@@ -5,8 +5,19 @@ import { motion } from "framer-motion";
 import { Mic, MicOff } from "lucide-react";
 
 import { isOutletShown } from "@/lib/explore/layout/bubbles";
-import { buildFigure, gapAnchor, speakerAnchor, type FigureGroup, type FoundSpeakerRef, type Marker, type OutletBalloonModel } from "@/lib/explore/figure";
+import {
+  buildFigure,
+  gapAnchor,
+  outletAnchor,
+  speakerAnchor,
+  type ContradictionLine,
+  type FigureGroup,
+  type FoundSpeakerRef,
+  type Marker,
+  type OutletBalloonModel,
+} from "@/lib/explore/figure";
 import { useFocusStore } from "@/lib/explore/focus";
+import { ownEntryOf, sourceOutletKey } from "@/lib/explore/own";
 import type { Speaker } from "@/lib/explore/speakers";
 import { useExploreStore } from "@/lib/explore/store";
 import { truncate } from "@/lib/explore/summary";
@@ -38,6 +49,9 @@ export function NewsFigure() {
   const placed = input.outlets.filter((outlet) => shown(outlet) && (outlet.x !== null || outlet.establishment !== null));
   const spectrumAvailable = placed.length >= 3;
   const spectrum = spectrumAvailable && mapMode === "spectrum";
+  const outlets = useMemo(() => [...input.outlets, ...(exploration.ownOutlets ?? [])], [exploration.ownOutlets, input.outlets]);
+  const [addingSource, setAddingSource] = useState(false);
+  const focus = useFocusStore((state) => state.focus);
 
   if (input.outlets.length === 0 && figure.groups.length === 0) return null;
 
@@ -68,11 +82,27 @@ export function NewsFigure() {
         ) : null}
       </div>
 
-      {input.outlets.length > 1 ? (
+      {outlets.length > 1 ? (
         <SourcePicker
-          outlets={input.outlets}
+          outlets={outlets}
           isShown={shown}
           onToggle={(outlet) => setOutletShown(eventId, outlet, !shown(outlet))}
+          add={addingSource ? null : <AddButton small onClick={() => setAddingSource(true)}>Bron</AddButton>}
+        />
+      ) : addingSource ? null : (
+        <AddButton small onClick={() => setAddingSource(true)}>
+          Bron
+        </AddButton>
+      )}
+      {addingSource ? (
+        <OwnForm
+          kind="source"
+          onCancel={() => setAddingSource(false)}
+          onDone={(entry) => {
+            setAddingSource(false);
+            const key = sourceOutletKey(entry.url);
+            if (key) focus("anchor", outletAnchor(key));
+          }}
         />
       ) : null}
 
@@ -92,7 +122,7 @@ function FigureCanvas({
 }: {
   groups: FigureGroup[];
   markers: Map<string, Marker[]>;
-  contradictions: { findingId: string; number: number; from: string; to: string }[];
+  contradictions: ContradictionLine[];
 }) {
   const container = useRef<HTMLDivElement | null>(null);
   return (
@@ -128,7 +158,7 @@ function GroupView({ group, markers }: { group: FigureGroup; markers: Map<string
           />
         </div>
       ) : null}
-      {group.kind === "perspective" || group.kind === "unclassified" ? (
+      {group.kind === "perspective" || group.kind === "unclassified" || group.kind === "own" ? (
         <div className="mt-2 grid grid-cols-2 gap-2">
           {group.outlets.map((balloon) => (
             <OutletBalloon key={balloon.anchor} balloon={balloon} markers={markers} color={group.color} />
@@ -181,6 +211,7 @@ function GroupHeader({ group }: { group: FigureGroup }) {
             {item}
           </span>
         ))}
+        {group.own ? <OwnTag /> : null}
       </p>
     );
   }
@@ -270,9 +301,12 @@ function OutletBalloon({ balloon, markers, color, wide = false }: { balloon: Out
         <Favicon name={outlet.name} domain={outlet.domain} size={20} className="mt-0.5" />
         <span className="min-w-0 flex-1">
           {!wide || outlet.isInternational ? (
-            <span className="block truncate text-[12px] font-semibold text-ink-900">
-              {outlet.name} {outlet.isInternational ? getCountryFlag(outlet.country) : ""}
-              {balloon.offDate ? <span className="ml-1 font-normal text-ink-500">{balloon.offDate}</span> : null}
+            <span className="flex items-center gap-1 truncate text-[12px] font-semibold text-ink-900">
+              <span className="truncate">
+                {outlet.name} {outlet.isInternational ? getCountryFlag(outlet.country) : ""}
+              </span>
+              {balloon.offDate ? <span className="font-normal text-ink-500">{balloon.offDate}</span> : null}
+              {outlet.own ? <OwnTag /> : null}
             </span>
           ) : null}
           {text ? (
@@ -357,8 +391,15 @@ function SpeakerList({ speakers, markers, add }: { speakers: Speaker[]; markers:
   );
 }
 
+/** A speaker the reader took over from another reader */
+function useAdopted(ownId: string | undefined | null): boolean {
+  const { exploration } = useExplore();
+  return Boolean(ownId && ownEntryOf(exploration.findingById.get(ownId))?.from);
+}
+
 function SpeakerBalloon({ speaker, markers, right }: { speaker: Speaker; markers: Map<string, Marker[]>; right: boolean }) {
   const { exploration } = useExplore();
+  const adopted = useAdopted(speaker.ownId);
   const anchor = `speaker:${speaker.id}`;
   const claim = exploration.findingById.get(speaker.claimIds[0]);
   const text = claim?.body.type === "claim" ? claim.body.claim.claim : (speaker.quote ?? null);
@@ -378,7 +419,7 @@ function SpeakerBalloon({ speaker, markers, right }: { speaker: Speaker; markers
               {speaker.org || speaker.role ? <span className="text-ink-500">{truncate(speaker.org ?? speaker.role ?? "", 40)}</span> : null}
               {speaker.via ? <span className="text-ink-500">via {speaker.via}</span> : null}
               {speaker.interest ? <span className="rounded-full bg-orange-100 px-1.5 text-[10px] font-semibold text-orange-800">belang</span> : null}
-              {speaker.ownId ? <OwnTag /> : null}
+              {speaker.ownId ? <OwnTag adopted={adopted} /> : null}
               {speaker.found ? <FoundTag /> : null}
             </span>
             {text ? <span className="mt-0.5 block text-[13px] italic leading-snug text-ink-800">{truncate(text, 170)}</span> : null}
@@ -394,6 +435,7 @@ function SpeakerBalloon({ speaker, markers, right }: { speaker: Speaker; markers
 }
 
 function SpeakerPill({ speaker, markers }: { speaker: Speaker; markers: Map<string, Marker[]> }) {
+  const adopted = useAdopted(speaker.ownId);
   const anchor = speakerAnchor(speaker.id);
   return (
     <Anchored
@@ -408,7 +450,7 @@ function SpeakerPill({ speaker, markers }: { speaker: Speaker; markers: Map<stri
         <span className="font-semibold text-ink-900">{truncate(speaker.name, 28)}</span>
         {speaker.role || speaker.org ? <span className="max-w-[9rem] truncate text-ink-500">{speaker.org ?? speaker.role}</span> : null}
         {speaker.interest ? <span className="rounded-full bg-orange-100 px-1.5 text-[10px] font-semibold text-orange-800">belang</span> : null}
-        {speaker.ownId ? <OwnTag /> : null}
+        {speaker.ownId ? <OwnTag adopted={adopted} /> : null}
         {speaker.found ? <FoundTag /> : null}
       </span>
     </Anchored>
@@ -432,6 +474,7 @@ function GhostPill({
   markers: Map<string, Marker[]>;
 }) {
   const { exploration } = useExplore();
+  const adopted = useAdopted(own ? findingId : null);
   const marker = markers.get(anchor)?.[0];
   const foundAt = found.length ? exploration.index.outlet(found[0].outletKey) : null;
   return (
@@ -452,7 +495,7 @@ function GhostPill({
             </span>
           ) : null}
         </span>
-        {own ? <OwnTag /> : null}
+        {own ? <OwnTag adopted={adopted} /> : null}
         {marker ? <Badge type="gap" number={marker.number} small own={own} /> : null}
       </span>
     </Anchored>
@@ -465,9 +508,9 @@ function ContradictionLines({
   lines,
 }: {
   container: React.MutableRefObject<HTMLDivElement | null>;
-  lines: { findingId: string; number: number; from: string; to: string }[];
+  lines: ContradictionLine[];
 }) {
-  const [geometry, setGeometry] = useState<{ id: string; number: number; x1: number; y1: number; x2: number; y2: number }[]>([]);
+  const [geometry, setGeometry] = useState<{ id: string; number: number; own: boolean; x1: number; y1: number; x2: number; y2: number }[]>([]);
   const measure = () => {
     const root = container.current;
     if (!root) return;
@@ -481,7 +524,9 @@ function ContradictionLines({
     const next = lines.flatMap((line) => {
       const a = center(line.from);
       const b = center(line.to);
-      return a && b ? [{ id: line.findingId, number: line.number, x1: Math.round(a.x), y1: Math.round(a.y), x2: Math.round(b.x), y2: Math.round(b.y) }] : [];
+      return a && b
+        ? [{ id: line.findingId, number: line.number, own: Boolean(line.own), x1: Math.round(a.x), y1: Math.round(a.y), x2: Math.round(b.x), y2: Math.round(b.y) }]
+        : [];
     });
     // Only a real change re-renders (measuring after every render would never end)
     setGeometry((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
@@ -501,7 +546,18 @@ function ContradictionLines({
     <>
       <svg className="pointer-events-none absolute inset-0 z-[5] h-full w-full overflow-visible" aria-hidden="true">
         {geometry.map((line) => (
-          <line key={line.id} x1={line.x1} y1={line.y1} x2={line.x2} y2={line.y2} stroke="#E30613" strokeWidth={2.5} strokeDasharray="6 5" opacity={0.75} />
+          <line
+            key={line.id}
+            x1={line.x1}
+            y1={line.y1}
+            x2={line.x2}
+            y2={line.y2}
+            stroke="#E30613"
+            strokeWidth={2.5}
+            strokeDasharray={line.own ? "2 5" : "6 5"}
+            strokeLinecap="round"
+            opacity={0.75}
+          />
         ))}
       </svg>
       {geometry.map((line) => (
@@ -511,18 +567,18 @@ function ContradictionLines({
           className="absolute z-20 -translate-x-1/2 -translate-y-1/2"
           style={{ left: (line.x1 + line.x2) / 2, top: (line.y1 + line.y2) / 2 }}
         >
-          <ContradictionButton findingId={line.id} number={line.number} />
+          <ContradictionButton findingId={line.id} number={line.number} own={line.own} />
         </span>
       ))}
     </>
   );
 }
 
-function ContradictionButton({ findingId, number }: { findingId: string; number: number }) {
+function ContradictionButton({ findingId, number, own }: { findingId: string; number: number; own: boolean }) {
   const { ref, ringing } = useFocusRing<HTMLSpanElement>("anchor", `contradiction:${findingId}`);
   return (
     <span ref={ref} className={`inline-block rounded-full ${ringing ? RING : ""}`}>
-      <MarkerButton marker={{ findingId, number, type: "contradiction" }} />
+      <MarkerButton marker={{ findingId, number, type: "contradiction", ...(own ? { own } : {}) }} />
     </span>
   );
 }
@@ -535,10 +591,13 @@ function SourcePicker({
   outlets,
   isShown,
   onToggle,
+  add,
 }: {
   outlets: ExploreOutlet[];
   isShown: (outlet: ExploreOutlet) => boolean;
   onToggle: (outlet: ExploreOutlet) => void;
+  /** "＋ Bron": a source of your own */
+  add?: ReactNode;
 }) {
   const dutch = outlets.filter((outlet) => !outlet.isInternational);
   const foreign = outlets.filter((outlet) => outlet.isInternational);
@@ -559,6 +618,7 @@ function SourcePicker({
         </span>
         {outlet.name}
         {outlet.isInternational && outlet.country ? <span aria-hidden="true">{getCountryFlag(outlet.country)}</span> : null}
+        {outlet.own ? <OwnTag /> : null}
       </button>
     );
   };
@@ -569,6 +629,7 @@ function SourcePicker({
         <span className="shrink-0 border-l border-paper-300 pl-2 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Buitenland</span>
       ) : null}
       {foreign.map(chip)}
+      {add}
     </div>
   );
 }

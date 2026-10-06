@@ -36,7 +36,11 @@ export function isTabId(value: unknown): value is TabId {
 /** What you can add yourself, per kind (rows, popovers, the board). */
 export const OWN_KIND_LABELS: Record<OwnKind, string> = {
   claim: "Twijfel",
+  fallacy: "Drogreden",
+  contradiction: "Tegenspraak",
+  error: "Fout",
   speaker: "Spreker",
+  source: "Bron",
   gap: "Ontbrekende stem",
   question: "Vraag",
   note: "Opmerking",

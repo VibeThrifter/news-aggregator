@@ -190,10 +190,11 @@ export interface SourceSelection {
  * was added to the news for a missing voice (it is there to be seen).
  */
 export function isOutletShown(
-  outlet: { key: string; isInternational: boolean; foundVoice?: boolean },
+  outlet: { key: string; isInternational: boolean; foundVoice?: boolean; own?: boolean },
   selection?: SourceSelection | null,
 ): boolean {
-  return outlet.isInternational && !outlet.foundVoice
+  // Foreign outlets are added by choice; one added for a missing voice or by the reader is in already
+  return outlet.isInternational && !outlet.foundVoice && !outlet.own
     ? Boolean(selection?.added.includes(outlet.key))
     : !selection?.removed.includes(outlet.key);
 }

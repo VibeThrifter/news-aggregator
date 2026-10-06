@@ -451,6 +451,103 @@ Wat het doet:
    - In de app: "Uitgezocht: 8 nieuwe argumenten wachten op beoordeling". Ze tellen pas mee na een merge in
      `/overleg`.
 
+## Story 14.14: Meer zelf invullen — drogreden, tegenspraak, fout, bron
+
+**Status**: ✅ Done (2026-10-06)
+
+Wens eigenaar (2026-10-06): naast "niet aan het woord" ook drogredenen, tegenstellingen, fouten en nieuwe bronnen
+kunnen toevoegen, en die delen (Story 14.15).
+
+| Tab | Toevoegen | Velden | In het beeld |
+|---|---|---|---|
+| Klopt het? | Drogreden | welke (de soorten van de analyse) · welke redenering · wie · waarom klopt die niet | ↯ op die spreker of bron |
+| Klopt het? | Tegenspraak | waarover · wie zegt het één · wie het andere · wat zeggen ze · bron | gestippelde ⚡-lijn tussen de twee ballonnen |
+| Klopt het? | Fout | wat is er fout · waar · wat klopt wel · bron | ✕ naast het nummer dat hij verbetert |
+| Wie praat? | Bron | link · wat brengt deze bron · kop · wie komt er aan het woord | een eigen ballon |
+
+- **Fout**: "Klopt niet" bij elke bevinding van de analyse opent het formulier met die bevinding erboven (`about`).
+  De ✕ komt op dezelfde ballon als die bevinding. Die rij krijgt het label "fout volgens jou" en toont wat je
+  schreef.
+- **Tegenspraak**: alleen als er twee kanten te kiezen zijn. Een spreker zonder eigen ballon (bij groepen per
+  invalshoek, of een buitenlandse bron) telt als zijn bron. Staat er maar één kant in het beeld, dan komt het
+  nummer op die kant.
+- **Bron**: "＋ Bron" in de bronnenkiezer en onder Wie praat?. Een link van een medium dat al in het nieuws zit,
+  hangt aan die bron. Een nieuw medium komt in `Exploration.ownOutlets`, niet in `input`. Wat de analyse vond
+  (toeschrijving, nummers, groepering per invalshoek) verandert dus niet. `index.outlet()` vindt hem wel, zodat er
+  sprekers, twijfels en tegenspraak aan kunnen hangen. Bij groepen per bron krijgt hij een eigen groep, bij groepen
+  per invalshoek staat hij in "Bronnen van jou".
+- **Opslag** als in 14.9:
+  - `OwnEntry` krijgt `fallacy`, `against`, `about` en `title`;
+  - `sanitizeOwnEntry` eist per soort wat die nodig heeft (een bekende drogreden, twee verschillende kanten, een
+    weblink) en laat velden van een andere soort weg.
+- **Tests**: `__tests__/explore/own-kinds.test.ts` (8) en `store.test.ts` (+1).
+
+## Story 14.15: Van anderen — delen en overnemen
+
+**Status**: ✅ Done (2026-10-06)
+
+Vraag eigenaar (2026-10-05): kan een lezer analyses en suggesties bij een nieuwsitem delen, zonder dat iedereen
+wordt overladen met slechte ideeën van anderen?
+
+Het eerste voorstel was een AI-toets met goedkeuring vooraf. Besluit eigenaar (2026-10-06):
+- "Alles wat extra AI-kracht kost is admin only."
+- In plaats daarvan: "iets om interessante takes in te zoeken en die te selecteren die je goed vindt".
+- Ook bronnen, drogredenen, tegenstellingen en fouten moeten deelbaar zijn.
+
+### Hoe het werkt
+- **Delen**:
+  - "Deel" staat bij alles wat je zelf toevoegde. Het is anoniem en je trekt het altijd in met "Niet meer delen".
+  - Aanpassen en verwijderen werken door.
+  - Wat je overnam, deel je niet opnieuw.
+  - Bij een gedeeld punt staat "gedeeld · n lezers", of "verborgen na meldingen".
+- **Van anderen**:
+  - Staat onder elke tab en is dicht tot je hem opent, bij elk nieuwsitem opnieuw.
+  - Eén regel per punt, hoeveel lezers ook hetzelfde deelden: zelfde soort, waar het aan hangt en dezelfde woorden;
+    een bron telt op zijn link.
+  - Zoeken (vanaf 5), filteren op soort (vanaf 4) en de volgorde "Meeste lezers" (gedeeld plus overgenomen) of
+    "Nieuwste".
+  - In de popover van een spreker of bron staat wat anderen daarover deelden.
+- **Neem over**: het punt wordt een eigen punt met het label "overgenomen", en pas dan staat het in je beeld. Niets
+  van anderen staat ongevraagd in het beeld. "Heb je al" verschijnt als je hetzelfde zelf al schreef.
+- **Geen AI, geen accounts**: een willekeurige sleutel van dit apparaat (`pluriformiteit:apparaat`) maakt wat je
+  deelde van jou. De database bewaart alleen de sha256 ervan.
+- **Tegen misbruik**:
+  - "Meld" kent vier redenen: spam, beledigend, privépersoon en anders. Een gemeld punt is weg voor wie het meldt.
+    Na 3 meldingen is het verborgen voor iedereen tot de admin kijkt.
+  - Limieten: per apparaat 30 per nieuwsitem en 60 per dag; samen 3000 per dag.
+  - Links van anderen tonen alleen de domeinnaam en hebben `rel="nofollow ugc"`.
+  - Citaten zijn hoogstens 300 tekens.
+- **Admin**:
+  - "Gemeld door lezers" op /admin, met toon weer, verberg en verwijder.
+  - "Verberg · admin" bij elk punt.
+  - De enige AI blijft "Zoek met AI", alleen voor de admin.
+- **Demo**: nagespeeld op het apparaat (`lib/explore/fixtures/demo-shared.ts`), met verzonnen lezers en bronnen
+  (example.org, `.example`).
+
+### Database (migratie 012)
+- Tabellen `shared_entries`, `shared_entry_adoptions` en `shared_entry_reports`, met RLS zonder policies.
+- RPC's `share_entry`, `unshare_entry`, `shared_entries_for_event`, `adopt_shared_entry`, `report_shared_entry`,
+  `shared_entries_reported` en `moderate_shared_entry`.
+- De frontend roept alleen deze functies aan, via `lib/shared.ts`. Er is geen backendjob, dus het werkt ook als de
+  lokale backend uit staat.
+- Lokaal getest op PostgreSQL 15 als rol `anon`, met 16 controles:
+  - delen, bijwerken en intrekken;
+  - ongeldige invoer per soort;
+  - overnemen telt één keer per apparaat, en je eigen punt kun je niet overnemen;
+  - 3 meldingen verbergen, zichtbaar voor de auteur;
+  - moderatie alleen met de admincode;
+  - limieten, en verwijderen met het event;
+  - tabellen en hulpfuncties zijn niet direct te lezen.
+
+### Tests
+- `__tests__/explore/others.test.ts` (8).
+- `tests/explore/van-anderen.spec.ts` (6 × 3 apparaten).
+
+### Later
+- Bij veel lezers: wie vaak punten deelt die anderen overnemen, mag meekeuren. Daarna een brugscore zoals bij
+  Community Notes: een punt telt als lezers die het meestal oneens zijn het allebei nuttig vinden.
+- Delen via een link met wie jij kiest.
+
 ## Story 14.16: Niemand beoordeelt met de hand
 
 **Status**: ✅ Done (2026-10-06). Live: de automatische beoordeling draait elke 2 uur en direct na elke bewijsronde.

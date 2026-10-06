@@ -12,7 +12,8 @@ import { create } from "zustand";
 import type { OwnKind } from "./types";
 
 export type FocusTarget = { kind: "finding" | "anchor"; id: string; nonce: number };
-export type ComposeRequest = { kind: OwnKind; anchor: string | null; nonce: number };
+/** `about`: the finding of the analysis an error corrects */
+export type ComposeRequest = { kind: OwnKind; anchor: string | null; about?: string | null; nonce: number };
 
 interface FocusState {
   target: FocusTarget | null;
@@ -20,11 +21,14 @@ interface FocusState {
   clear(): void;
   /** Open the form for an own entry of this kind (in its tab), hanging on `anchor` */
   compose: ComposeRequest | null;
-  requestCompose(kind: OwnKind, anchor: string | null): void;
+  requestCompose(kind: OwnKind, anchor: string | null, about?: string | null): void;
   clearCompose(): void;
   /** The own entry being edited */
   editing: string | null;
   setEditing(id: string | null): void;
+  /** "Van anderen" under the tabs is open (closed on every visit: nothing of others is shown unasked) */
+  othersOpen: boolean;
+  setOthersOpen(open: boolean): void;
 }
 
 let nonce = 0;
@@ -39,9 +43,9 @@ export const useFocusStore = create<FocusState>((set) => ({
     set({ target: null });
   },
   compose: null,
-  requestCompose(kind, anchor) {
+  requestCompose(kind, anchor, about = null) {
     nonce += 1;
-    set({ compose: { kind, anchor, nonce } });
+    set({ compose: { kind, anchor, about, nonce } });
   },
   clearCompose() {
     set({ compose: null });
@@ -49,6 +53,10 @@ export const useFocusStore = create<FocusState>((set) => ({
   editing: null,
   setEditing(id) {
     set({ editing: id });
+  },
+  othersOpen: false,
+  setOthersOpen(open) {
+    set({ othersOpen: open });
   },
 }));
 

@@ -1,16 +1,19 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, type ReactNode } from "react";
+import { mutate as revalidate } from "swr";
 import { useShallow } from "zustand/react/shallow";
 
 import type { Exploration } from "@/lib/explore/exploration";
 import { numberFindings, type FigureModel } from "@/lib/explore/figure";
 import { useFocusStore } from "@/lib/explore/focus";
 import { useUrlPanel } from "@/lib/explore/hooks";
+import { adoptionOf, shareFields } from "@/lib/explore/others";
 import { newOwnId, OWN_KINDS, OWN_LIMITS, withOwn } from "@/lib/explore/own";
 import { useExploreStore, type DossierItem, type OwnPatch } from "@/lib/explore/store";
 import { truncate } from "@/lib/explore/summary";
 import type { OwnEntry, OwnKind } from "@/lib/explore/types";
+import { adoptSharedEntry, shareEntry, unshareEntry, type ShareFailure, type SharedEntry } from "@/lib/shared";
 
 import { useToast } from "./ui/Toast";
 
@@ -39,9 +42,24 @@ interface ExploreContextValue {
   updateOwn: (id: string, patch: OwnPatch) => void;
   /** Remove an own entry, with undo */
   removeOwn: (id: string) => void;
-  /** Open the form for an own entry in its tab, hanging on `anchor` (from a popover or sheet) */
-  compose: (kind: OwnKind, anchor?: string | null) => void;
+  /** Open the form for an own entry in its tab, hanging on `anchor` (from a popover or sheet); an
+   * error can be `about` a finding of the analysis */
+  compose: (kind: OwnKind, anchor?: string | null, about?: string | null) => void;
+  /** Share an own entry with other readers ("Van anderen"), or stop sharing it */
+  share: (id: string) => Promise<void>;
+  unshare: (id: string) => Promise<void>;
+  /** Take over what another reader shared: it becomes an entry of your own */
+  adopt: (shared: SharedEntry) => OwnEntry | null;
 }
+
+const SHARE_FAILURES: Record<ShareFailure, string> = {
+  geen_apparaat: "Delen lukt niet: deze browser bewaart niets.",
+  ongeldig: "Dit kan niet gedeeld worden.",
+  onbekend_event: "Dit nieuwsitem staat niet in de database.",
+  limiet: "Je hebt vandaag al veel gedeeld. Probeer het morgen weer.",
+  druk: "Het is te druk, probeer het later nog eens.",
+  niet_beschikbaar: "Delen kan nog niet.",
+};
 
 const ExploreContext = createContext<ExploreContextValue | null>(null);
 
@@ -56,6 +74,7 @@ export function useExplore(): ExploreContextValue {
 export function ExploreProvider({ exploration: analysis, children }: { exploration: Exploration; children: ReactNode }) {
   const { input } = analysis;
   const eventId = input.event.id;
+  const demo = input.event.isDemo;
   const toast = useToast();
   const panel = useUrlPanel();
   const focus = useFocusStore((state) => state.focus);
@@ -80,6 +99,10 @@ export function ExploreProvider({ exploration: analysis, children }: { explorati
   useEffect(() => {
     touchEvent(eventId, { slug: input.event.slug, title: input.event.title });
   }, [eventId, input.event.slug, input.event.title, touchEvent]);
+
+  // What others shared stays closed until you open it, on every news item
+  const setOthersOpen = useFocusStore((state) => state.setOthersOpen);
+  useEffect(() => setOthersOpen(false), [eventId, setOthersOpen]);
 
   // What the reader added is part of the picture, the tabs and the numbering
   const exploration = useMemo(() => withOwn(analysis, ownEntries), [analysis, ownEntries]);
@@ -142,25 +165,108 @@ export function ExploreProvider({ exploration: analysis, children }: { explorati
     [eventId, storeAddOwn, toast],
   );
 
-  const updateOwn = useCallback((id: string, patch: OwnPatch) => storeUpdateOwn(eventId, id, patch), [eventId, storeUpdateOwn]);
+  // What others see of it: the list "Van anderen" of this news (lib/shared.ts)
+  const refreshShared = useCallback(() => revalidate((key) => Array.isArray(key) && key[0] === "shared" && key[1] === eventId), [eventId]);
+  const ownEntry = useCallback((id: string) => useExploreStore.getState().own[String(eventId)]?.find((entry) => entry.id === id) ?? null, [eventId]);
+
+  /** Send the entry as it is now (a share, or an update of one); false when it failed */
+  const publish = useCallback(
+    async (entry: OwnEntry, quiet = false) => {
+      try {
+        const result = await shareEntry(eventId, shareFields(entry, exploration.speakers), { demo });
+        if (!result.ok) {
+          if (!quiet) toast(SHARE_FAILURES[result.reason]);
+          return false;
+        }
+        return true;
+      } catch {
+        if (!quiet) toast("Delen lukte niet.");
+        return false;
+      } finally {
+        void refreshShared();
+      }
+    },
+    [demo, eventId, exploration.speakers, refreshShared, toast],
+  );
+
+  const unshare = useCallback(
+    async (id: string) => {
+      storeUpdateOwn(eventId, id, { sharedAt: undefined });
+      try {
+        await unshareEntry(eventId, id, { demo });
+      } catch {
+        toast("Intrekken lukte niet.");
+      }
+      void refreshShared();
+    },
+    [demo, eventId, refreshShared, storeUpdateOwn, toast],
+  );
+
+  const share = useCallback(
+    async (id: string) => {
+      const entry = ownEntry(id);
+      if (!entry || entry.from) return;
+      if (!(await publish(entry))) return;
+      storeUpdateOwn(eventId, id, { sharedAt: new Date().toISOString() });
+      toast(`Gedeeld, zonder je naam: ${truncate(entry.text, 40)}`, { actionLabel: "Ongedaan maken", onAction: () => void unshare(id) });
+    },
+    [eventId, ownEntry, publish, storeUpdateOwn, toast, unshare],
+  );
+
+  const updateOwn = useCallback(
+    (id: string, patch: OwnPatch) => {
+      storeUpdateOwn(eventId, id, patch);
+      // Others see the new version of what you shared
+      const entry = ownEntry(id);
+      if (entry?.sharedAt) void publish(entry);
+    },
+    [eventId, ownEntry, publish, storeUpdateOwn],
+  );
 
   const removeOwn = useCallback(
     (id: string) => {
       const removed = storeRemoveOwn(eventId, id);
       if (!removed) return;
-      toast(`Verwijderd: ${truncate(removed.entry.text, 40)}`, {
+      const { entry } = removed;
+      // Gone for others too; taken over: no longer counted
+      if (entry.sharedAt) void unshareEntry(eventId, entry.id, { demo }).finally(() => void refreshShared());
+      if (entry.from) void adoptSharedEntry(Number(entry.from), false, { demo }).finally(() => void refreshShared());
+      toast(`Verwijderd: ${truncate(entry.text, 40)}`, {
         actionLabel: "Ongedaan maken",
-        onAction: () => restoreOwn(eventId, removed.entry, removed.index),
+        onAction: () => {
+          restoreOwn(eventId, entry, removed.index);
+          if (entry.sharedAt) void publish(entry, true);
+          if (entry.from) void adoptSharedEntry(Number(entry.from), true, { demo }).finally(() => void refreshShared());
+        },
       });
     },
-    [eventId, restoreOwn, storeRemoveOwn, toast],
+    [demo, eventId, publish, refreshShared, restoreOwn, storeRemoveOwn, toast],
+  );
+
+  const adopt = useCallback(
+    (shared: SharedEntry) => {
+      const entry: OwnEntry = { ...adoptionOf(shared), id: newOwnId(), createdAt: new Date().toISOString() };
+      const result = storeAddOwn(eventId, entry);
+      if (result === "full") toast(`Je hebt ${OWN_LIMITS.perEvent} dingen toegevoegd aan dit nieuws, het maximum.`);
+      if (result !== "added") return null;
+      void adoptSharedEntry(shared.id, true, { demo }).finally(() => void refreshShared());
+      toast(`Overgenomen: ${truncate(shared.text, 40)}`, {
+        actionLabel: "Ongedaan maken",
+        onAction: () => {
+          storeRemoveOwn(eventId, entry.id);
+          void adoptSharedEntry(shared.id, false, { demo }).finally(() => void refreshShared());
+        },
+      });
+      return entry;
+    },
+    [demo, eventId, refreshShared, storeAddOwn, storeRemoveOwn, toast],
   );
 
   const compose = useCallback(
-    (kind: OwnKind, anchor: string | null = null) =>
+    (kind: OwnKind, anchor: string | null = null, about: string | null = null) =>
       afterSheet(() => {
         setPref("findingsTab", OWN_KINDS[kind].tab);
-        requestCompose(kind, anchor);
+        requestCompose(kind, anchor, about);
       }),
     [afterSheet, requestCompose, setPref],
   );
@@ -181,8 +287,11 @@ export function ExploreProvider({ exploration: analysis, children }: { explorati
       updateOwn,
       removeOwn,
       compose,
+      share,
+      unshare,
+      adopt,
     }),
-    [addOwn, compose, dossierItems, eventId, exploration, isPinned, numbered, panel, pin, removeOwn, toAnchor, toFinding, updateOwn],
+    [adopt, addOwn, compose, dossierItems, eventId, exploration, isPinned, numbered, panel, pin, removeOwn, share, toAnchor, toFinding, unshare, updateOwn],
   );
 
   return <ExploreContext.Provider value={value}>{children}</ExploreContext.Provider>;

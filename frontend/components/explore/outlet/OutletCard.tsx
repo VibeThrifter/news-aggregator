@@ -17,6 +17,9 @@ import { dossierIds, useExplore } from "../ExploreContext";
 import { ArticleRow, articleDate } from "../entity/ArticleMentions";
 import { Balloon } from "../ui/Balloon";
 import { Chip, Eyebrow, Favicon, Tag } from "../ui/primitives";
+import { OwnTag } from "../map/OwnForm";
+import { OthersAbout } from "../map/Others";
+import { OwnAbout } from "../map/PeopleCards";
 
 function AxisBar({ value, left, right, gradient, label }: { value: number; left: string; right: string; gradient: string; label: string }) {
   return (
@@ -94,8 +97,9 @@ export function OutletCard({ outletKey, onNavigate }: { outletKey: string; onNav
       <div className="flex items-center gap-3">
         <Favicon name={outlet.name} domain={outlet.domain} size={28} />
         <div className="min-w-0">
-          <p className="font-semibold text-ink-900">
+          <p className="flex items-center gap-1.5 font-semibold text-ink-900">
             {outlet.name} {outlet.isInternational ? getCountryFlag(outlet.country) : ""}
+            {outlet.own ? <OwnTag /> : null}
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             {ownership && ownership !== "unknown" ? (
@@ -184,6 +188,9 @@ export function OutletCard({ outletKey, onNavigate }: { outletKey: string; onNav
       ) : null}
 
       <IndexLines lines={outletIndex(exploration, outletKey)} onNavigate={onNavigate} />
+
+      <OwnAbout anchor={`outlet:${outletKey}`} onNavigate={onNavigate} />
+      <OthersAbout anchor={`outlet:${outletKey}`} onNavigate={onNavigate} />
 
       <div className="flex flex-wrap gap-2">
         {canCompare ? (

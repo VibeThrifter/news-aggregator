@@ -1,41 +1,53 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { ChevronDown, Crosshair, Pencil, Pin, Trash2 } from "lucide-react";
+import { ChevronDown, CircleX, Crosshair, Pencil, Pin, Trash2 } from "lucide-react";
 
-import type { MarkerType } from "@/lib/explore/figure";
+import { markerTypeOf } from "@/lib/explore/figure";
 import { useFocusStore } from "@/lib/explore/focus";
 import { findingLabel, findingTitle } from "@/lib/explore/findings";
 import { TAB_BY_ID } from "@/lib/explore/labels";
-import { anchorOutletKey, OWN_KINDS, ownEntryOf, resolveOwnAnchor } from "@/lib/explore/own";
+import { anchorOutletKey, ownEntryOf, resolveOwnAgainst, resolveOwnAnchor } from "@/lib/explore/own";
 import { truncate } from "@/lib/explore/summary";
 import type { Finding } from "@/lib/explore/types";
 
 import { dossierIds, useExplore } from "../ExploreContext";
 import { Favicon } from "../ui/primitives";
-import { NumberBadge, useFocusRing } from "./Markers";
+import { Badge, NumberBadge, useFocusRing } from "./Markers";
+import { ShareControl, SharedTag } from "./Others";
 import { OwnForm, OwnTag } from "./OwnForm";
 import { Avatar } from "./PeopleCards";
 import { FindingDetail, findingHeadline } from "./FindingDetail";
 
-const MARKED: Partial<Record<Finding["type"], MarkerType>> = {
-  claim: "claim",
-  statistic: "statistic",
-  fallacy: "fallacy",
-  contradiction: "contradiction",
-  gap: "gap",
-};
-
-/** The marker a finding has on the picture (own entries by their kind). */
-export function markerTypeOf(finding: Finding): MarkerType | null {
-  const entry = ownEntryOf(finding);
-  return entry ? OWN_KINDS[entry.kind].marker : (MARKED[finding.type] ?? null);
+/** A side of an own contradiction: the speaker (with outlet) or the outlet. */
+function Side({ anchor }: { anchor: string }) {
+  const { exploration } = useExplore();
+  const speaker = anchor.startsWith("speaker:") ? exploration.speakers.byId.get(anchor.slice("speaker:".length)) : undefined;
+  const outlet = exploration.index.outlet(anchorOutletKey(anchor, exploration.speakers));
+  return (
+    <span className="inline-flex items-center gap-1">
+      {speaker ? <Avatar speaker={speaker} size={16} /> : outlet ? <Favicon name={outlet.name} domain={outlet.domain} size={14} /> : null}
+      <span className="font-semibold text-ink-700">{speaker?.name ?? outlet?.name}</span>
+    </span>
+  );
 }
 
 /** Who a finding is about: the speaker of a claim ("Van den Beukel · via NOS") or its outlets. */
 function Attribution({ finding }: { finding: Finding }) {
   const { exploration } = useExplore();
   const entry = ownEntryOf(finding);
+  // A contradiction of your own: both sides
+  const against = entry ? resolveOwnAgainst(entry, exploration) : null;
+  if (entry && against) {
+    const side = resolveOwnAnchor(entry, exploration);
+    return (
+      <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-500">
+        {side ? <Side anchor={side} /> : null}
+        <span aria-label="tegenover">⚡</span>
+        <Side anchor={against} />
+      </span>
+    );
+  }
   // An own entry hangs on the speaker or outlet the reader chose
   const ownAnchor = entry ? resolveOwnAnchor(entry, exploration) : null;
   const anchor = entry
@@ -82,7 +94,7 @@ const actionClass =
  * The reader's own entries can be changed and removed here.
  */
 export function FindingRow({ finding, extra, leading }: { finding: Finding; extra?: ReactNode; leading?: ReactNode }) {
-  const { exploration, eventId, pin, isPinned, anchorOf, toAnchor, removeOwn } = useExplore();
+  const { exploration, eventId, numbers, pin, isPinned, anchorOf, toAnchor, toFinding, removeOwn, compose } = useExplore();
   const entry = ownEntryOf(finding);
   const editing = useFocusStore((state) => Boolean(entry) && state.editing === finding.id);
   const setEditing = useFocusStore((state) => state.setEditing);
@@ -92,7 +104,14 @@ export function FindingRow({ finding, extra, leading }: { finding: Finding; extr
   const marker = markerTypeOf(finding);
   const anchor = anchorOf.get(finding.id) ?? (finding.type === "contradiction" ? `contradiction:${finding.id}` : null);
   const pinId = dossierIds.finding(eventId, finding.id);
-  const italic = finding.type === "claim" || finding.type === "statistic" || entry?.kind === "claim";
+  const italic = finding.type === "claim" || finding.type === "statistic" || entry?.kind === "claim" || entry?.kind === "fallacy";
+  // What the reader says is wrong in this finding of the analysis
+  const corrections = entry
+    ? []
+    : exploration.findings.filter((other) => {
+        const own = ownEntryOf(other);
+        return own?.kind === "error" && own.about === finding.id;
+      });
 
   if (entry && editing) {
     return (
@@ -131,7 +150,11 @@ export function FindingRow({ finding, extra, leading }: { finding: Finding; extr
             <Attribution finding={finding} />
             {/* An opened own entry shows its source as a link below */}
             {meta && !(open && entry?.url) ? <span className="text-xs text-ink-500">{meta}</span> : null}
-            {entry ? <OwnTag /> : null}
+            {entry ? <OwnTag adopted={Boolean(entry.from)} /> : null}
+            {entry ? <SharedTag entry={entry} /> : null}
+            {corrections.length ? (
+              <span className="rounded-full bg-orange-100 px-1.5 text-[10px] font-semibold leading-4 text-orange-800">fout volgens jou</span>
+            ) : null}
           </span>
         </button>
         <button
@@ -146,6 +169,17 @@ export function FindingRow({ finding, extra, leading }: { finding: Finding; extr
       {open ? (
         <div className={`space-y-3 pb-3 ${leading ? "" : "pl-9"}`}>
           <FindingDetail finding={finding} />
+          {corrections.map((correction) => (
+            <button
+              key={correction.id}
+              type="button"
+              onClick={() => toFinding(correction.id)}
+              className="flex min-h-[44px] w-full items-start gap-2 rounded-xl bg-orange-50 px-2.5 py-2 text-left text-sm text-ink-800"
+            >
+              {numbers.get(correction.id) ? <Badge type="error" number={numbers.get(correction.id) as number} own /> : null}
+              <span className="min-w-0 flex-1">{truncate(ownEntryOf(correction)?.text ?? "", 200)}</span>
+            </button>
+          ))}
           {extra}
           <div className="flex flex-wrap gap-2">
             {anchor ? (
@@ -161,8 +195,13 @@ export function FindingRow({ finding, extra, leading }: { finding: Finding; extr
                 <button type="button" onClick={() => removeOwn(finding.id)} className={actionClass}>
                   <Trash2 size={14} /> Verwijder
                 </button>
+                <ShareControl entry={entry} />
               </>
-            ) : null}
+            ) : (
+              <button type="button" onClick={() => compose("error", null, finding.id)} className={actionClass}>
+                <CircleX size={14} /> Klopt niet
+              </button>
+            )}
             <button
               type="button"
               aria-pressed={isPinned(pinId)}

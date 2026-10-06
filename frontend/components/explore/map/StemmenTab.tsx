@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ChevronDown, Pencil, Trash2, UserSearch } from "lucide-react";
 
 import { useFocusStore } from "@/lib/explore/focus";
-import { ownEntryOf } from "@/lib/explore/own";
+import { ownEntryOf, sourceOutletKey } from "@/lib/explore/own";
 import type { Speaker } from "@/lib/explore/speakers";
 import { truncate } from "@/lib/explore/summary";
 import { slugify } from "@/lib/explore/normalize";
@@ -12,16 +12,26 @@ import { slugify } from "@/lib/explore/normalize";
 import { useExplore } from "../ExploreContext";
 import { Chip, Favicon } from "../ui/primitives";
 import { FindingDetail } from "./FindingDetail";
+import { FindingRow } from "./FindingRow";
+import { ShareControl, SharedTag } from "./Others";
 import { NumberBadge, useFocusRing } from "./Markers";
 import { FoundTag, OwnForm, OwnTag } from "./OwnForm";
 import { Avatar, OwnAbout } from "./PeopleCards";
 
-/** "Wie praat?": per outlet who gets the word, their role and interests; a matrix with ≥ 2 outlets. */
+/**
+ * "Wie praat?": per outlet who gets the word, their role and interests; a matrix with ≥ 2 outlets.
+ * Sources you added are listed with their outlet.
+ */
 export function StemmenTab() {
   const { exploration } = useExplore();
   const { input, speakers, findings } = exploration;
-  const outlets = input.outlets.filter(
-    (outlet) => (speakers.byOutlet.get(outlet.key)?.length ?? 0) > 0 || findings.some((f) => f.body.type === "voices" && f.body.outletKey === outlet.key),
+  const sources = findings.filter((finding) => ownEntryOf(finding)?.kind === "source");
+  const sourcesOf = (key: string) => sources.filter((finding) => sourceOutletKey(ownEntryOf(finding)?.url) === key);
+  const outlets = [...input.outlets, ...(exploration.ownOutlets ?? [])].filter(
+    (outlet) =>
+      (speakers.byOutlet.get(outlet.key)?.length ?? 0) > 0 ||
+      findings.some((f) => f.body.type === "voices" && f.body.outletKey === outlet.key) ||
+      sourcesOf(outlet.key).length > 0,
   );
   if (outlets.length === 0) return null;
   return (
@@ -35,11 +45,15 @@ export function StemmenTab() {
           <section key={outlet.key} className="space-y-1" aria-label={`Wie praat bij ${outlet.name}`}>
             <p className="flex items-center gap-1.5 text-sm font-semibold text-ink-900">
               <Favicon name={outlet.name} domain={outlet.domain} size={16} /> {outlet.name}
+              {outlet.own ? <OwnTag /> : null}
             </p>
             {pattern ? <p className="text-sm leading-relaxed text-ink-700">{pattern}</p> : null}
             <ul className="divide-y divide-paper-200">
               {list.map((speaker) => (
                 <SpeakerRow key={speaker.id} speaker={speaker} />
+              ))}
+              {sourcesOf(outlet.key).map((finding) => (
+                <FindingRow key={finding.id} finding={finding} />
               ))}
             </ul>
           </section>
@@ -76,7 +90,8 @@ function SpeakerRow({ speaker }: { speaker: Speaker }) {
             <strong className="font-semibold text-ink-900">{speaker.name}</strong>
             {speaker.org ? <span className="text-ink-500">({speaker.org})</span> : null}
             {speaker.interest ? <span className="rounded-full bg-orange-100 px-1.5 text-[10px] font-semibold text-orange-800">belang</span> : null}
-            {speaker.ownId ? <OwnTag /> : null}
+            {speaker.ownId ? <OwnTag adopted={Boolean(entry?.from)} /> : null}
+            {entry ? <SharedTag entry={entry} /> : null}
             {speaker.found ? <FoundTag /> : null}
           </span>
           {speaker.role ? <span className="block truncate text-xs text-ink-500">{speaker.role}</span> : null}
@@ -123,6 +138,7 @@ function SpeakerRow({ speaker }: { speaker: Speaker }) {
                 <Chip icon={<Trash2 size={14} />} onClick={() => speaker.ownId && removeOwn(speaker.ownId)}>
                   Verwijder
                 </Chip>
+                {entry ? <ShareControl entry={entry} /> : null}
               </>
             ) : null}
           </div>

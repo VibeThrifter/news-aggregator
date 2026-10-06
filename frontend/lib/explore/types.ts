@@ -91,6 +91,8 @@ export interface ExploreArticle {
   digest: ArticleDigest | null;
   /** Added because a missing voice speaks here (AI search, approved), or null */
   foundVoice: FoundVoice | null;
+  /** A source the reader added themselves: the id of that entry (own.ts) */
+  ownId?: string;
 }
 
 export interface ExploreOutlet {
@@ -111,6 +113,8 @@ export interface ExploreOutlet {
   profile: OutletProfile | null;
   /** One of its articles was added for a missing voice: in the picture by default, also from abroad */
   foundVoice?: boolean;
+  /** Added by the reader (a source of their own, own.ts): not part of the analysis */
+  own?: boolean;
 }
 
 export interface ExploreEventMeta {
@@ -211,24 +215,48 @@ export type AnalysisBody = Exclude<FindingBody, { type: "own" }>;
 export type AnalysisType = AnalysisBody["type"];
 
 /** What a reader can add to the picture themselves: their own answer to the questions under it. */
-export type OwnKind = "claim" | "speaker" | "gap" | "question" | "note" | "moment";
+export type OwnKind =
+  | "claim"
+  | "fallacy"
+  | "contradiction"
+  | "error"
+  | "speaker"
+  | "source"
+  | "gap"
+  | "question"
+  | "note"
+  | "moment";
 
 export interface OwnEntry {
   /** `own:<random>`, also the id of its finding */
   id: string;
   kind: OwnKind;
-  /** The claim, the name, the missing voice, the question, the remark or what happened */
+  /** The claim, the reasoning, what they contradict each other on, what is wrong, the name, what a
+   * source brings, the missing voice, the question, the remark or what happened */
   text: string;
-  /** Why you doubt it, a role or organisation, why it matters */
+  /** Why you doubt it, why the reasoning fails, what each side says, what is right, a role or
+   * organisation, who speaks in a source, why it matters */
   detail?: string;
   /** Speaker: what they say */
   quote?: string;
   /** Who says it, who should answer, or with which outlet: `outlet:<key>` or `speaker:<id>` */
   anchor?: string;
-  /** The reader's source */
+  /** Contradiction: who says the opposite, like `anchor` */
+  against?: string;
+  /** Error: the finding of the analysis it corrects */
+  about?: string;
+  /** Fallacy: which reasoning error (a key of FALLACY_LABELS) */
+  fallacy?: string;
+  /** The reader's source; for a source: its link (required) */
   url?: string;
+  /** Source: its headline, only as link text */
+  title?: string;
   /** Moment: YYYY-MM-DD */
   date?: string;
+  /** Shared with other readers ("Van anderen") since then */
+  sharedAt?: string;
+  /** Taken over from another reader: the id of what they shared */
+  from?: string;
   createdAt: string;
   updatedAt?: string;
 }

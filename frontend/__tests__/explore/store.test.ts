@@ -207,6 +207,30 @@ describe("own entries", () => {
     expect(sanitizeOwn({ "7": [own("a"), own("a"), { nope: true }], abc: [own("b")], "8": "geen lijst" })).toEqual({ "7": [own("a")] });
   });
 
+  it("keep what each kind needs, and drop what belongs to another kind (Story 14.14/14.15)", () => {
+    // A fallacy needs a known kind of fallacy
+    expect(sanitizeOwnEntry({ ...own("f"), kind: "fallacy" })).toBeNull();
+    expect(sanitizeOwnEntry({ ...own("f"), kind: "fallacy", fallacy: "onzin" })).toBeNull();
+    expect(sanitizeOwnEntry({ ...own("f"), kind: "fallacy", fallacy: "vals_dilemma" })?.fallacy).toBe("vals_dilemma");
+    // A contradiction needs two different sides
+    expect(sanitizeOwnEntry({ ...own("c"), kind: "contradiction", anchor: "outlet:ad" })).toBeNull();
+    expect(sanitizeOwnEntry({ ...own("c"), kind: "contradiction", anchor: "outlet:ad", against: "outlet:ad" })).toBeNull();
+    expect(sanitizeOwnEntry({ ...own("c"), kind: "contradiction", anchor: "outlet:ad", against: "speaker:nos:rivm" })?.against).toBe("speaker:nos:rivm");
+    // A source needs a web link; its headline stays
+    expect(sanitizeOwnEntry({ ...own("s"), kind: "source", url: "javascript:alert(1)" })).toBeNull();
+    expect(sanitizeOwnEntry({ ...own("s"), kind: "source", url: "https://trouw.nl/x", title: " Kop " })).toMatchObject({ url: "https://trouw.nl/x", title: "Kop" });
+    // An error is about a finding of the analysis, never about an own entry
+    expect(sanitizeOwnEntry({ ...own("e"), kind: "error", about: "claim:1kl927v" })?.about).toBe("claim:1kl927v");
+    expect(sanitizeOwnEntry({ ...own("e"), kind: "error", about: "own:x" })?.about).toBeUndefined();
+    // Fields of another kind go
+    const gap = sanitizeOwnEntry({ ...own("g"), against: "outlet:ad", about: "claim:x1", fallacy: "stroman", title: "Kop" });
+    expect(gap).toEqual(own("g"));
+    // Shared since, and where it was taken over from
+    expect(sanitizeOwnEntry({ ...own("g"), sharedAt: "2026-10-06T10:00:00Z", from: "123" })).toMatchObject({ sharedAt: "2026-10-06T10:00:00Z", from: "123" });
+    expect(sanitizeOwnEntry({ ...own("g"), sharedAt: "gisteren", from: "abc" })).toEqual(own("g"));
+    expect(sanitizeOwnEntry({ ...own("g"), from: "-201" })?.from).toBe("-201");
+  });
+
   it("travel with the dossier export and are merged on import", () => {
     const store = useExploreStore.getState();
     store.addOwn(7, own("a"));

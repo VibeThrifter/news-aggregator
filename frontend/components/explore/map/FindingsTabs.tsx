@@ -11,6 +11,7 @@ import type { Finding, TabId } from "@/lib/explore/types";
 
 import { useExplore } from "../ExploreContext";
 import { FindingRow } from "./FindingRow";
+import { OthersSection, useSharedGroups } from "./Others";
 import { OwnAdd } from "./OwnForm";
 import { StemmenTab } from "./StemmenTab";
 import { TijdlijnTab } from "./TijdlijnTab";
@@ -31,6 +32,8 @@ const ROW_ORDER: Partial<Record<TabId, Finding["type"][]>> = {
 export function FindingsTabs() {
   const { exploration, numbers } = useExplore();
   const { input, byTab, speakers } = exploration;
+  // What others shared can be the only thing in a tab
+  const { groups: others } = useSharedGroups();
   const chosen = useExploreStore((state) => state.prefs.findingsTab);
   const setPref = useExploreStore((state) => state.setPref);
   // A popover asks for the form of a tab that may still be empty: that tab stays while it is chosen
@@ -48,7 +51,8 @@ export function FindingsTabs() {
     const map = new Map<TabId, number>([
       ["invalshoeken", dutch >= 2 ? of("invalshoeken") : 0],
       ["klopt", of("klopt")],
-      ["stemmen", new Set(speakers.speakers.map((speaker) => speaker.slug)).size],
+      // Who speaks, and the sources you added
+      ["stemmen", new Set(speakers.speakers.map((speaker) => speaker.slug)).size + (byTab.get("stemmen") ?? []).filter((f) => f.body.type === "own" && f.body.entry.kind === "source").length],
       ["ontbreekt", of("ontbreekt")],
       ["gebracht", (byTab.get("gebracht") ?? []).filter((finding) => finding.type !== "tone" || finding.outletKeys.length > 0).length],
       [
@@ -61,7 +65,11 @@ export function FindingsTabs() {
   }, [byTab, input, speakers]);
 
   const visible = TABS.filter(
-    (tab) => (counts.get(tab.id) ?? 0) > 0 || tab.id === composing || (tab.id === forced && chosen === forced),
+    (tab) =>
+      (counts.get(tab.id) ?? 0) > 0 ||
+      tab.id === composing ||
+      (tab.id === forced && chosen === forced) ||
+      others.some((group) => OWN_KINDS[group.lead.kind].tab === tab.id),
   );
   const current = visible.find((tab) => tab.id === chosen)?.id ?? visible[0]?.id ?? null;
 
@@ -128,6 +136,7 @@ export function FindingsTabs() {
           </ul>
         )}
         <OwnAdd key={current} kinds={OWN_KINDS_BY_TAB[current] ?? NONE} />
+        <OthersSection key={`others-${current}`} tab={current} />
       </div>
     </section>
   );
