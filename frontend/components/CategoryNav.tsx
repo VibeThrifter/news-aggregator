@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { CATEGORIES, DEFAULT_CATEGORY, getCategoryBySlug } from "@/lib/categories";
+import { CATEGORIES, DEFAULT_CATEGORY } from "@/lib/categories";
+
+import { ScrollRow } from "./explore/ui/ScrollRow";
 
 export interface CategoryNavProps {
   activeCategory?: string;
@@ -92,58 +94,39 @@ export function CategoryNav({ activeCategory, onCategoryChange }: CategoryNavPro
   );
 
   return (
-    <nav
-      aria-label="Categoriefilter"
-      className="sticky top-0 z-40 border-b border-paper-300 bg-paper-50"
-    >
-      {/* Fade edges for scroll indication on mobile */}
-      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-paper-50 to-transparent sm:hidden" />
-      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-paper-50 to-transparent sm:hidden" />
-
-      <div
+    <nav aria-label="Categoriefilter" className="sticky top-0 z-40 -mx-4 bg-paper-100/95 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6">
+      <ScrollRow
         ref={scrollContainerRef}
-        className="scrollbar-hide mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-4 sm:justify-center sm:gap-6 sm:px-6"
-        style={{ WebkitOverflowScrolling: "touch" }}
         role="tablist"
         aria-label="Categoriefilter"
         onKeyDown={handleKeyDown}
+        className="-mx-1 px-1"
       >
-        {CATEGORIES.map((category) => {
-          const isActive = currentCategory === category.slug;
+        {/* Centred while everything fits; the auto margins give way when the row scrolls */}
+        <div className="mx-auto flex gap-1.5">
+          {CATEGORIES.map((category) => {
+            const isActive = currentCategory === category.slug;
 
-          return (
-            <button
-              key={category.slug}
-              ref={isActive ? activeTabRef : null}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              aria-controls="event-feed"
-              tabIndex={isActive ? 0 : -1}
-              onClick={() => handleCategoryClick(category.slug)}
-              className={`
-                relative flex-shrink-0 whitespace-nowrap py-2.5 px-2
-                text-sm transition-colors duration-200
-                focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2
-                ${
-                  isActive
-                    ? "text-ink-900 font-semibold"
-                    : "text-ink-500 hover:text-ink-900 font-medium"
-                }
-              `}
-            >
-              {category.label}
-              {/* Active indicator underline - Volkskrant-style orange */}
-              {isActive && (
-                <span
-                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent-orange"
-                  aria-hidden="true"
-                />
-              )}
-            </button>
-          );
-        })}
-      </div>
+            return (
+              <button
+                key={category.slug}
+                ref={isActive ? activeTabRef : null}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                aria-controls="event-feed"
+                tabIndex={isActive ? 0 : -1}
+                onClick={() => handleCategoryClick(category.slug)}
+                className={`min-h-[40px] shrink-0 whitespace-nowrap rounded-full border px-4 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue ${
+                  isActive ? "border-ink-900 bg-ink-900 text-white" : "border-paper-300 bg-paper-50 text-ink-700 hover:bg-paper-200"
+                }`}
+              >
+                {category.label}
+              </button>
+            );
+          })}
+        </div>
+      </ScrollRow>
     </nav>
   );
 }

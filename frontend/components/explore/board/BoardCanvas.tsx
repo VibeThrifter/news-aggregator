@@ -59,12 +59,12 @@ const CardNode = memo(function CardNode({ data }: NodeProps<Node<CardData>>) {
   const color = KIND_COLORS[item.kind];
   return (
     <div
-      className={`w-[220px] rounded-2xl border bg-white p-3 shadow-card ${selected ? "ring-4" : ""}`}
-      style={{ borderColor: `${color}66`, borderLeft: `5px solid ${color}`, ...(selected ? { ["--tw-ring-color" as string]: `${color}44` } : {}) }}
+      className={`w-[220px] rounded-2xl border border-paper-300 bg-white p-3 shadow-card ${selected ? "ring-4" : ""}`}
+      style={selected ? { ["--tw-ring-color" as string]: `${color}44` } : undefined}
     >
       <Handle type="target" position={Position.Top} style={{ ...handleStyle, top: -11 }} />
-      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color }}>
-        {item.outletKey ? <Favicon name={item.title} size={14} /> : null}
+      <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ color }}>
+        {item.outletKey ? <Favicon name={item.title} size={14} /> : <span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />}
         {KIND_LABELS[item.kind]}
       </div>
       <p className="mt-1 line-clamp-3 text-sm font-semibold leading-snug text-ink-900">{item.title}</p>

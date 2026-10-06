@@ -68,15 +68,11 @@ export default function SearchBar({
 
   return (
     <div className={`relative ${className}`}>
-      {/* Search icon */}
-      <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center">
-        <Search
-          size={18}
-          className={`transition-colors ${isFocused ? "text-accent-orange" : "text-ink-400"}`}
-        />
-      </div>
-
-      {/* Input field */}
+      <Search
+        size={17}
+        aria-hidden="true"
+        className={`pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors ${isFocused ? "text-ink-700" : "text-ink-400"}`}
+      />
       <input
         ref={inputRef}
         type="text"
@@ -86,21 +82,19 @@ export default function SearchBar({
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
         placeholder={placeholder}
-        className="w-full border-0 border-b border-paper-300 bg-transparent py-2 pl-7 pr-8 text-base sm:text-sm text-ink-900 placeholder-ink-400 transition-colors focus:border-accent-orange focus:outline-none"
+        className="h-10 w-full rounded-full border border-paper-300 bg-paper-50 pl-10 pr-9 text-base text-ink-900 placeholder-ink-400 transition-colors hover:border-ink-200 focus:border-ink-400 focus:outline-none sm:text-sm"
         aria-label="Zoek events"
       />
-
-      {/* Clear button */}
-      {localValue && (
+      {localValue ? (
         <button
           type="button"
           onClick={handleClear}
-          className="absolute inset-y-0 right-0 flex items-center text-ink-400 transition-colors hover:text-ink-700"
+          className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-ink-400 transition-colors hover:bg-paper-200 hover:text-ink-700"
           aria-label="Wis zoekopdracht"
         >
-          <X size={16} />
+          <X size={15} />
         </button>
-      )}
+      ) : null}
     </div>
   );
 }

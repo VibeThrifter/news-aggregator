@@ -62,7 +62,8 @@ const config: Config = {
         card: "0 10px 30px -18px rgba(15, 23, 42, 0.25)",
         "card-light": "0 1px 3px rgba(0, 0, 0, 0.08)",
         balloon: "0 12px 32px -12px rgba(15, 23, 42, 0.35)",
-        bubble: "0 4px 14px -6px rgba(15, 23, 42, 0.35)"
+        bubble: "0 4px 14px -6px rgba(15, 23, 42, 0.35)",
+        dialog: "0 28px 72px -24px rgba(15, 23, 42, 0.45)"
       },
       // Epic 11: explicit stacking order for dock, balloons, sheets and drag overlays
       zIndex: {
@@ -81,11 +82,21 @@ const config: Config = {
         typing: {
           "0%, 80%, 100%": { opacity: "0.25" },
           "40%": { opacity: "1" }
+        },
+        "fade-in": {
+          from: { opacity: "0" },
+          to: { opacity: "1" }
+        },
+        "dialog-in": {
+          from: { opacity: "0", transform: "translateY(10px) scale(0.98)" },
+          to: { opacity: "1", transform: "translateY(0) scale(1)" }
         }
       },
       animation: {
         float: "float 4.5s ease-in-out infinite",
-        typing: "typing 1.4s ease-in-out infinite"
+        typing: "typing 1.4s ease-in-out infinite",
+        "fade-in": "fade-in 160ms ease-out",
+        "dialog-in": "dialog-in 200ms cubic-bezier(0.16, 1, 0.3, 1)"
       }
     }
   },

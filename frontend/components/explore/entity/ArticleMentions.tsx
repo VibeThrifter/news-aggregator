@@ -12,7 +12,7 @@ import type { ArticleRef, EntityArticleGroup, EventEntity } from "@/lib/types";
 import { exploreAuxSwrOptions } from "@/lib/swr-config";
 
 import { useExplore } from "../ExploreContext";
-import { Eyebrow, Favicon } from "../ui/primitives";
+import { SubHeading, Favicon } from "../ui/primitives";
 
 const dateFormatter = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short", year: "numeric" });
 
@@ -166,7 +166,7 @@ export function MentionsByOutlet({ entity, name }: { entity: EventEntity | undef
   const writers = new Set(articles.map((article) => article.outletName)).size;
   return (
     <section className="space-y-2" aria-label={`Wie noemt ${name}?`}>
-      <Eyebrow>Wie noemt {name}?</Eyebrow>
+      <SubHeading>Wie noemt {name}?</SubHeading>
       {articles.length ? (
         <p className="text-xs text-ink-500">
           <span className="font-semibold">
@@ -254,7 +254,7 @@ export function EntityCoverage({
   return (
     <section className="space-y-2" aria-label={title}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Eyebrow>{title}</Eyebrow>
+        <SubHeading>{title}</SubHeading>
         <div role="radiogroup" aria-label="Weergave" className="flex rounded-full border border-paper-300 p-0.5">
           {views.map((item) => (
             <button
@@ -339,7 +339,7 @@ export function ArticleSearch({ initialQuery }: { initialQuery: string }) {
 
   return (
     <section className="space-y-2">
-      <Eyebrow>Zoek in alle artikelen</Eyebrow>
+      <SubHeading>Zoek in alle artikelen</SubHeading>
       <form role="search" onSubmit={submit} className="flex gap-2">
         <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-paper-300 bg-paper-50 px-3">
           <Search size={16} className="shrink-0 text-ink-400" aria-hidden="true" />

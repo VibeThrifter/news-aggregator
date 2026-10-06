@@ -14,7 +14,7 @@ import { exploreAuxSwrOptions } from "@/lib/swr-config";
 import { useExplore } from "../ExploreContext";
 import { ArticleSearch, EntityCoverage } from "../entity/ArticleMentions";
 import { WikipediaBlock } from "../entity/Wikipedia";
-import { Eyebrow, Tag } from "../ui/primitives";
+import { SubHeading, Tag } from "../ui/primitives";
 import { Sheet } from "../ui/Sheet";
 import { AutoApprovedTag } from "./MiniEgoNetwork";
 import { PmRelationDiscussion, relationSentence } from "./PmEvidence";
@@ -88,7 +88,7 @@ export function PmDetailsSheet({ kind, id }: { kind: "entity" | "relation"; id: 
           ) : null}
           {kind === "entity" ? (
             <div className="space-y-2">
-              <Eyebrow>Achtergrond</Eyebrow>
+              <SubHeading>Achtergrond</SubHeading>
               <WikipediaBlock key={data.title} name={data.title} />
             </div>
           ) : null}
@@ -100,7 +100,7 @@ export function PmDetailsSheet({ kind, id }: { kind: "entity" | "relation"; id: 
           ) : null}
           {data.sources.length && !(kind === "relation" && data.arguments?.length) ? (
             <div className="space-y-2">
-              <Eyebrow>Bronnen</Eyebrow>
+              <SubHeading>Bronnen</SubHeading>
               <ul className="space-y-2">
                 {data.sources.map((source, i) => (
                   <li key={i} className="rounded-xl border border-paper-300 bg-paper-50 p-3">

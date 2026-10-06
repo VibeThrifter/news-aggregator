@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import Image from "next/image";
 import { ChevronDown, Check } from "lucide-react";
-import { getSourceFaviconUrl } from "@/lib/format";
+
+import { Favicon } from "@/components/explore/ui/primitives";
 
 export interface SourceInfo {
   name: string;
@@ -33,34 +33,21 @@ function SourceCheckbox({
   return (
     <button
       type="button"
+      role="menuitemcheckbox"
+      aria-checked={isSelected}
       onClick={onToggle}
-      className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors ${
-        isSelected
-          ? "bg-paper-100 text-ink-900"
-          : "text-ink-600 hover:bg-paper-50 hover:text-ink-900"
-      }`}
+      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-sm text-ink-800 transition-colors hover:bg-paper-100"
     >
       <span
-        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-colors ${
-          isSelected
-            ? "border-accent-orange bg-accent-orange"
-            : "border-ink-300"
+        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+          isSelected ? "border-ink-900 bg-ink-900" : "border-ink-300 bg-paper-50"
         }`}
       >
-        {isSelected && <Check size={12} className="text-white" />}
+        {isSelected ? <Check size={12} className="text-white" strokeWidth={3} /> : null}
       </span>
-      <Image
-        src={getSourceFaviconUrl(source.name)}
-        alt=""
-        width={16}
-        height={16}
-        className="shrink-0 rounded-sm"
-        unoptimized
-      />
-      <span className="flex-1 truncate">{source.name}</span>
-      <span className="shrink-0 text-xs text-ink-400">
-        {source.articleCount}
-      </span>
+      <Favicon name={source.name} size={16} />
+      <span className={`flex-1 truncate ${isSelected ? "text-ink-900" : "text-ink-500"}`}>{source.name}</span>
+      <span className="shrink-0 text-xs tabular-nums text-ink-400">{source.articleCount}</span>
     </button>
   );
 }
@@ -129,47 +116,60 @@ export function SourceFilter({ sources, selectedSources, onSelectionChange }: So
     <div ref={containerRef} className="relative">
       <button
         type="button"
+        aria-haspopup="menu"
+        aria-expanded={isExpanded}
         onClick={() => setIsExpanded(!isExpanded)}
-        className="inline-flex items-center gap-2 text-sm text-ink-400 transition-colors hover:text-ink-700"
+        className={`inline-flex min-h-[40px] items-center gap-2 rounded-full border px-3.5 text-sm transition-colors ${
+          isExpanded ? "border-ink-400 bg-paper-50" : "border-paper-300 bg-paper-50 hover:border-ink-200"
+        }`}
       >
-        <span>bronnen</span>
-        <span className="font-medium text-ink-700">
+        <span className="text-ink-500">Bronnen</span>
+        <span className="font-semibold tabular-nums text-ink-900">
           {selectedSources.size}/{sources.length}
         </span>
-        <ChevronDown
-          size={14}
-          className={`transition-transform ${isExpanded ? "rotate-180" : ""}`}
-        />
+        <ChevronDown size={15} className={`text-ink-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
       </button>
 
-      {isExpanded && (
-        <div className="absolute right-0 top-full z-50 mt-2 min-w-[260px] overflow-hidden rounded-sm border border-paper-200 bg-white shadow-lg">
-          {/* Select All / None buttons */}
-          <div className="flex items-center gap-3 border-b border-paper-200 px-3 py-2">
+      {isExpanded ? (
+        <div
+          role="menu"
+          aria-label="Bronnen"
+          className="absolute left-0 top-full z-50 mt-2 w-[280px] max-w-[calc(100vw-32px)] overflow-hidden rounded-2xl border border-paper-300 bg-paper-50 p-1.5 shadow-balloon sm:left-auto sm:right-0"
+        >
+          <div className="flex items-center gap-1 px-1 pb-1.5 pt-0.5">
             <button
               type="button"
               onClick={handleSelectAll}
               disabled={allSelected}
-              className="text-xs text-ink-500 transition-colors hover:text-accent-orange disabled:opacity-40"
+              className="rounded-full px-2.5 py-1 text-xs font-semibold text-ink-700 transition-colors hover:bg-paper-200 disabled:opacity-40 disabled:hover:bg-transparent"
             >
               Alles
             </button>
-            <span className="text-paper-300">·</span>
             <button
               type="button"
               onClick={handleSelectNone}
               disabled={noneSelected}
-              className="text-xs text-ink-500 transition-colors hover:text-accent-orange disabled:opacity-40"
+              className="rounded-full px-2.5 py-1 text-xs font-semibold text-ink-700 transition-colors hover:bg-paper-200 disabled:opacity-40 disabled:hover:bg-transparent"
             >
               Geen
             </button>
           </div>
 
-          <div className="max-h-[300px] overflow-y-auto">
-            {/* News sources section */}
-            {newsSources.length > 0 && (
-              <div>
-                {newsSources.map((source) => (
+          <div className="max-h-[320px] overflow-y-auto border-t border-paper-200 pt-1">
+            {newsSources.map((source) => (
+              <SourceCheckbox
+                key={source.name}
+                source={source}
+                isSelected={selectedSources.has(source.name)}
+                onToggle={() => handleToggleSource(source.name)}
+              />
+            ))}
+
+            {/* Social media / commentary accounts */}
+            {socialSources.length > 0 ? (
+              <>
+                <p className="mt-1 border-t border-paper-200 px-2.5 pb-1 pt-2.5 text-xs font-semibold text-ink-500">X en commentaar</p>
+                {socialSources.map((source) => (
                   <SourceCheckbox
                     key={source.name}
                     source={source}
@@ -177,32 +177,11 @@ export function SourceFilter({ sources, selectedSources, onSelectionChange }: So
                     onToggle={() => handleToggleSource(source.name)}
                   />
                 ))}
-              </div>
-            )}
-
-            {/* Social media / commentary section */}
-            {socialSources.length > 0 && (
-              <>
-                <div className="border-t border-paper-200 px-3 py-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">
-                    X / Commentaar
-                  </span>
-                </div>
-                <div>
-                  {socialSources.map((source) => (
-                    <SourceCheckbox
-                      key={source.name}
-                      source={source}
-                      isSelected={selectedSources.has(source.name)}
-                      onToggle={() => handleToggleSource(source.name)}
-                    />
-                  ))}
-                </div>
               </>
-            )}
+            ) : null}
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

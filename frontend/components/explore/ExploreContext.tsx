@@ -19,7 +19,7 @@ import { useToast } from "./ui/Toast";
 
 export type PinInput = Omit<DossierItem, "addedAt" | "eventId" | "eventSlug" | "eventTitle"> & { eventId?: number | null };
 
-/** A sheet closes before a jump: vaul keeps the page fixed while it is open. */
+/** A sheet closes before a jump: it keeps the page still while it is open. */
 const SHEET_CLOSE_MS = 350;
 
 interface ExploreContextValue {

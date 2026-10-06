@@ -13,7 +13,7 @@ import type { PmEntity, PmRelation } from "@/lib/types";
 
 import { useExplore } from "../ExploreContext";
 import { useWhyRoutes } from "../why/useWhyRoutes";
-import { Eyebrow, Tag } from "../ui/primitives";
+import { Tag } from "../ui/primitives";
 import { Sheet } from "../ui/Sheet";
 import { PmAttribution } from "./PmSection";
 import { RouteList } from "./RouteList";
@@ -45,13 +45,16 @@ export function FiltersSheet() {
           const relations = structural.get(filter.id) ?? [];
           const eventSignals = signals.find((entry) => entry.filter === filter.id)?.signals ?? [];
           return (
-            <section key={filter.id} className="space-y-2 rounded-2xl border border-paper-300 bg-paper-50 p-3" style={{ borderLeftColor: filter.color, borderLeftWidth: 4 }}>
+            <section key={filter.id} className="space-y-3 rounded-2xl border border-paper-300 bg-paper-50 p-4">
               <div>
-                <p className="font-semibold text-ink-900">{filter.label}</p>
-                <p className="text-xs text-ink-500">{filter.question}</p>
+                <p className="flex items-center gap-2 font-serif text-lg font-bold text-ink-900">
+                  <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: filter.color }} />
+                  {filter.label}
+                </p>
+                <p className="text-sm text-ink-500">{filter.question}</p>
               </div>
               <div className="space-y-1">
-                <Eyebrow>In het netwerk</Eyebrow>
+                <p className="text-sm font-semibold text-ink-700">In het netwerk</p>
                 {relations.length ? (
                   <ul className="space-y-1 text-sm">
                     {relations.slice(0, 5).map((relation) => (
@@ -72,7 +75,7 @@ export function FiltersSheet() {
                 )}
               </div>
               <div className="space-y-1">
-                <Eyebrow>In dit nieuws</Eyebrow>
+                <p className="text-sm font-semibold text-ink-700">In dit nieuws</p>
                 {eventSignals.length ? (
                   <ul className="space-y-1 text-sm">
                     {eventSignals.map((signal, i) => {
@@ -120,12 +123,10 @@ function Touchpoints() {
   const relations = useMemo(() => new Map((why.paths?.relations ?? []).map((relation) => [relation.id, relation])), [why.paths]);
   if (why.unavailable) return null;
   return (
-    <section className="space-y-2 rounded-2xl border border-paper-300 bg-paper-50 p-3" aria-labelledby="raakvlakken">
-      <div>
-        <p id="raakvlakken" className="font-semibold text-ink-900">
-          Media verbonden met dit nieuws
-        </p>
-      </div>
+    <section className="space-y-2 rounded-2xl border border-paper-300 bg-paper-50 p-4" aria-labelledby="raakvlakken">
+      <p id="raakvlakken" className="font-serif text-lg font-bold text-ink-900">
+        Media verbonden met dit nieuws
+      </p>
       {why.loading ? <p className="text-sm text-ink-500">Zoeken…</p> : null}
       {!why.loading && why.noActors ? <p className="text-sm text-ink-500">Geen partijen uit dit nieuws in het propagandamodel.</p> : null}
       {!why.loading && !why.noActors && list.length === 0 ? (

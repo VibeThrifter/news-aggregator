@@ -14,7 +14,7 @@ import { exploreAuxSwrOptions } from "@/lib/swr-config";
 import { useExplore } from "../ExploreContext";
 import { ResearchStatusCard } from "../entity/ResearchStatus";
 import { useEntityResearch } from "../entity/useEntityResearch";
-import { Eyebrow } from "../ui/primitives";
+import { SubHeading } from "../ui/primitives";
 import { AutoApprovedTag, MiniEgoNetwork } from "./MiniEgoNetwork";
 
 // Kept here for existing imports (usePmExplorer, sheets); the helper itself lives in pm-graph
@@ -99,9 +99,9 @@ export function PmSection({
     <section className="space-y-3" aria-labelledby="network-research-title">
       <div className="flex items-center gap-2">
         <Waypoints size={16} className="text-accent-red" aria-hidden="true" />
-        <Eyebrow>
+        <SubHeading>
           <span id="network-research-title">Netwerk &amp; onderzoek</span>
-        </Eyebrow>
+        </SubHeading>
       </div>
 
       {wantHood && !hood.data && !hood.error ? <div className="h-40 animate-pulse rounded-xl bg-paper-200" aria-label="Netwerk laden" /> : null}

@@ -6,11 +6,13 @@ import { ExternalLink } from "lucide-react";
 import { relationResearchStatus } from "@/lib/api";
 import {
   ARGUMENT_STATUS_LABELS,
+  autoChecked,
+  CHECK_LABELS,
+  checkOf,
   evidenceGaps,
   evidenceOf,
   evidenceSummary,
   fromParty,
-  isChecked,
   researchNote,
   shortName,
   sourceLabel,
@@ -19,9 +21,9 @@ import {
 } from "@/lib/explore/evidence";
 import { labelSourceId, pmRelationLabel } from "@/lib/explore/labels";
 import { exploreAuxSwrOptions } from "@/lib/swr-config";
-import type { PmArgument, PmArgumentSource, PmDetails } from "@/lib/types";
+import type { PmArgument, PmArgumentSource, PmDetails, PmSourceCheck } from "@/lib/types";
 
-import { Eyebrow, Tag } from "../ui/primitives";
+import { SubHeading, Tag } from "../ui/primitives";
 
 type RelationEnds = Pick<PmDetails, "type" | "mechanism" | "source" | "target">;
 
@@ -40,9 +42,11 @@ export function relationSentence(details: RelationEnds): string | null {
   return ends && details.type ? `${ends.first.name} ${pmRelationLabel(details.type, details.mechanism)} ${ends.last.name}` : null;
 }
 
-export function ArgumentStatusTag({ status, checked = false }: { status: string; checked?: boolean }) {
+export function ArgumentStatusTag({ status, checked = false, check = null }: { status: string; checked?: boolean; check?: PmSourceCheck | null }) {
   // Checked by the automatic review of the propaganda model (not by a person)
-  if (checked && status !== "geverifieerd") return <Tag tone="green">automatisch gecontroleerd</Tag>;
+  if (checked) return <Tag tone="green">automatisch gecontroleerd</Tag>;
+  // The automatic check did not hold: say what it found instead of "niet gecontroleerd"
+  if (check) return <Tag tone="orange">{CHECK_LABELS[check]}</Tag>;
   const known = ARGUMENT_STATUS_LABELS[status];
   return <Tag tone={known?.tone ?? "neutral"}>{known?.label ?? status.replace(/_/g, " ")}</Tag>;
 }
@@ -59,7 +63,7 @@ function SourceItem({ source, party }: { source: PmArgumentSource; party?: strin
       ) : (
         <p className="text-sm font-semibold">{source.title}</p>
       )}
-      <p className="text-xs text-ink-500">{[sourceLabel(source), own, source.checked ? "citaat teruggevonden" : null].filter(Boolean).join(" · ")}</p>
+      <p className="text-xs text-ink-500">{[sourceLabel(source), own, source.checked ? "citaat teruggevonden" : source.check ? CHECK_LABELS[source.check] : null].filter(Boolean).join(" · ")}</p>
       {source.quote ? <p className="mt-1 text-xs italic text-ink-700">“{source.quote}”</p> : null}
     </li>
   );
@@ -70,10 +74,10 @@ function ArgumentItem({ argument, all, party, depth = 0 }: { argument: PmArgumen
   return (
     <li className={depth ? "border-l-2 border-paper-300 pl-3" : ""}>
       <div className="space-y-1.5">
-        {depth ? <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">{argument.stance === "contradicting" ? "Reactie: tegen" : argument.stance === "contextual" ? "Reactie: nuance" : "Reactie: steun"}</p> : null}
+        {depth ? <p className="text-xs font-semibold text-ink-500">{argument.stance === "contradicting" ? "Reactie: tegen" : argument.stance === "contextual" ? "Reactie: nuance" : "Reactie: steun"}</p> : null}
         <p className="leading-relaxed text-ink-800">{argument.claim}</p>
         <div className="flex flex-wrap gap-1.5">
-          <ArgumentStatusTag status={argument.status} checked={isChecked(argument)} />
+          <ArgumentStatusTag status={argument.status} checked={autoChecked(argument)} check={checkOf(argument)} />
           {argument.aspect && argument.aspect !== "existence" ? <Tag>over: {ASPECT_LABELS[argument.aspect] ?? argument.aspect.replace(/_/g, " ")}</Tag> : null}
           {argument.sources.length === 0 ? <Tag>zonder bron</Tag> : null}
         </div>
@@ -109,7 +113,7 @@ function ArgumentSection({ title, items, all, party }: { title: string; items: P
   if (items.length === 0) return null;
   return (
     <div className="space-y-2">
-      <Eyebrow>{title}</Eyebrow>
+      <SubHeading>{title}</SubHeading>
       <ul className="space-y-4">
         {items.map((argument) => (
           <ArgumentItem key={argument.id} argument={argument} all={all} party={party} />
@@ -150,7 +154,7 @@ export function PmRelationDiscussion({ details, demo = false }: { details: PmDet
       </div>
       {details.mechanism_description ? (
         <div className="space-y-1">
-          <Eyebrow>{details.mechanism ? `Wat het model bedoelt met ${details.mechanism.toLowerCase()}` : "Wat het model hiermee bedoelt"}</Eyebrow>
+          <SubHeading>{details.mechanism ? `Wat het model bedoelt met ${details.mechanism.toLowerCase()}` : "Wat het model hiermee bedoelt"}</SubHeading>
           <p className="leading-relaxed text-ink-700">{details.mechanism_description}</p>
           {details.mechanism_effect ? <p className="text-xs leading-relaxed text-ink-500">Gevolg: {details.mechanism_effect}</p> : null}
         </div>
@@ -160,7 +164,7 @@ export function PmRelationDiscussion({ details, demo = false }: { details: PmDet
       <ArgumentSection title="Tegenargumenten" items={roots.filter((argument) => argument.stance === "contradicting")} all={all} party={party} />
       {summary ? (
         <div className="space-y-1">
-          <Eyebrow>Samenvatting in het model</Eyebrow>
+          <SubHeading>Samenvatting in het model</SubHeading>
           <p className="leading-relaxed text-ink-700">{summary}</p>
         </div>
       ) : null}

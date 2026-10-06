@@ -11,7 +11,8 @@ import { exportDossier, useExploreStore, type DossierItem } from "@/lib/explore/
 import { autoPlace, computeSuggestions } from "@/lib/explore/suggestions";
 
 import { ToastProvider, useToast } from "../ui/Toast";
-import { Chip, Eyebrow, Tag } from "../ui/primitives";
+import { Chip, SubHeading, Tag } from "../ui/primitives";
+import { ScrollRow } from "../ui/ScrollRow";
 
 const BoardCanvas = dynamic(() => import("./BoardCanvas"), {
   ssr: false,
@@ -137,7 +138,7 @@ function Board() {
             {mode === "bord" ? <List size={18} /> : <LayoutDashboard size={18} />}
           </button>
         </div>
-        <div className="-mx-3 flex gap-1.5 overflow-x-auto px-3 pb-1">
+        <ScrollRow fade="paper-50" className="-mx-3 gap-1.5 px-3 pb-1">
           <Chip icon={<StickyNote size={14} />} onClick={addNote}>
             Notitie
           </Chip>
@@ -158,7 +159,7 @@ function Board() {
               event.target.value = "";
             }}
           />
-        </div>
+        </ScrollRow>
       </header>
 
       <div className="relative min-h-0 flex-1">
@@ -167,7 +168,7 @@ function Board() {
             <p className="font-serif text-xl font-bold text-ink-900">Nog niets bewaard</p>
             {recentEvents.length ? (
               <div className="space-y-2 text-left">
-                <Eyebrow>Laatst bekeken</Eyebrow>
+                <SubHeading>Laatst bekeken</SubHeading>
                 {recentEvents.map(([id, progress]) => (
                   <Link
                     key={id}
@@ -225,7 +226,7 @@ function Board() {
             </a>
           ) : null}
           <div className="mt-3 space-y-2">
-            <Eyebrow>Verbind met</Eyebrow>
+            <SubHeading>Verbind met</SubHeading>
             <div className="flex flex-wrap gap-1.5">
               {items
                 .filter((other) => other.id !== selectedItem.id)
@@ -324,7 +325,7 @@ function BoardList({ items, onSelect }: { items: DossierItem[]; onSelect: (id: s
     <div className="h-full space-y-5 overflow-y-auto p-4 pb-32">
       {Array.from(groups.entries()).map(([title, list]) => (
         <section key={title} className="space-y-2">
-          <Eyebrow>{title}</Eyebrow>
+          <SubHeading>{title}</SubHeading>
           <ul className="space-y-1.5">
             {list.map((item) => (
               <li key={item.id}>

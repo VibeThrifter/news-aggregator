@@ -13,7 +13,7 @@ import { exploreAuxSwrOptions } from "@/lib/swr-config";
 import { ResearchStatusCard } from "../entity/ResearchStatus";
 import { useEntityResearch } from "../entity/useEntityResearch";
 import { PmAttribution } from "../network/PmSection";
-import { Eyebrow } from "../ui/primitives";
+import { SubHeading } from "../ui/primitives";
 
 const dateFormatter = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short", year: "numeric" });
 
@@ -69,7 +69,7 @@ export function CooccurrenceSection({ aliases, demo }: { aliases: string[]; demo
                       {row.last_event_title ? ` · laatst: ${row.last_event_title}` : ""}
                     </span>
                   </span>
-                  <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+                  <span className="shrink-0 text-xs font-medium text-ink-400">
                     {kind === "person" ? "Persoon" : "Organisatie"}
                   </span>
                   <ChevronRight size={16} className="shrink-0 text-ink-400" aria-hidden="true" />
@@ -131,9 +131,9 @@ export function ActorResearchSection({ keys, name, demo, inModel = false }: { ke
   if (inModel && !research.loading && !research.row) return null;
   return (
     <section className="space-y-2" aria-labelledby="actor-research">
-      <Eyebrow>
+      <SubHeading>
         <span id="actor-research">Onderzoeksstatus</span>
-      </Eyebrow>
+      </SubHeading>
       {research.loading ? (
         <div className="h-16 animate-pulse rounded-xl bg-paper-200" aria-label="Onderzoeksstatus laden" />
       ) : (

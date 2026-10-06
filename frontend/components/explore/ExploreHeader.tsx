@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, BookOpen, FolderOpen } from "lucide-react";
+import { motion } from "framer-motion";
+import { ArrowLeft, ChevronDown, ChevronUp, FolderOpen } from "lucide-react";
 
 import { getCategoryForEventType } from "@/lib/categories";
 import { newsStart, storyThread } from "@/lib/explore/chronology";
@@ -13,7 +14,12 @@ import { formatEventTimeframe, getCountryFlag, getCountryName } from "@/lib/form
 
 import { useExplore } from "./ExploreContext";
 import { EntityText } from "./entity/EntityText";
+import { FullStory } from "./summary/FullStory";
 import { Balloon } from "./ui/Balloon";
+import { PILL } from "./ui/primitives";
+
+/** Characters of the first paragraph shown before "Lees alles" */
+const TEASER_LENGTH = 320;
 
 function outletsLine(dutch: string[], foreign: number): string {
   const names = dutch.length === 0 ? "" : dutch.length <= 2 ? dutch.join(" en ") : `${dutch.length} Nederlandse bronnen`;
@@ -39,17 +45,42 @@ export function ExploreHeader() {
   const startMs = newsStart(input);
   const start = Number.isNaN(startMs) ? input.event.firstSeenAt : new Date(startMs).toISOString();
 
+  // "Lees alles" unfolds the whole summary here, downwards from the first paragraph
+  const { firstParagraph, body } = input.summary;
+  const hasMore = firstParagraph.length > TEASER_LENGTH || body.split(/\n\s*\n/).filter((part) => part.trim()).length > 1;
+  const [readAll, setReadAll] = useState(false);
+  const teaser = useRef<HTMLDivElement | null>(null);
+  const story = useRef<HTMLDivElement | null>(null);
+  const [teaserHeight, setTeaserHeight] = useState<number | null>(null);
+  // Links to the old story sheet (?p=samenvatting) open the story here
+  const storyLink = panel.panel === "samenvatting";
+  const closePanel = panel.close;
+  useEffect(() => {
+    if (!storyLink) return;
+    setReadAll(true);
+    closePanel();
+  }, [storyLink, closePanel]);
+  const toggleStory = () => {
+    if (!readAll) {
+      setTeaserHeight(teaser.current?.offsetHeight ?? null);
+      setReadAll(true);
+      return;
+    }
+    setReadAll(false);
+    // Back to the start of the story when its end was read far down the page
+    window.requestAnimationFrame(() => {
+      const top = story.current?.getBoundingClientRect().top ?? 0;
+      if (top < 0) story.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+  };
+
   return (
     <header className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <Link href="/" className="-ml-2 inline-flex min-h-[44px] items-center gap-1 rounded-full px-2 text-sm text-ink-500 hover:text-ink-900">
+        <Link href="/" className={PILL}>
           <ArrowLeft size={16} /> Nieuws
         </Link>
-        <button
-          type="button"
-          onClick={() => panel.open("dossier")}
-          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-ink-700 hover:bg-paper-200"
-        >
+        <button type="button" onClick={() => panel.open("dossier")} className={PILL}>
           <FolderOpen size={16} /> Bewaard
           {dossierCount ? <span className="rounded-full bg-ink-900 px-1.5 text-xs text-white">{dossierCount}</span> : null}
         </button>
@@ -88,18 +119,37 @@ export function ExploreHeader() {
         </button>
       ) : null}
 
-      {input.summary.firstParagraph ? (
-        <div>
-          <p className="font-serif text-[17px] leading-relaxed text-ink-800">
-            <EntityText text={truncate(input.summary.firstParagraph, 320)} />
-          </p>
-          <button
-            type="button"
-            onClick={() => panel.open("samenvatting")}
-            className="mt-1 inline-flex min-h-[40px] items-center gap-1.5 text-sm font-semibold text-accent-blue"
-          >
-            <BookOpen size={15} /> Lees alles
-          </button>
+      {firstParagraph ? (
+        <div ref={story} className="scroll-mt-4">
+          {readAll ? (
+            <motion.section
+              aria-label="Het hele verhaal"
+              initial={teaserHeight !== null ? { height: teaserHeight } : false}
+              animate={{ height: "auto" }}
+              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+              className="overflow-hidden"
+            >
+              <FullStory markdown={body} />
+              <p className="mt-4 text-xs text-ink-500">Samenvatting door AI, op basis van de gekoppelde artikelen.</p>
+            </motion.section>
+          ) : (
+            <div ref={teaser}>
+              <p className="font-serif text-[17px] leading-relaxed text-ink-800">
+                <EntityText text={truncate(firstParagraph, TEASER_LENGTH)} />
+              </p>
+            </div>
+          )}
+          {hasMore ? (
+            <button
+              type="button"
+              aria-expanded={readAll}
+              onClick={toggleStory}
+              className="mt-1 inline-flex min-h-[40px] items-center gap-1 text-sm font-semibold text-accent-blue"
+            >
+              {readAll ? "Minder" : "Lees alles"}
+              {readAll ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
+            </button>
+          ) : null}
         </div>
       ) : null}
 

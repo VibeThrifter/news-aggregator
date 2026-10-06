@@ -4,92 +4,65 @@ import Link from "next/link";
 import Image from "next/image";
 
 import { EventListItem } from "@/lib/api";
-import { getCategoryForEventType } from "@/lib/categories";
-import {
-  formatEventTimeframe,
-  resolveEventSlug,
-} from "@/lib/format";
+import { resolveEventSlug } from "@/lib/format";
 import { SpectrumBar } from "@/components/SpectrumBar";
 
-const dateTimeFormatter = new Intl.DateTimeFormat("nl-NL", {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-const numberFormatter = new Intl.NumberFormat("nl-NL");
+import { EventByline, eventCategory, newsTime } from "./EventMeta";
 
 export interface EventCardProps {
   event: EventListItem;
   imageUrl?: string | null;
 }
 
+/** A news item in the grid of the front page; the whole card opens the event. */
 export function EventCard({ event, imageUrl }: EventCardProps) {
-  const timeframeLabel = formatEventTimeframe(event.first_seen_at, event.last_updated_at);
-  const lastUpdated = event.last_updated_at ? new Date(event.last_updated_at) : null;
   const detailHref = resolveEventSlug(event);
-  const category = getCategoryForEventType(event.event_type);
+  const category = eventCategory(event.event_type);
+  const time = newsTime(event.last_updated_at);
+  // Where the outlets stand only says something when there are at least two Dutch ones
+  const dutch = (event.source_breakdown ?? []).filter((entry) => !entry.is_international).length;
 
   return (
-    <article className="flex flex-col gap-4 rounded-sm border border-paper-300 bg-paper-50 p-5 shadow-card-light transition-shadow hover:shadow-md">
-      {/* Optional image */}
-      {imageUrl && (
-        <div className="relative aspect-[16/9] -mx-5 -mt-5 mb-1 overflow-hidden rounded-t-sm">
-          <Image
-            src={imageUrl}
-            alt=""
-            fill
-            className="object-cover"
-            sizes="(max-width: 768px) 100vw, 33vw"
-          />
+    <Link
+      href={detailHref}
+      className="group flex h-full flex-col overflow-hidden rounded-2xl border border-paper-300 bg-paper-50 transition-shadow hover:shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue"
+    >
+      {imageUrl ? (
+        <div className="relative aspect-[16/9] bg-paper-200">
+          <Image src={imageUrl} alt="" fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
         </div>
-      )}
+      ) : null}
 
-      <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
+      <article className="flex flex-1 flex-col gap-3 p-5">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-500">
+          {category ? (
             <span
-              className={`inline-flex items-center rounded-sm border px-2 py-0.5 text-xs font-medium ${category.color} ${category.bgColor} ${category.borderColor}`}
+              className={`rounded-full border px-2 py-0.5 font-semibold ${category.color} ${category.bgColor} ${category.borderColor}`}
               data-testid="category-badge"
             >
               {category.label}
             </span>
-          </div>
-          <p className="text-sm text-ink-500">{timeframeLabel}</p>
+          ) : null}
+          {time ? <time dateTime={event.last_updated_at ?? undefined}>{time}</time> : null}
         </div>
-        <div className="flex items-center gap-2 rounded-sm border border-paper-300 bg-paper-100 px-3 py-1.5 text-sm font-medium text-ink-700">
-          <span className="inline-block h-2 w-2 rounded-full bg-accent-blue" aria-hidden="true" />
-          {numberFormatter.format(event.article_count)} artikelen
-        </div>
-      </header>
 
-      <div className="space-y-2">
         {event.has_llm_insights ? (
-          <h2 className="font-serif text-headline-md text-ink-900">
+          <h3 className="line-clamp-3 font-serif text-lg font-bold leading-snug text-ink-900 decoration-1 underline-offset-2 group-hover:underline">
             {event.title}
-          </h2>
+          </h3>
         ) : (
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center rounded-sm border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
-              Wacht op analyse
-            </span>
-            <span className="text-sm text-ink-500">Event #{event.id}</span>
-          </div>
+          <p className="flex items-center gap-2 text-sm text-ink-500">
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800">Wacht op analyse</span>
+            Nieuwsitem {event.id}
+          </p>
         )}
-      </div>
 
-      <SpectrumBar sourceBreakdown={event.source_breakdown} compact />
-
-      <footer className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-2 border-t border-paper-200">
-        <p className="text-xs text-ink-500">
-          {lastUpdated ? `Laatst bijgewerkt ${dateTimeFormatter.format(lastUpdated)}` : "Laatste update onbekend"}
-        </p>
-        <Link
-          href={detailHref}
-          className="inline-flex items-center justify-center rounded-sm bg-ink-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-ink-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2"
-        >
-          Bekijk event
-        </Link>
-      </footer>
-    </article>
+        <div className="mt-auto space-y-3 pt-1">
+          {dutch >= 2 ? <SpectrumBar sourceBreakdown={event.source_breakdown} compact /> : null}
+          <EventByline event={event} />
+        </div>
+      </article>
+    </Link>
   );
 }
 

@@ -8,7 +8,7 @@ import type { EventEntity } from "@/lib/types";
 import { dossierIds, useExplore } from "../ExploreContext";
 import { SpeakerCard } from "../map/PeopleCards";
 import { PmSection } from "../network/PmSection";
-import { Eyebrow } from "../ui/primitives";
+import { SubHeading } from "../ui/primitives";
 import { Sheet } from "../ui/Sheet";
 import { ArticleSearch, EntityCoverage, MentionsByOutlet } from "./ArticleMentions";
 import { WikipediaBlock } from "./Wikipedia";
@@ -73,7 +73,7 @@ export function EntitySheet({ entityKey }: { entityKey: string }) {
       <div className="space-y-6">
         {speaking.length ? (
           <section className="space-y-3">
-            <Eyebrow>In dit nieuws</Eyebrow>
+            <SubHeading>In dit nieuws</SubHeading>
             {speaking.map((speaker) => (
               <div key={speaker.id} className="rounded-2xl border border-paper-300 p-3">
                 <SpeakerCard speakerId={speaker.id} inSheet />
@@ -85,7 +85,7 @@ export function EntitySheet({ entityKey }: { entityKey: string }) {
         <MentionsByOutlet entity={entity} name={name} />
 
         <section className="space-y-2">
-          <Eyebrow>Achtergrond</Eyebrow>
+          <SubHeading>Achtergrond</SubHeading>
           <WikipediaBlock key={name} name={name} />
         </section>
 

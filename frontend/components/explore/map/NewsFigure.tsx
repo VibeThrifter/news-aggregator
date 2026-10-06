@@ -32,6 +32,7 @@ import { Badge, MarkerButton, useFocusRing } from "./Markers";
 import { AddButton, FoundTag, OwnForm, OwnTag } from "./OwnForm";
 import { Avatar, GhostCard, SpeakerCard } from "./PeopleCards";
 import { SpectrumMap } from "./SpectrumMap";
+import { ScrollRow } from "../ui/ScrollRow";
 
 const RING = "ring-4 ring-amber-300 ring-offset-2";
 
@@ -217,7 +218,7 @@ function GroupHeader({ group }: { group: FigureGroup }) {
   }
   if (group.kind === "missing") {
     return (
-      <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-teal-800">
+      <p className="flex items-center gap-1.5 text-sm font-semibold text-teal-800">
         <MicOff size={14} aria-hidden="true" /> {group.label}
       </p>
     );
@@ -623,13 +624,13 @@ function SourcePicker({
     );
   };
   return (
-    <div role="group" aria-label="Bronnen in het beeld" className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-1">
+    <ScrollRow role="group" aria-label="Bronnen in het beeld" className="-mx-1 items-center gap-1.5 px-1 pb-1">
       {dutch.map(chip)}
       {foreign.length ? (
-        <span className="shrink-0 border-l border-paper-300 pl-2 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Buitenland</span>
+        <span className="shrink-0 border-l border-paper-300 pl-2 text-xs font-medium text-ink-400">Buitenland</span>
       ) : null}
       {foreign.map(chip)}
       {add}
-    </div>
+    </ScrollRow>
   );
 }

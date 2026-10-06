@@ -36,10 +36,11 @@ import type { OwnEntry, OwnKind, TabId } from "@/lib/explore/types";
 import { moderateSharedEntry, reportSharedEntry, sharedEntriesForEvent, type ReportReason, type SharedEntry } from "@/lib/shared";
 
 import { useExplore } from "../ExploreContext";
-import { Eyebrow, Favicon } from "../ui/primitives";
+import { SubHeading, Favicon } from "../ui/primitives";
 import { useToast } from "../ui/Toast";
 import { Badge, MARKER_STYLE } from "./Markers";
 import { Avatar } from "./PeopleCards";
+import { ScrollRow } from "../ui/ScrollRow";
 
 const NO_ENTRIES: SharedEntry[] = [];
 const FIRST = 8;
@@ -262,7 +263,7 @@ export function SharedRow({ group, have, onNavigate }: { group: SharedGroup; hav
           <KindSign entry={lead} />
         </span>
         <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="min-w-0 flex-1 text-left">
-          <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">{kindLine(lead)}</span>
+          <span className="block text-xs font-semibold text-ink-500">{kindLine(lead)}</span>
           <span className={`block text-sm leading-snug text-ink-900 ${lead.kind === "claim" || lead.kind === "fallacy" ? "italic" : ""}`}>
             {truncate(lead.text, open ? 300 : 160)}
           </span>
@@ -394,7 +395,7 @@ export function OthersSection({ tab }: { tab: TabId }) {
             </label>
           ) : null}
           {kinds.length > 1 && inTab.length > 3 ? (
-            <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+            <ScrollRow className="-mx-1 gap-1.5 px-1 pb-1">
               {[null, ...kinds].map((item) => (
                   <button
                     key={item ?? "alles"}
@@ -408,7 +409,7 @@ export function OthersSection({ tab }: { tab: TabId }) {
                     {item ? OWN_KIND_LABELS[item] : "Alles"}
                   </button>
               ))}
-            </div>
+            </ScrollRow>
           ) : null}
           {inTab.length > 2 ? (
             <div className="flex justify-end">
@@ -463,9 +464,9 @@ export function OthersAbout({ anchor, onNavigate }: { anchor: string; onNavigate
   const tab = OWN_KINDS[about[0].lead.kind].tab;
   return (
     <div className="space-y-1">
-      <Eyebrow className="flex items-center gap-1.5">
-        <Users size={12} aria-hidden="true" /> Van anderen
-      </Eyebrow>
+      <SubHeading className="flex items-center gap-1.5">
+        <Users size={14} aria-hidden="true" /> Van anderen
+      </SubHeading>
       <ul className="divide-y divide-paper-200">
         {about.slice(0, 3).map((group) => (
           <SharedRow key={group.key} group={group} have={have.has(group.key)} onNavigate={onNavigate} />

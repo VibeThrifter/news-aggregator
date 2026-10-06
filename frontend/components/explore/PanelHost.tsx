@@ -7,7 +7,6 @@ import { legacyFindingId } from "@/lib/explore/findings";
 
 import { useExplore } from "./ExploreContext";
 
-const SummarySheet = dynamic(() => import("./summary/SummarySheet").then((m) => m.SummarySheet), { ssr: false });
 const EntitySheet = dynamic(() => import("./entity/EntitySheet").then((m) => m.EntitySheet), { ssr: false });
 const DossierSheet = dynamic(() => import("./dossier/DossierSheet").then((m) => m.DossierSheet), { ssr: false });
 const CompareSheet = dynamic(() => import("./compare/CompareSheet").then((m) => m.CompareSheet), { ssr: false });
@@ -38,14 +37,13 @@ function useFindingLink() {
   }, [f, legacy]);
 }
 
-/** Renders the sheet that belongs to the ?p= URL parameter. */
+/** Renders the sheet that belongs to the ?p= URL parameter ("samenvatting" unfolds in the header). */
 export function PanelHost() {
   const { panel } = useExplore();
   useFindingLink();
   const current = panel.panel;
   if (!current) return null;
 
-  if (current === "samenvatting") return <SummarySheet />;
   if (current === "dossier") return <DossierSheet />;
   if (current === "vergelijk") return <CompareSheet />;
   if (current === "model") return <ModelSheet />;

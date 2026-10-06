@@ -16,7 +16,7 @@ import { exploreAuxSwrOptions } from "@/lib/swr-config";
 
 import { WikipediaBlock } from "../entity/Wikipedia";
 import { AutoApprovedTag } from "../network/MiniEgoNetwork";
-import { Eyebrow, Tag } from "../ui/primitives";
+import { PILL, Tag } from "../ui/primitives";
 import { ActorResearchSection, AppearancesSection, CooccurrenceSection, DatasetAttribution, SectionTitle } from "./ActorSections";
 
 const ActorNetwork = dynamic(() => import("./ActorNetwork").then((m) => m.ActorNetwork), {
@@ -108,11 +108,11 @@ export function ActorScreen({ slug }: { slug: string }) {
           <button
             type="button"
             onClick={goBack}
-            className="-ml-2 inline-flex min-h-[44px] items-center gap-1 rounded-full px-2 text-sm text-ink-500 hover:text-ink-900"
+            className={PILL}
           >
             <ArrowLeft size={16} aria-hidden="true" /> Terug
           </button>
-          <Eyebrow>Wie is dit?</Eyebrow>
+          <p className="text-sm font-medium text-ink-500">Wie is dit?</p>
           <h1 className="font-serif text-2xl font-bold leading-tight text-ink-900 sm:text-3xl">{name}</h1>
           <div className="flex flex-wrap items-center gap-1.5">
             <Tag>{typeLabel}</Tag>

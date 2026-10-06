@@ -27,7 +27,7 @@ import { useExplore } from "../ExploreContext";
 import { AutoApprovedTag } from "../network/MiniEgoNetwork";
 import { PmAttribution } from "../network/PmSection";
 import { stepLabel } from "../network/RouteList";
-import { Tag } from "../ui/primitives";
+import { PILL, Tag } from "../ui/primitives";
 import { useWhyRoutes } from "./useWhyRoutes";
 
 /** Parties shown before "Nog …" */
@@ -108,7 +108,7 @@ export function WhoIsBehind() {
         </h2>
         <Link
           href={networkHref}
-          className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full border border-paper-300 bg-paper-50 px-3 text-sm font-semibold text-ink-800 hover:bg-paper-100"
+          className={PILL}
         >
           <Network size={15} /> Netwerk
         </Link>

@@ -10,7 +10,7 @@ import { useExploreStore } from "@/lib/explore/store";
 
 import { useExplore } from "../ExploreContext";
 import { OutletCard } from "../outlet/OutletCard";
-import { Chip, Eyebrow, Favicon } from "../ui/primitives";
+import { Chip, SubHeading, Favicon } from "../ui/primitives";
 import { Sheet } from "../ui/Sheet";
 
 function Cell({ children }: { children: ReactNode }) {
@@ -20,7 +20,7 @@ function Cell({ children }: { children: ReactNode }) {
 function CompareRow({ label, a, b, differ }: { label: string; a: ReactNode; b: ReactNode; differ?: boolean }) {
   return (
     <div className={`space-y-1 rounded-xl p-2 ${differ ? "bg-amber-50" : ""}`}>
-      <Eyebrow>{label}</Eyebrow>
+      <SubHeading>{label}</SubHeading>
       <div className="grid grid-cols-2 gap-3">
         <Cell>{a}</Cell>
         <Cell>{b}</Cell>
@@ -36,7 +36,7 @@ function OutletPicker({ exclude, onPick }: { exclude: (string | null)[]; onPick:
   const options = exploration.input.outlets.filter((outlet) => !outlet.isInternational && !exclude.includes(outlet.key));
   return (
     <div className="space-y-2">
-      <Eyebrow>Kies een bron om mee te vergelijken</Eyebrow>
+      <SubHeading>Kies een bron om mee te vergelijken</SubHeading>
       <div className="flex flex-wrap gap-1.5">
         {options.map((outlet) => (
           <Chip key={outlet.key} icon={<Favicon name={outlet.name} domain={outlet.domain} size={14} />} onClick={() => onPick(outlet.key)}>
@@ -98,7 +98,7 @@ export function CompareSheet() {
 
           {between.length ? (
             <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">
-              <Eyebrow className="text-red-700">Ze spreken elkaar tegen</Eyebrow>
+              <SubHeading tone="text-red-700">Ze spreken elkaar tegen</SubHeading>
               {between.map((finding) =>
                 finding.body.type === "contradiction" ? (
                   <p key={finding.id} className="mt-1 font-semibold">

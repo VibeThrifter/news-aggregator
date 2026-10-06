@@ -14,7 +14,7 @@ import { WikipediaBlock } from "../entity/Wikipedia";
 import { AutoApprovedTag } from "../network/MiniEgoNetwork";
 import { PmRelationDiscussion, relationSentence } from "../network/PmEvidence";
 import { PmAttribution } from "../network/PmSection";
-import { Eyebrow, Tag } from "../ui/primitives";
+import { SubHeading, Tag } from "../ui/primitives";
 import { Sheet } from "../ui/Sheet";
 
 const CERTAINTY_LABELS: Record<string, { label: string; tone: "green" | "neutral" | "orange" }> = {
@@ -86,14 +86,14 @@ export function ActorPmDetailsSheet({ kind, id, demo }: { kind: "entity" | "rela
                 <UserRound size={16} aria-hidden="true" /> Profiel van {data.title}
               </Link>
               <div className="space-y-2">
-                <Eyebrow>Achtergrond</Eyebrow>
+                <SubHeading>Achtergrond</SubHeading>
                 <WikipediaBlock key={data.title} name={data.title} />
               </div>
             </>
           ) : null}
           {data.sources.length && !(kind === "relation" && data.arguments?.length) ? (
             <div className="space-y-2">
-              <Eyebrow>Bronnen</Eyebrow>
+              <SubHeading>Bronnen</SubHeading>
               <ul className="space-y-2">
                 {data.sources.map((source, i) => (
                   <li key={i} className="rounded-xl border border-paper-300 bg-paper-50 p-3">

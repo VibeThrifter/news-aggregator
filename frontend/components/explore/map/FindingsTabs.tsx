@@ -15,6 +15,7 @@ import { OthersSection, useSharedGroups } from "./Others";
 import { OwnAdd } from "./OwnForm";
 import { StemmenTab } from "./StemmenTab";
 import { TijdlijnTab } from "./TijdlijnTab";
+import { ScrollRow } from "../ui/ScrollRow";
 
 const NONE: never[] = [];
 
@@ -100,7 +101,7 @@ export function FindingsTabs() {
   return (
     <section aria-label="Bevindingen" className="space-y-2">
       <div className="sticky top-0 z-20 -mx-4 bg-paper-100/95 px-4 py-2 backdrop-blur sm:mx-0 sm:px-0">
-        <div ref={bar} role="tablist" aria-label="Vragen" className="-mx-1 flex gap-1.5 overflow-x-auto px-1">
+        <ScrollRow ref={bar} role="tablist" aria-label="Vragen" className="-mx-1 gap-1.5 px-1">
           {visible.map((tab) => (
             <button
               key={tab.id}
@@ -118,7 +119,7 @@ export function FindingsTabs() {
               <span className={`text-xs ${tab.id === current ? "text-white/70" : "text-ink-400"}`}>{counts.get(tab.id)}</span>
             </button>
           ))}
-        </div>
+        </ScrollRow>
       </div>
 
       <div role="tabpanel" aria-label={TABS.find((tab) => tab.id === current)?.label}>

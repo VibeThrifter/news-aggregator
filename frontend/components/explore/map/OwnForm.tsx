@@ -17,6 +17,7 @@ import { useExplore } from "../ExploreContext";
 import { Favicon } from "../ui/primitives";
 import { NumberBadge } from "./Markers";
 import { Avatar } from "./PeopleCards";
+import { ScrollRow } from "../ui/ScrollRow";
 
 /** "jij": added by the reader; "overgenomen": taken over from another reader. */
 export function OwnTag({ adopted = false, className = "" }: { adopted?: boolean; className?: string }) {
@@ -242,7 +243,7 @@ function AnchorPicker({
         {label}
         {!required ? <span className="font-normal text-ink-400">optioneel</span> : null}
       </p>
-      <div ref={strip} role="radiogroup" aria-label={label} className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+      <ScrollRow ref={strip} role="radiogroup" aria-label={label} fade="paper-50" className="-mx-1 gap-1.5 px-1 pb-1">
         {options.map((option) => {
           const outlet = exploration.index.outlet(option.outletKey);
           const checked = value === option.anchor;
@@ -277,7 +278,7 @@ function AnchorPicker({
             </button>
           );
         })}
-      </div>
+      </ScrollRow>
     </div>
   );
 }
@@ -318,7 +319,7 @@ function AboutLine({ findingId }: { findingId: string }) {
   const marker = markerTypeOf(finding);
   return (
     <p className="flex items-start gap-2 rounded-xl bg-orange-50 p-2.5 text-sm text-ink-800">
-      <span className="shrink-0 text-xs font-semibold uppercase tracking-wider text-orange-800">Over</span>
+      <span className="shrink-0 pt-px text-xs font-semibold text-orange-800">Over</span>
       {marker ? <NumberBadge findingId={finding.id} type={marker} /> : null}
       <span className="min-w-0 flex-1">{truncate(findingTitle(finding, exploration.index), 160)}</span>
     </p>

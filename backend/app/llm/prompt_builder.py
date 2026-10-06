@@ -21,6 +21,10 @@ from backend.app.db.session import get_sessionmaker
 from backend.app.services.llm_config_service import get_llm_config_service
 
 LOG = get_logger(__name__).bind(component="PromptBuilder")
+
+# Places kept for foreign outlets next to the Dutch ones. The prompt gets only their headline
+# (Google News); their balloon on the event page shows the article digest, not the analysis.
+FOREIGN_RESERVE = 2
 SENTENCE_PATTERN = re.compile(r"(?<=[.!?])\s+")
 SPECTRUM_FALLBACK = "onbekend"
 ARTICLE_CAPSULE_SENTENCE_LIMIT = 3
@@ -273,48 +277,33 @@ class PromptBuilder:
         *,
         limit: int,
     ) -> List[ArticleCapsule]:
-        # Step 1: Separate international and Dutch articles
-        international = [c for c in capsules if c.is_international]
-        dutch = [c for c in capsules if not c.is_international]
+        """The articles the LLM reads, at most `limit`, in this order:
 
-        selection: List[ArticleCapsule] = []
+        1. the newest article of every Dutch outlet, spread over the spectrum, keeping a few places
+           for foreign outlets: an outlet outside the analysis gets no stance, sentence or speakers
+           on the event page;
+        2. the newest article of every foreign outlet (the prompt gets only its headline);
+        3. the other Dutch articles, spread over the spectrum;
+        4. the other foreign articles.
 
-        # Step 2: Include ALL international articles first (they provide unique perspectives)
-        # Sort by recency and add to selection
-        international_sorted = sorted(
-            international, key=lambda c: c.reference_time, reverse=True
+        Until 2026-10-06 all foreign articles came first, so eight Google News headlines could push
+        every Dutch article out of the prompt.
+        """
+        newest_first = sorted(capsules, key=lambda c: c.reference_time, reverse=True)
+        dutch_firsts, dutch_rest = _split_first_per_source(
+            [c for c in newest_first if not c.is_international]
         )
-        for capsule in international_sorted:
-            if len(selection) >= limit:
-                break
-            selection.append(capsule)
+        foreign_firsts, foreign_rest = _split_first_per_source(
+            [c for c in newest_first if c.is_international]
+        )
+        dutch_firsts = _spread_over_spectrum(dutch_firsts)
+        dutch_rest = _spread_over_spectrum(dutch_rest)
 
-        remaining_slots = limit - len(selection)
-
-        # Step 3: Fill remaining slots with Dutch articles using balanced spectrum selection
-        if remaining_slots > 0 and dutch:
-            grouped: Mapping[str, deque[ArticleCapsule]] = _group_by_spectrum(dutch)
-            ordered_spectra = _order_spectra(grouped)
-
-            iteration = 0
-            while len(selection) < limit and ordered_spectra:
-                iteration += 1
-                for spectrum in list(ordered_spectra):
-                    queue = grouped.get(spectrum)
-                    if not queue:
-                        continue
-                    if len(selection) >= limit:
-                        break
-                    capsule = queue.popleft()
-                    selection.append(capsule)
-                    if not queue:
-                        grouped.pop(spectrum, None)
-                ordered_spectra = _order_spectra(grouped)
-                if iteration > limit * 2:
-                    break
-
-        if len(selection) > limit:
-            selection = selection[:limit]
+        room = max(limit - min(FOREIGN_RESERVE, len(foreign_firsts)), 1)
+        ordered = (
+            dutch_firsts[:room] + foreign_firsts + dutch_firsts[room:] + dutch_rest + foreign_rest
+        )
+        selection = ordered[:limit]
 
         selection.sort(key=lambda item: item.reference_time, reverse=True)
         LOG.info(
@@ -648,6 +637,35 @@ def _split_sentences(text: str) -> List[str]:
     if not sentences:
         sentences = [clean]
     return sentences
+
+
+def _split_first_per_source(
+    capsules: Sequence[ArticleCapsule],
+) -> tuple[List[ArticleCapsule], List[ArticleCapsule]]:
+    """The first article of every source and the others, both in the given order."""
+    seen: set[str] = set()
+    firsts: List[ArticleCapsule] = []
+    rest: List[ArticleCapsule] = []
+    for capsule in capsules:
+        if capsule.source_name in seen:
+            rest.append(capsule)
+        else:
+            seen.add(capsule.source_name)
+            firsts.append(capsule)
+    return firsts, rest
+
+
+def _spread_over_spectrum(capsules: Sequence[ArticleCapsule]) -> List[ArticleCapsule]:
+    """Round robin over the spectra, newest first within each: no side fills the prompt alone."""
+    grouped = dict(_group_by_spectrum(capsules))
+    ordered: List[ArticleCapsule] = []
+    while grouped:
+        for spectrum in _order_spectra(grouped):
+            queue = grouped[spectrum]
+            ordered.append(queue.popleft())
+            if not queue:
+                del grouped[spectrum]
+    return ordered
 
 
 def _group_by_spectrum(capsules: Sequence[ArticleCapsule]) -> Mapping[str, deque[ArticleCapsule]]:

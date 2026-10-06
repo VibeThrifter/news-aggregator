@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
+import { SlidersHorizontal } from "lucide-react";
 
 import { ApiClientError, EventListFilters, listEvents } from "@/lib/api";
 import { DEFAULT_CATEGORY, getCategoryLabel } from "@/lib/categories";
@@ -45,25 +46,16 @@ function resolveErrorMessage(error: unknown): string {
 
 function LoadingSkeleton({ count = 3 }: { count?: number }) {
   return (
-    <div className="grid gap-6">
+    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-label="Nieuws laden">
       {Array.from({ length: count }).map((_, index) => (
-        <div
-          key={index}
-          className="animate-pulse rounded-sm border border-paper-300 bg-paper-50 p-6 shadow-card-light"
-        >
-          <div className="flex flex-col gap-4">
-            <div className="space-y-3">
-              <span className="block h-4 w-24 rounded-sm bg-paper-200" aria-hidden="true" />
-              <span className="block h-6 w-3/4 rounded-sm bg-paper-200" aria-hidden="true" />
-              <span className="block h-4 w-1/2 rounded-sm bg-paper-200" aria-hidden="true" />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <span className="inline-block h-6 w-24 rounded-sm bg-paper-200" aria-hidden="true" />
-              <span className="inline-block h-6 w-20 rounded-sm bg-paper-200" aria-hidden="true" />
-              <span className="inline-block h-6 w-28 rounded-sm bg-paper-200" aria-hidden="true" />
-            </div>
-            <span className="block h-4 w-32 rounded-sm bg-paper-200" aria-hidden="true" />
-          </div>
+        <div key={index} className="animate-pulse space-y-4 rounded-2xl border border-paper-300 bg-paper-50 p-5">
+          <span className="block h-3 w-24 rounded-full bg-paper-200" aria-hidden="true" />
+          <span className="block h-5 w-11/12 rounded-full bg-paper-200" aria-hidden="true" />
+          <span className="block h-5 w-2/3 rounded-full bg-paper-200" aria-hidden="true" />
+          <span className="flex items-center gap-2 pt-2" aria-hidden="true">
+            <span className="h-5 w-5 rounded-full bg-paper-200" />
+            <span className="h-3 w-32 rounded-full bg-paper-200" />
+          </span>
         </div>
       ))}
     </div>
@@ -78,19 +70,16 @@ interface ErrorStateProps {
 
 function ErrorState({ message, onRetry, isRetrying }: ErrorStateProps) {
   return (
-    <div className="rounded-sm border border-red-200 bg-red-50 p-6 text-red-700">
-      <p className="text-sm font-medium">{message}</p>
+    <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-800">
+      <p className="text-sm font-semibold">{message}</p>
       <button
         type="button"
         onClick={onRetry}
         disabled={isRetrying}
-        className="mt-4 inline-flex items-center gap-2 rounded-sm border border-red-300 bg-red-100 px-4 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+        className="mt-4 inline-flex min-h-[40px] items-center gap-2 rounded-full border border-red-300 bg-paper-50 px-4 text-sm font-semibold text-red-800 transition-colors hover:bg-red-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {isRetrying ? (
-          <span
-            aria-hidden="true"
-            className="h-4 w-4 animate-spin rounded-full border-2 border-red-400 border-t-transparent"
-          />
+          <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-red-400 border-t-transparent" />
         ) : null}
         Probeer opnieuw
       </button>
@@ -134,34 +123,25 @@ function EmptyState({
     hint = "Controleer later opnieuw of forceer een nieuwe ingest-run.";
   }
 
+  const pill =
+    "inline-flex min-h-[40px] items-center justify-center rounded-full border px-4 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2";
+
   return (
-    <div className="rounded-sm border border-paper-300 bg-paper-50 p-6 text-center text-ink-600">
-      <p className="text-sm font-medium">{message}</p>
+    <div className="rounded-2xl border border-paper-300 bg-paper-50 px-6 py-10 text-center">
+      <p className="font-serif text-lg font-bold text-ink-900">{message}</p>
       <p className="mt-1 text-sm text-ink-500">{hint}</p>
-      <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+      <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
         {searchQuery && !isSearchingAllPeriods && onSearchAllPeriods && (
-          <button
-            type="button"
-            onClick={onSearchAllPeriods}
-            className="inline-flex items-center justify-center rounded-sm border border-accent-blue bg-blue-50 px-4 py-2 text-sm font-medium text-accent-blue transition-colors hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2"
-          >
+          <button type="button" onClick={onSearchAllPeriods} className={`${pill} border-ink-900 bg-ink-900 text-white hover:bg-ink-800`}>
             Zoek in alle periodes
           </button>
         )}
         {searchQuery && onClearSearch && (
-          <button
-            type="button"
-            onClick={onClearSearch}
-            className="inline-flex items-center justify-center rounded-sm border border-paper-300 bg-paper-100 px-4 py-2 text-sm font-medium text-ink-700 transition-colors hover:bg-paper-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2"
-          >
+          <button type="button" onClick={onClearSearch} className={`${pill} border-paper-300 bg-paper-50 text-ink-800 hover:bg-paper-200`}>
             Wis zoekopdracht
           </button>
         )}
-        <button
-          type="button"
-          onClick={onRetry}
-          className="inline-flex items-center justify-center rounded-sm border border-paper-300 bg-paper-100 px-4 py-2 text-sm font-medium text-ink-700 transition-colors hover:bg-paper-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue focus-visible:ring-offset-2"
-        >
+        <button type="button" onClick={onRetry} className={`${pill} border-paper-300 bg-paper-50 text-ink-800 hover:bg-paper-200`}>
           Ververs feed
         </button>
       </div>
@@ -193,6 +173,8 @@ export default function EventFeed() {
   const [searchAllPeriods, setSearchAllPeriods] = useState(false);
   const [adminMode, setAdminMode] = useState(false);
   const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
+  // On phones the filters fold away behind one button
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Build filters object for server-side query
   const filters: EventListFilters = useMemo(() => ({
@@ -251,6 +233,13 @@ export default function EventFeed() {
   }, [data?.data, selectedSources, availableSources.length]);
 
   const errorMessage = error ? resolveErrorMessage(error) : null;
+  const defaultRange = useMemo(getDefaultDateRange, []);
+  const filtersChanged =
+    minSources > 1 ||
+    adminMode ||
+    (availableSources.length > 0 && selectedSources.size !== availableSources.filter((source) => !SOCIAL_MEDIA_SOURCES.has(source.name)).length) ||
+    dateRange.startDate !== defaultRange.startDate ||
+    dateRange.endDate !== defaultRange.endDate;
 
   // Get label for empty state
   const activeCategoryLabel =
@@ -310,31 +299,42 @@ export default function EventFeed() {
   const remainingEvents = events.slice(14);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Category Navigation */}
       <CategoryNav activeCategory={activeCategory} />
 
-      {/* Search Bar and Filters */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-paper-200 pb-4">
-        <SearchBar
-          value={searchQuery}
-          onChange={handleSearchChange}
-          placeholder="Zoek in events..."
-          className="sm:max-w-xs"
-        />
-        <div className="flex flex-wrap items-center gap-4 sm:gap-6">
+      {/* Search and filters */}
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center gap-2">
+          <SearchBar
+            value={searchQuery}
+            onChange={handleSearchChange}
+            placeholder="Zoek in het nieuws"
+            className="min-w-0 flex-1 lg:w-80 lg:flex-none"
+          />
+          <button
+            type="button"
+            aria-expanded={filtersOpen}
+            aria-controls="feed-filters"
+            onClick={() => setFiltersOpen((open) => !open)}
+            className={`relative inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm font-semibold transition-colors lg:hidden ${
+              filtersOpen ? "border-ink-900 bg-ink-900 text-white" : "border-paper-300 bg-paper-50 text-ink-800"
+            }`}
+          >
+            <SlidersHorizontal size={15} aria-hidden="true" /> Filters
+            {filtersChanged && !filtersOpen ? (
+              <span aria-label="aangepast" className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-paper-100 bg-accent-blue" />
+            ) : null}
+          </button>
+        </div>
+        <div id="feed-filters" className={`${filtersOpen ? "flex" : "hidden"} flex-wrap items-center gap-2 lg:flex`}>
           <DateRangeFilter
             startDate={dateRange.startDate}
             endDate={dateRange.endDate}
             onStartDateChange={handleStartDateChange}
             onEndDateChange={handleEndDateChange}
           />
-          <span className="hidden sm:block text-paper-300">|</span>
-          <MinSourcesFilter
-            value={minSources}
-            onChange={handleMinSourcesChange}
-          />
-          <span className="hidden sm:block text-paper-300">|</span>
+          <MinSourcesFilter value={minSources} onChange={handleMinSourcesChange} />
           <SourceFilter
             sources={availableSources}
             selectedSources={selectedSources}
@@ -343,14 +343,14 @@ export default function EventFeed() {
           <button
             type="button"
             onClick={handleAdminModeToggle}
-            className={`text-sm transition-colors ${
-              adminMode
-                ? "text-accent-orange font-medium"
-                : "text-ink-400 hover:text-ink-700"
+            aria-pressed={adminMode}
+            className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-full border px-3.5 text-sm font-semibold transition-colors ${
+              adminMode ? "border-amber-300 bg-amber-50 text-amber-800" : "border-paper-300 bg-paper-50 text-ink-500 hover:text-ink-800"
             }`}
             title="Toon ook events zonder LLM analyse"
           >
-            {adminMode ? "● admin" : "admin"}
+            {adminMode ? <span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-500" /> : null}
+            Ook zonder analyse
           </button>
         </div>
       </div>
@@ -371,27 +371,32 @@ export default function EventFeed() {
             isSearchingAllPeriods={searchAllPeriods}
           />
         ) : (
-          <div className="space-y-10">
-            {/* Topverhalen Section - Volkskrant-style 3-column layout */}
-            <section>
-              <h2 className="font-serif text-2xl font-bold text-ink-900 border-b-2 border-ink-900 pb-2 mb-6">
+          <div className="space-y-12">
+            {/* Top stories: the large one, the next six and a news column */}
+            <section aria-labelledby="top-stories">
+              <h2 id="top-stories" className="mb-4 font-serif text-2xl font-bold text-ink-900">
                 Topverhalen
               </h2>
 
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* Left: Hero Event + Best Gelezen below */}
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+                {/* Left: the large story, with "Meest besproken" under it on wide screens */}
                 <div className="lg:col-span-5">
                   {heroEvent && (
                     <HeroEventCard event={heroEvent} imageUrl={heroEvent.featured_image_url} />
                   )}
-                  <BestGelezen events={events} />
+                  <div className="hidden lg:block">
+                    <BestGelezen events={events} />
+                  </div>
                 </div>
 
-                {/* Middle: Medium Cards */}
+                {/* Middle: the next stories; on phones "Meest besproken" follows them */}
                 <div className="lg:col-span-4">
                   {mediumEvents.map((event) => (
                     <MediumEventCard key={event.id} event={event} imageUrl={event.featured_image_url} />
                   ))}
+                  <div className="lg:hidden">
+                    <BestGelezen events={events} />
+                  </div>
                 </div>
 
                 {/* Right: Sidebar */}
@@ -401,13 +406,12 @@ export default function EventFeed() {
               </div>
             </section>
 
-            {/* Meer nieuws Section */}
             {remainingEvents.length > 0 && (
-              <section>
-                <h2 className="font-serif text-2xl font-bold text-ink-900 border-b-2 border-ink-900 pb-2 mb-6">
+              <section aria-labelledby="more-news">
+                <h2 id="more-news" className="mb-4 font-serif text-2xl font-bold text-ink-900">
                   Meer nieuws
                 </h2>
-                <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
                   {remainingEvents.map((event) => (
                     <EventCard key={event.id} event={event} />
                   ))}

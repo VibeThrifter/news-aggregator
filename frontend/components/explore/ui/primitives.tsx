@@ -123,7 +123,11 @@ export function ProgressRing({
   );
 }
 
-/** Small section heading used inside sheets and balloons. */
-export function Eyebrow({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <p className={`text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-500 ${className}`}>{children}</p>;
+/** A white pill for navigation and actions ("← Nieuws", "Bewaard", "Netwerk"). */
+export const PILL =
+  "inline-flex min-h-[40px] items-center gap-1.5 rounded-full border border-paper-300 bg-paper-50 px-3.5 text-sm font-semibold text-ink-800 transition-colors hover:bg-paper-200";
+
+/** Heading of a part inside a sheet, balloon or card: serif like "Wie zegt wat?", one size smaller. */
+export function SubHeading({ children, className = "", tone = "text-ink-900" }: { children: ReactNode; className?: string; tone?: string }) {
+  return <p className={`font-serif text-[15px] font-bold leading-snug ${tone} ${className}`}>{children}</p>;
 }

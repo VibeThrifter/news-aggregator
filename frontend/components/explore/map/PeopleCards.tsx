@@ -11,7 +11,7 @@ import { truncate } from "@/lib/explore/summary";
 
 import { dossierIds, useExplore } from "../ExploreContext";
 import { EntityText } from "../entity/EntityText";
-import { Chip, Eyebrow, Favicon, Tag } from "../ui/primitives";
+import { Chip, SubHeading, Favicon, Tag } from "../ui/primitives";
 import { NumberBadge } from "./Markers";
 import { FoundTag, OwnTag } from "./OwnForm";
 import { OthersAbout, ShareControl } from "./Others";
@@ -90,7 +90,7 @@ export function OwnAbout({ anchor, onNavigate }: { anchor: string; onNavigate?: 
   if (own.length === 0) return null;
   return (
     <div className="space-y-1">
-      <Eyebrow>Van jou</Eyebrow>
+      <SubHeading>Van jou</SubHeading>
       <ul className="space-y-1">
         {own.map((finding) => {
           const entry = ownEntryOf(finding);
@@ -172,7 +172,7 @@ export function SpeakerCard({ speakerId, onNavigate, inSheet = false }: { speake
 
       {claims.length ? (
         <div className="space-y-1">
-          <Eyebrow>Beweert, zonder bewijs</Eyebrow>
+          <SubHeading>Beweert, zonder bewijs</SubHeading>
           <ul className="space-y-1">
             {claims.map((finding) =>
               finding && finding.body.type === "claim" ? (
@@ -198,7 +198,7 @@ export function SpeakerCard({ speakerId, onNavigate, inSheet = false }: { speake
 
       {a ? (
         <div className="space-y-1.5 text-sm">
-          <Eyebrow>Belang</Eyebrow>
+          <SubHeading>Belang</SubHeading>
           {a.actual_role ? (
             <p className="text-ink-800">
               <EntityText text={a.actual_role} />
@@ -332,7 +332,7 @@ export function GhostCard({ findingId, onNavigate }: { findingId: string; onNavi
       ) : null}
       {gap.potential_sources?.length ? (
         <div className="space-y-1">
-          <Eyebrow>Wie had het kunnen zeggen</Eyebrow>
+          <SubHeading>Wie had het kunnen zeggen</SubHeading>
           <div className="flex flex-wrap gap-1.5">
             {gap.potential_sources.map((source) => (
               <Tag key={source}>{source}</Tag>

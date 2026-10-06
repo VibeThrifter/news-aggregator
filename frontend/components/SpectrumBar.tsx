@@ -1,14 +1,10 @@
 "use client";
 
-import Image from "next/image";
 import { useMemo } from "react";
 
+import { Favicon } from "@/components/explore/ui/primitives";
 import type { EventSourceBreakdownEntry } from "@/lib/types";
-import {
-  getSpectrumScore,
-  getSourceFaviconUrl,
-  isAlternativeSource,
-} from "@/lib/format";
+import { getSpectrumScore, isAlternativeSource } from "@/lib/format";
 
 interface SpectrumBarProps {
   sourceBreakdown?: EventSourceBreakdownEntry[] | null;
@@ -18,44 +14,22 @@ interface SpectrumBarProps {
 interface SourceItem {
   source: string;
   articleCount: number;
-  spectrum: string | number | null;
   score: number; // 0-10 scale
-  faviconUrl: string;
 }
 
+/** Where the Dutch outlets of an event stand from left to right; alternative outlets on their own row. */
 export function SpectrumBar({ sourceBreakdown, compact = false }: SpectrumBarProps) {
   const { mainstream, alternative } = useMemo(() => {
-    if (!sourceBreakdown || sourceBreakdown.length === 0) {
-      return { mainstream: [], alternative: [] };
-    }
-
     const mainstreamSources: SourceItem[] = [];
     const alternativeSources: SourceItem[] = [];
-
-    for (const entry of sourceBreakdown) {
-      // Skip international sources - they don't belong on the Dutch political spectrum
-      if (entry.is_international) {
-        continue;
-      }
-
-      const item: SourceItem = {
-        source: entry.source,
-        articleCount: entry.article_count,
-        spectrum: entry.spectrum ?? null,
-        score: getSpectrumScore(entry.spectrum),
-        faviconUrl: getSourceFaviconUrl(entry.source),
-      };
-
-      if (isAlternativeSource(entry.spectrum)) {
-        alternativeSources.push(item);
-      } else {
-        mainstreamSources.push(item);
-      }
+    for (const entry of sourceBreakdown ?? []) {
+      // Foreign outlets have no place on the Dutch political spectrum
+      if (entry.is_international) continue;
+      const item = { source: entry.source, articleCount: entry.article_count, score: getSpectrumScore(entry.spectrum) };
+      if (isAlternativeSource(entry.spectrum)) alternativeSources.push(item);
+      else mainstreamSources.push(item);
     }
-
-    // Sort by score for consistent display
     mainstreamSources.sort((a, b) => a.score - b.score);
-
     return { mainstream: mainstreamSources, alternative: alternativeSources };
   }, [sourceBreakdown]);
 
@@ -63,78 +37,57 @@ export function SpectrumBar({ sourceBreakdown, compact = false }: SpectrumBarPro
     return null;
   }
 
-  const iconSize = compact ? 20 : 24;
+  const size = compact ? 16 : 20;
 
   return (
-    <div className={`space-y-2 ${compact ? "text-xs" : "text-sm"}`}>
-      {/* Mainstream row - spectrum positioning on 0-10 scale */}
-      {mainstream.length > 0 && (
-        <div className="flex items-center gap-2 text-[10px]">
-          <span className="text-blue-600 font-medium">Links</span>
-          <div className="relative w-[280px] h-10">
-            {/* Background gradient bar */}
-            <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-1.5 rounded-full bg-gradient-to-r from-blue-400/60 via-paper-300 to-red-400/60" />
-            {/* Position each source icon based on their 0-10 score */}
+    <div className="space-y-2">
+      {mainstream.length > 0 ? (
+        <div className="flex items-center gap-2 text-[11px] font-medium">
+          <span className="text-blue-700">Links</span>
+          <div className={`relative min-w-0 flex-1 ${compact ? "h-7" : "h-9"}`}>
+            <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-gradient-to-r from-blue-300 via-paper-300 to-red-300" />
             {mainstream.map((item) => (
               <div
                 key={item.source}
-                className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2"
-                style={{ left: `${item.score * 10}%` }}
+                className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2"
+                // Keep the icons inside the track at the ends
+                style={{ left: `clamp(${size / 2 + 2}px, ${item.score * 10}%, calc(100% - ${size / 2 + 2}px))` }}
               >
-                <SourceIcon item={item} size={iconSize} />
+                <SourceDot item={item} size={size} />
               </div>
             ))}
           </div>
-          <span className="text-red-600 font-medium">Rechts</span>
+          <span className="text-red-700">Rechts</span>
         </div>
-      )}
+      ) : null}
 
-      {/* Alternative row - compact inline design */}
-      {alternative.length > 0 && (
-        <div className="flex items-center gap-3">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-purple-600">
-            Alternatief
-          </span>
+      {alternative.length > 0 ? (
+        <div className="flex items-center gap-2 text-[11px] font-medium">
+          <span className="text-purple-700">Alternatief</span>
           <div className="flex flex-wrap gap-1">
             {alternative.map((item) => (
-              <SourceIcon key={item.source} item={item} size={iconSize} />
+              <SourceDot key={item.source} item={item} size={size} />
             ))}
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
 
-interface SourceIconProps {
-  item: SourceItem;
-  size: number;
-}
-
-function SourceIcon({ item, size }: SourceIconProps) {
+function SourceDot({ item, size }: { item: SourceItem; size: number }) {
   return (
-    <div
-      className="group relative flex items-center justify-center rounded-sm border border-paper-300 bg-paper-50 p-1 transition-colors hover:border-paper-300 hover:bg-paper-100 shadow-sm"
-      title={item.source}
+    <span
+      className="relative flex items-center justify-center rounded-full border border-paper-300 bg-paper-50 p-0.5 shadow-sm"
+      title={item.articleCount > 1 ? `${item.source} · ${item.articleCount} artikelen` : item.source}
     >
-      <Image
-        src={item.faviconUrl}
-        alt={item.source}
-        width={size}
-        height={size}
-        className="rounded-sm"
-        unoptimized
-      />
-      {item.articleCount > 1 && (
-        <span className="absolute -bottom-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-accent-blue px-1 text-[10px] font-bold text-white">
+      <Favicon name={item.source} size={size} className="rounded-full" />
+      {item.articleCount > 1 ? (
+        <span className="absolute -bottom-1 -right-1.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-ink-900 px-1 text-[9px] font-bold text-white">
           {item.articleCount}
         </span>
-      )}
-      {/* Tooltip */}
-      <div className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-sm bg-ink-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-        {item.source}
-      </div>
-    </div>
+      ) : null}
+    </span>
   );
 }
 

@@ -4,6 +4,8 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { readAccessCode, saveAccessCode, useAccess } from "@/lib/explore/access";
 
+import { AdminCard, BUTTON_PRIMARY, BUTTON_SECONDARY, INPUT } from "./ui";
+
 const ROLE_LABELS = { admin: "Admin", pro: "Pro" } as const;
 
 /**
@@ -24,27 +26,21 @@ export function AccessCodeForm() {
   };
 
   return (
-    <section aria-labelledby="access-title" className="space-y-3 rounded-lg border border-slate-700 bg-slate-800 p-4">
-      <div>
-        <h2 id="access-title" className="font-semibold text-slate-100">
-          Toegangscode
-        </h2>
-        <p className="text-sm text-slate-400">Zoeken met AI naar stemmen die niet aan het woord zijn, en gevonden bronnen goedkeuren</p>
-      </div>
+    <AdminCard id="access-title" title="Toegangscode" subtitle="Zoeken met AI naar stemmen die niet aan het woord zijn, en gevonden bronnen goedkeuren">
       {hasCode ? (
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span role="status" className="text-slate-200">
+          <span role="status" className="inline-flex items-center gap-2 font-medium text-ink-800">
+            <span
+              aria-hidden="true"
+              className={`h-2 w-2 rounded-full ${access.checking ? "bg-paper-300" : access.role ? "bg-emerald-500" : "bg-red-500"}`}
+            />
             {access.checking
               ? "Code controleren…"
               : access.role
                 ? `${ROLE_LABELS[access.role]} op dit apparaat${access.canSearch ? " · mag zoeken" : ""}`
                 : "Code onbekend of ingetrokken"}
           </span>
-          <button
-            type="button"
-            onClick={() => saveAccessCode(null)}
-            className="rounded-lg border border-slate-600 px-3 py-1.5 text-slate-200 hover:bg-slate-700"
-          >
+          <button type="button" onClick={() => saveAccessCode(null)} className={BUTTON_SECONDARY}>
             Vergeet code
           </button>
         </div>
@@ -57,15 +53,16 @@ export function AccessCodeForm() {
             id="access-code"
             type="password"
             autoComplete="off"
+            placeholder="Code"
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            className="min-w-0 flex-1 rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+            className={`${INPUT} min-w-0 flex-1 rounded-full px-4`}
           />
-          <button type="submit" disabled={!value.trim()} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+          <button type="submit" disabled={!value.trim()} className={BUTTON_PRIMARY}>
             Gebruik code
           </button>
         </form>
       )}
-    </section>
+    </AdminCard>
   );
 }

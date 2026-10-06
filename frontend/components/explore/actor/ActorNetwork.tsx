@@ -33,8 +33,9 @@ import NetworkCanvas, { type CanvasEdge, type CanvasNode } from "../network/Netw
 import { AutoApprovedTag } from "../network/MiniEgoNetwork";
 import { PartySearch } from "../network/PartySearch";
 import { RouteList } from "../network/RouteList";
-import { Chip, Eyebrow, Tag } from "../ui/primitives";
+import { Chip, SubHeading, Tag } from "../ui/primitives";
 import { useActorExplorer, type ActorExplorer } from "./useActorExplorer";
+import { ScrollRow } from "../ui/ScrollRow";
 
 const LEGEND = [...FILTERS.map((filter) => ({ id: filter.id as string, label: filter.label, color: filter.color })), { id: PM_OTHER, label: "Overig", color: "#94a3b8" }];
 
@@ -162,7 +163,7 @@ export function ActorNetwork({ pmId, demo, aliases = [] }: { pmId: number; slug?
 
   return (
     <div className="space-y-3">
-      <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0" role="group" aria-label="Filters aan/uit">
+      <ScrollRow className="-mx-4 gap-1.5 px-4 pb-1 sm:mx-0 sm:px-0" role="group" aria-label="Filters aan/uit">
         {LEGEND.map((filter) => {
           const off = hidden.has(filter.id);
           return (
@@ -178,7 +179,7 @@ export function ActorNetwork({ pmId, demo, aliases = [] }: { pmId: number; slug?
             </button>
           );
         })}
-      </div>
+      </ScrollRow>
 
       <div
         className="relative h-[58vh] max-h-[620px] min-h-[360px] overflow-hidden rounded-2xl border border-paper-300 bg-paper-100"
@@ -393,7 +394,7 @@ function ActorNodeTip({
       ) : null}
       {questions.length ? (
         <div className="space-y-1.5">
-          <Eyebrow>Of stel een vraag</Eyebrow>
+          <SubHeading>Of stel een vraag</SubHeading>
           <div role="group" aria-label="Vragen" className="flex flex-wrap gap-1.5">
             {questions.map((question) => (
               <button

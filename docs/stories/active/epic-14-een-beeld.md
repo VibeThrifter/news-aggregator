@@ -695,3 +695,85 @@ propagandamodel:
 - De aanklager (Opus) draait alleen tussen 08:00 en 22:00 uur. Wat 's avonds klaar staat, wacht tot de ochtend.
 - Diep onderzoek (`nieuws-bewijs`, Opus) blijft begrensd op 6 verbanden per dag. De bron-check en de bronzoeker
   hebben geen dagbudget.
+
+## Story 14.18: Eén stijl voor de hele site
+
+**Status**: ✅ Done (2026-10-06)
+
+Eigenaar (2026-10-06):
+- "de nieuwe lay out … is geweldig maar de oude lay out van de website is super lelijk", met screenshots van:
+  - de zijpanelen;
+  - "WAT SCHREEF DE ANDERE KRANT?";
+  - de kaarten onder "Meer nieuws";
+  - de admin-pagina ("kleuren onleesbaar").
+- "De lees alles bovenaan zou naar onder uit moeten klappen niet naar lelijke zijbalk."
+- Over de kopjes in hoofdletters met letterafstand: "dit lettertype als kopjes werkt gewoon niet echt of
+  überhaupt deze stijl".
+- Over de scrollbalk onder de tabs: "lelijk en mag weg".
+- "de pluriformiteit titel en balk ook niet echt doe het ff opnieuw met nieuwe stijl".
+
+De eventpagina van Epic 14 is de stijl:
+- Merriweather voor koppen, Inter voor de rest, overal gewone hoofdletters;
+- witte kaarten met `rounded-2xl`/`rounded-3xl` op `paper-100`;
+- pillen, met een zwarte pil voor wat actief is.
+
+Wat er veranderd is:
+- **Panelen**: op desktop een venster in het midden in plaats van een zijbalk (`ui/Sheet.tsx`, Radix Dialog,
+  waar vaul op gebouwd is). Op de telefoon blijft het een onderblad. Het venster zelf krijgt de focus, niet de
+  sluitknop.
+- **Lees alles** klapt de hele samenvatting naar beneden open, in de letter van de eerste alinea
+  (`summary/FullStory.tsx`). Namen en media zijn aantikbaar zoals in `EntityText`. `SummarySheet` is weg; een
+  oude link `?p=samenvatting` klapt het verhaal open.
+- **Kopjes**: `Eyebrow` (hoofdletters, letterafstand) heet nu `SubHeading`: serif, vet, 15px. Losse labels in
+  hoofdletters zijn ook weg, zoals "Niet aan het woord", de assen van Links/rechts, "Over" en "Reactie: tegen".
+- **Scrollrijen** (tabs, bronnen, categorieën, filters) hebben geen scrollbalk meer (`ui/ScrollRow.tsx`). De rand
+  vervaagt waar er meer is, en op desktop staat daar een pijl.
+- **Homepage**:
+  - categorieën als pillen;
+  - zoeken en filters als pillen; op de telefoon staan de filters achter "Filters";
+  - kaarten zonder "Bekijk event"-knop, "Overig" en dubbele tijden;
+  - wie het bracht: Nederlandse logo's, "+ n buitenlandse" en het aantal artikelen (`EventMeta.tsx`);
+  - de links-rechtsbalk alleen bij twee of meer Nederlandse bronnen, en niet meer breder dan het scherm (de
+    pagina scrolde op de telefoon zijwaarts);
+  - "Best gelezen" heet "Meest besproken", want de lijst sorteert op het aantal artikelen;
+  - "1 artikelen" en "1 bronnen" zijn "1 artikel" en "1 bron".
+- **Kop en balk**:
+  - "Pluriformiteit" rechtop in serif, op de achtergrond van de pagina;
+  - de datum met een kleine letter in de maand, ingevuld door de browser (de statische homepage hield anders
+    de datum van de deploy);
+  - "Beheer" in plaats van "Admin";
+  - "← Nieuws", "Bewaard", "← Terug" en "Netwerk" zijn witte pillen (`PILL`).
+- **Beheer en LLM-configuratie** zijn licht en leesbaar (`components/admin/ui.tsx`):
+  - het model per stap kies je met pillen, in de groepen Lokaal en API;
+  - op de telefoon is de bronnentabel een lijst, met de schakelaars in beeld.
+- **Filtervenster en bord**: geen dikke gekleurde rand links meer, maar een gekleurde stip.
+
+Gevonden via "waarom hier geen zinnetje?" (ballonnen met alleen "1 artikel"):
+- `PromptBuilder._select_balanced_subset` zette eerst álle buitenlandse artikelen in de prompt (cap 8). Bij acht
+  of meer Google News-koppen ging er geen enkel Nederlands artikel mee.
+  - Event 7807 (Halle Berry): "De beschikbare artikelen zijn uitsluitend internationale bronnen."
+  - Event 6470 (Flydubai): AD stond zonder standpunt in het beeld.
+- In de week tot 6 oktober was dit zo bij 33 nieuwsitems; bij 31 daarvan ging er geen enkel Nederlands artikel
+  mee.
+- Nieuw:
+  1. eerst het nieuwste artikel van elke Nederlandse bron, verdeeld over het spectrum, met twee plekken vrij voor
+     buitenland;
+  2. dan elke buitenlandse bron;
+  3. dan de rest.
+- Backend herstart en 6470 opnieuw geanalyseerd: 4 Nederlandse en 4 buitenlandse artikelen, AD met een eigen
+  standpunt.
+
+Tests:
+- Jest: 292 groen.
+- Playwright explore: 140 van 141 groen. Eén test liep in een time-out terwijl de server het nieuwe venster voor
+  het eerst compileerde; los herhaald is hij groen. In `wie-is-dit.spec.ts` opent `?p=samenvatting` nu het
+  verhaal in de pagina.
+- pytest: 3 nieuwe tests voor de selectie zijn groen. De 3 oude tests in `test_prompt_builder.py` falen al
+  langer: de builder leest via `get_read_session()` uit Supabase in plaats van uit de testdatabase.
+- ESLint geeft alleen de bekende waarschuwingen in oude bestanden.
+
+### Open
+- De andere 31 getroffen nieuwsitems gaan sinds 2026-10-07 één voor één opnieuw door de analyse
+  (`/admin/trigger/generate-insights/{id}`). Dat kost per item twee Sonnet-aanroepen en ongeveer 2 minuten.
+- De oude eventpagina (`EventDetailScreen` met `CriticalAnalysis` en dergelijke) heeft nog de oude stijl. Vercel
+  toont hem niet (`NEXT_PUBLIC_EXPLORE_UI=1`); opruimen hoort bij Story 11.15.

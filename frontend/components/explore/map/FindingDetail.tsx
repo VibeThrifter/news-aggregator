@@ -14,7 +14,7 @@ import type { Finding, OwnEntry } from "@/lib/explore/types";
 import { useExplore } from "../ExploreContext";
 import { EntityText, OutletInline } from "../entity/EntityText";
 import { OutletChip } from "../outlet/OutletCard";
-import { Chip, Eyebrow, Tag } from "../ui/primitives";
+import { Chip, SubHeading, Tag } from "../ui/primitives";
 import { DETAIL_LABELS } from "./OwnForm";
 import { FoundVoices, VoiceSearchPanel } from "./VoiceSearch";
 
@@ -22,7 +22,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   if (children === null || children === undefined || children === "" || children === false) return null;
   return (
     <div className="space-y-0.5">
-      <Eyebrow>{label}</Eyebrow>
+      <SubHeading>{label}</SubHeading>
       <div className="text-sm leading-relaxed text-ink-800">{typeof children === "string" ? <EntityText text={children} /> : children}</div>
     </div>
   );
@@ -181,7 +181,7 @@ export function FindingDetail({ finding }: { finding: Finding }) {
           </div>
           {a.scope_creep ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              <Eyebrow className="text-amber-800">Buiten het eigen mandaat?</Eyebrow>
+              <SubHeading tone="text-amber-800">Buiten het eigen mandaat?</SubHeading>
               <p className="mt-1">
                 <EntityText text={a.scope_creep} />
               </p>
@@ -388,14 +388,14 @@ function OwnDetail({ entry }: { entry: OwnEntry }) {
           onClick={() => toFinding(about.id)}
           className="flex min-h-[44px] w-full items-start gap-2 rounded-xl bg-orange-50 px-2.5 py-2 text-left text-sm text-ink-800"
         >
-          <span className="shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-wider text-orange-800">Over</span>
+          <span className="shrink-0 pt-px text-xs font-semibold text-orange-800">Over</span>
           <span className="min-w-0 flex-1">{findingTitle(about, exploration.index)}</span>
         </button>
       ) : null}
       {entry.quote ? <p className="text-sm italic leading-relaxed text-ink-800">{entry.quote}</p> : null}
       {entry.detail ? (
         <div className="space-y-0.5">
-          <Eyebrow>{DETAIL_LABELS[entry.kind] ?? "Toelichting"}</Eyebrow>
+          <SubHeading>{DETAIL_LABELS[entry.kind] ?? "Toelichting"}</SubHeading>
           <p className="whitespace-pre-line text-sm leading-relaxed text-ink-800">{entry.detail}</p>
         </div>
       ) : null}

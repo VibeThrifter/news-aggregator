@@ -115,16 +115,16 @@ function SpectrumAxes() {
     <div className="pointer-events-none absolute inset-0" aria-hidden="true">
       <span className="absolute inset-y-8 left-1/2 border-l border-dashed border-paper-300" />
       <span className="absolute inset-x-8 top-1/2 border-t border-dashed border-paper-300" />
-      <span className="absolute left-1/2 top-2 -translate-x-1/2 rounded-full bg-paper-50 px-2 text-[10px] font-semibold uppercase tracking-wider text-ink-600">
+      <span className="absolute left-1/2 top-2 -translate-x-1/2 rounded-full bg-paper-50 px-2 text-[11px] font-semibold text-ink-600">
         ▲ Gevestigd
       </span>
-      <span className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-paper-50 px-2 text-[10px] font-semibold uppercase tracking-wider text-purple-600">
+      <span className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-paper-50 px-2 text-[11px] font-semibold text-purple-600">
         ▼ Alternatief
       </span>
-      <span className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-paper-50 px-1 text-[10px] font-semibold uppercase tracking-wider text-blue-600">
+      <span className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-paper-50 px-1 text-[11px] font-semibold text-blue-600">
         ◀ Links
       </span>
-      <span className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-paper-50 px-1 text-[10px] font-semibold uppercase tracking-wider text-red-600">
+      <span className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-paper-50 px-1 text-[11px] font-semibold text-red-600">
         Rechts ▶
       </span>
     </div>

@@ -52,7 +52,7 @@ import type { PmEntity, PmRelation } from "@/lib/types";
 import { exploreAuxSwrOptions } from "@/lib/swr-config";
 
 import { dossierIds, useExplore } from "../ExploreContext";
-import { Chip, Eyebrow, Tag } from "../ui/primitives";
+import { Chip, SubHeading, Tag } from "../ui/primitives";
 import { useToast } from "../ui/Toast";
 import type { CanvasEdge, CanvasNode } from "./NetworkCanvas";
 import { CoverageTeaser } from "../entity/ArticleMentions";
@@ -61,6 +61,7 @@ import { AutoApprovedTag } from "./MiniEgoNetwork";
 import { PartySearch } from "./PartySearch";
 import { PmAttribution } from "./PmSection";
 import { bundleHoodKey, usePmExplorer } from "./usePmExplorer";
+import { ScrollRow } from "../ui/ScrollRow";
 
 const NetworkCanvas = dynamic(() => import("./NetworkCanvas"), {
   ssr: false,
@@ -407,7 +408,7 @@ function NetworkHeader({ onPick }: { onPick: (id: number, name: string) => void 
           <ArrowLeft size={20} />
         </Link>
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Wie zit erachter?</p>
+          <p className="text-xs font-medium text-ink-500">Wie zit erachter?</p>
           <p className="truncate text-sm font-semibold text-ink-900">{input.event.title}</p>
         </div>
         <button
@@ -438,7 +439,7 @@ function FilterLegend() {
   const toggle = usePmStore((state) => state.toggleFilter);
   const items = [...FILTERS.map((filter) => ({ id: filter.id, label: filter.label, color: filter.color })), { id: PM_OTHER, label: "Overig", color: "#94a3b8" }];
   return (
-    <div className="-mx-3 flex gap-1.5 overflow-x-auto px-3 pb-1" aria-label="Filters aan/uit">
+    <ScrollRow fade="paper-50" className="-mx-3 gap-1.5 px-3 pb-1" aria-label="Filters aan/uit">
       {items.map((filter) => {
         const off = hidden.includes(filter.id);
         return (
@@ -454,7 +455,7 @@ function FilterLegend() {
           </button>
         );
       })}
-    </div>
+    </ScrollRow>
   );
 }
 
@@ -768,7 +769,7 @@ function PmNodeTip({
       ) : null}
 
       <div className="space-y-1.5">
-        <Eyebrow>Of stel een vraag</Eyebrow>
+        <SubHeading>Of stel een vraag</SubHeading>
         {(directionCounts ? wayRows.length : plain.length) === 0 ? (
           <p className="text-xs text-ink-500">{loading ? "Tellen…" : "Geen verbanden in het model."}</p>
         ) : directionCounts ? (
@@ -1032,7 +1033,7 @@ function PmBundleTip({
 
       {families.length ? (
         <div className="space-y-1.5">
-          <Eyebrow>Met wie?</Eyebrow>
+          <SubHeading>Met wie?</SubHeading>
           <div className="flex h-2.5 overflow-hidden rounded-full bg-paper-200" aria-hidden="true">
             {families.map((item) => (
               <span key={item.id} style={{ width: `${(item.count / familyTotal) * 100}%`, backgroundColor: item.color }} />

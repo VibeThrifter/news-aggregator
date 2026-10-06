@@ -143,3 +143,84 @@ async def test_missing_article_content_raises_clear_error(session_factory: async
         await builder.build_prompt(event_id)
 
     assert "verrijkingsstap" in str(exc.value)
+
+
+def _capsule(
+    article_id: int,
+    source: str,
+    *,
+    hours_ago: int,
+    spectrum: str = "center",
+    international: bool = False,
+):
+    from backend.app.llm.prompt_builder import ArticleCapsule
+
+    moment = datetime(2026, 10, 6, 21, 0, tzinfo=timezone.utc) - timedelta(hours=hours_ago)
+    return ArticleCapsule(
+        article_id=article_id,
+        title=f"Artikel {article_id}",
+        url=f"https://example.com/{article_id}",
+        spectrum=spectrum,
+        source_name=source,
+        source_type="private_media",
+        published_at=moment,
+        fetched_at=moment,
+        summary="",
+        key_points=[],
+        entities=[],
+        is_international=international,
+        source_country="US" if international else None,
+    )
+
+
+def test_dutch_outlets_are_not_pushed_out_by_foreign_headlines() -> None:
+    """Event 7807 (2026-10-06): eight newer Google News headlines took every place of the prompt."""
+    builder = PromptBuilder(settings=Settings(llm_prompt_article_cap=8))
+    dutch = [
+        _capsule(1, "De Telegraaf", hours_ago=12, spectrum="center-right"),
+        _capsule(2, "RTL Nieuws", hours_ago=11),
+        _capsule(3, "AD", hours_ago=1),
+    ]
+    foreign = [
+        _capsule(10 + i, f"Buitenland {i}", hours_ago=0, international=True) for i in range(8)
+    ]
+
+    selected = builder._select_balanced_subset(dutch + foreign, limit=8)
+
+    assert len(selected) == 8
+    dutch_names = {c.source_name for c in selected if not c.is_international}
+    assert dutch_names == {"De Telegraaf", "RTL Nieuws", "AD"}
+    assert len([c for c in selected if c.is_international]) == 5
+
+
+def test_every_dutch_outlet_before_a_second_article_of_one() -> None:
+    builder = PromptBuilder(settings=Settings(llm_prompt_article_cap=3))
+    capsules = [_capsule(i, "NOS", hours_ago=i) for i in range(1, 6)] + [
+        _capsule(20, "NU.nl", hours_ago=30),
+        _capsule(21, "De Volkskrant", hours_ago=40, spectrum="links"),
+    ]
+
+    selected = builder._select_balanced_subset(capsules, limit=3)
+
+    assert sorted(c.source_name for c in selected) == ["De Volkskrant", "NOS", "NU.nl"]
+    # The newest NOS article represents NOS
+    assert [c.article_id for c in selected if c.source_name == "NOS"] == [1]
+
+
+def test_keeps_room_for_foreign_outlets_when_dutch_ones_would_fill_the_prompt() -> None:
+    builder = PromptBuilder(settings=Settings(llm_prompt_article_cap=8))
+    spectra = ["links", "center", "rechts", "center-left", "center-right"]
+    dutch = [
+        _capsule(i, f"Bron {i}", hours_ago=i, spectrum=spectra[i % len(spectra)]) for i in range(10)
+    ]
+    foreign = [
+        _capsule(50 + i, f"Buitenland {i}", hours_ago=i, international=True) for i in range(3)
+    ]
+
+    selected = builder._select_balanced_subset(dutch + foreign, limit=8)
+
+    assert len([c for c in selected if c.is_international]) == 2
+    dutch_selected = [c for c in selected if not c.is_international]
+    assert len(dutch_selected) == 6
+    # Spread over the spectrum: every side is there
+    assert {c.spectrum for c in dutch_selected} == set(spectra)

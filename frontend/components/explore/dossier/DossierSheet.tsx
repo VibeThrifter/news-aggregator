@@ -8,7 +8,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useExploreStore, type DossierItem } from "@/lib/explore/store";
 
 import { useExplore } from "../ExploreContext";
-import { Eyebrow, Favicon, Tag } from "../ui/primitives";
+import { SubHeading, Favicon, Tag } from "../ui/primitives";
 import { Sheet } from "../ui/Sheet";
 
 const KIND_LABELS: Record<DossierItem["kind"], string> = {
@@ -92,7 +92,7 @@ export function DossierSheet() {
     >
       <div className="space-y-6">
         <section className="space-y-2 rounded-2xl border border-dashed border-paper-300 p-3">
-          <Eyebrow>Notitie</Eyebrow>
+          <SubHeading>Notitie</SubHeading>
           <textarea
             value={note}
             onChange={(event) => setNote(event.target.value)}
@@ -121,13 +121,13 @@ export function DossierSheet() {
         {list.length === 0 ? <p className="text-sm text-ink-500">Nog niets bewaard</p> : null}
         {here.length ? (
           <section className="space-y-2">
-            <Eyebrow>Uit dit nieuws</Eyebrow>
+            <SubHeading>Uit dit nieuws</SubHeading>
             <ul className="space-y-2">{here.map(renderItem)}</ul>
           </section>
         ) : null}
         {elsewhere.length ? (
           <section className="space-y-2">
-            <Eyebrow>Uit ander nieuws</Eyebrow>
+            <SubHeading>Uit ander nieuws</SubHeading>
             <ul className="space-y-2">{elsewhere.map(renderItem)}</ul>
           </section>
         ) : null}

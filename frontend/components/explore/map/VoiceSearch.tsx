@@ -18,7 +18,7 @@ import {
 } from "@/lib/voice-search";
 
 import { useExplore } from "../ExploreContext";
-import { Eyebrow, Favicon } from "../ui/primitives";
+import { SubHeading, Favicon } from "../ui/primitives";
 import { Avatar } from "./PeopleCards";
 
 const day = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short" });
@@ -247,9 +247,9 @@ export function VoiceSearchPanel(target: VoiceTarget) {
   const canRetry = done && Date.now() - Date.parse(search.created_at) > RETRY_MS;
   return (
     <section aria-label="Zoeken met AI" className="space-y-2 rounded-2xl border border-teal-200 bg-teal-50/40 p-3">
-      <Eyebrow className="flex items-center gap-1.5 text-teal-800">
-        <Sparkles size={12} aria-hidden="true" /> Zoeken met AI · admin
-      </Eyebrow>
+      <SubHeading className="flex items-center gap-1.5" tone="text-teal-800">
+        <Sparkles size={14} aria-hidden="true" /> Zoeken met AI · admin
+      </SubHeading>
       {search ? <StatusLine search={search} /> : null}
       {search?.status === "klaar" && search.candidates.length ? (
         <ul className="space-y-2">
@@ -306,7 +306,7 @@ export function FoundVoices({ findingId, label, onNavigate }: { findingId: strin
   if (found.length === 0) return null;
   return (
     <div className="space-y-1">
-      <Eyebrow className="text-teal-800">Wél aan het woord</Eyebrow>
+      <SubHeading tone="text-teal-800">Wél aan het woord</SubHeading>
       <ul className="space-y-1">
         {found.map((ref) => {
           const speaker = exploration.speakers.byId.get(ref.speakerId);

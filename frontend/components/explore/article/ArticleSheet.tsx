@@ -6,7 +6,7 @@ import { OWNERSHIP_TYPE_LABELS } from "@/lib/explore/media-landscape";
 import { getCountryFlag, parseIsoDate } from "@/lib/format";
 
 import { useExplore } from "../ExploreContext";
-import { Eyebrow, Favicon } from "../ui/primitives";
+import { SubHeading, Favicon } from "../ui/primitives";
 import { Sheet } from "../ui/Sheet";
 
 const dateFormatter = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -56,7 +56,7 @@ export function ArticleSheet({ articleId }: { articleId: number }) {
       <div className="space-y-5">
         {article.digest ? (
           <section className="space-y-1.5">
-            <Eyebrow>Wat staat erin?</Eyebrow>
+            <SubHeading>Wat staat erin?</SubHeading>
             <p className="text-base leading-relaxed text-ink-900">{article.digest.text}</p>
             <p className="text-xs text-ink-500">
               {article.digest.basis === "title"
@@ -70,13 +70,13 @@ export function ArticleSheet({ articleId }: { articleId: number }) {
 
         {perspectives.map((perspective) => (
           <section key={perspective.id} className="rounded-xl bg-paper-100 p-3">
-            <Eyebrow>{perspective.label}</Eyebrow>
+            <SubHeading>{perspective.label}</SubHeading>
             {perspective.stance ? <p className="mt-1 text-sm italic text-ink-800">“{perspective.stance}”</p> : null}
           </section>
         ))}
 
         <section className="space-y-1">
-          <Eyebrow>Origineel</Eyebrow>
+          <SubHeading>Origineel</SubHeading>
           {input.event.isDemo ? (
             <p className="font-medium text-ink-900">{article.title}</p>
           ) : (

@@ -2,7 +2,7 @@
 
 import { Fragment, useState } from "react";
 import Link from "next/link";
-import { ChevronRight, Network, Pin, Scale } from "lucide-react";
+import { ChevronRight, ExternalLink, Network, Pin, Scale } from "lucide-react";
 
 import { TAB_BY_ID } from "@/lib/explore/labels";
 import { outletIndex, type IndexLine } from "@/lib/explore/lens-index";
@@ -16,7 +16,7 @@ import type { ExploreOutlet } from "@/lib/explore/types";
 import { dossierIds, useExplore } from "../ExploreContext";
 import { ArticleRow, articleDate } from "../entity/ArticleMentions";
 import { Balloon } from "../ui/Balloon";
-import { Chip, Eyebrow, Favicon, Tag } from "../ui/primitives";
+import { Chip, SubHeading, Favicon, Tag } from "../ui/primitives";
 import { OwnTag } from "../map/OwnForm";
 import { OthersAbout } from "../map/Others";
 import { OwnAbout } from "../map/PeopleCards";
@@ -63,6 +63,18 @@ export function OutletPosition({ outlet }: { outlet: ExploreOutlet }) {
   );
 }
 
+/** A web link and its site ("nos.nl"); null for anything else. */
+function articleLink(url: string | undefined): { href: string; host: string } | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return { href: parsed.toString(), host: parsed.hostname.replace(/^www\./, "") };
+  } catch {
+    return null;
+  }
+}
+
 /** Everything about an outlet in this news: what it wrote, one line per tab, and actions. */
 export function OutletCard({ outletKey, onNavigate }: { outletKey: string; onNavigate?: () => void }) {
   const { exploration, panel, pin, eventId, isPinned } = useExplore();
@@ -91,6 +103,8 @@ export function OutletCard({ outletKey, onNavigate }: { outletKey: string; onNav
   }`;
   const canCompare = exploration.input.outlets.length >= 2;
   const pinId = dossierIds.outlet(outletKey);
+  // Straight to the original article (the first, when there are more); demo articles do not exist
+  const original = exploration.input.event.isDemo ? null : articleLink(articles[0]?.url);
 
   return (
     <div className="space-y-3">
@@ -112,6 +126,19 @@ export function OutletCard({ outletKey, onNavigate }: { outletKey: string; onNav
         </div>
       </div>
 
+      {original ? (
+        <a
+          href={original.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex min-h-[44px] items-center gap-2 rounded-xl bg-ink-900 px-3.5 text-sm font-semibold text-white hover:bg-ink-800"
+        >
+          <ExternalLink size={16} aria-hidden="true" />
+          {articles.length > 1 ? "Naar het eerste artikel" : "Naar het artikel"}
+          <span className="ml-auto truncate font-normal text-white/70">{original.host}</span>
+        </a>
+      ) : null}
+
       {!outlet.isInternational ? <OutletPosition outlet={outlet} /> : null}
 
       {perspective && perspective.body.type === "perspective" ? (
@@ -126,7 +153,7 @@ export function OutletCard({ outletKey, onNavigate }: { outletKey: string; onNav
 
       {sentences.length || articles.length ? (
         <div className="space-y-1">
-          <Eyebrow>Wat schreef {outlet.name}?</Eyebrow>
+          <SubHeading>Wat schreef {outlet.name}?</SubHeading>
           {sentences.length ? (
             <ul className="space-y-1.5 pb-1 text-sm text-ink-800">
               {(allSentences ? sentences : sentences.slice(0, 1)).map((parts, i) => (
@@ -244,7 +271,7 @@ export function IndexLines({ lines, onNavigate }: { lines: IndexLine[]; onNaviga
   if (lines.length === 0) return null;
   return (
     <div className="space-y-1">
-      <Eyebrow>In dit nieuws</Eyebrow>
+      <SubHeading>In dit nieuws</SubHeading>
       <ul className="divide-y divide-paper-200 rounded-xl border border-paper-200">
         {lines.map((line) => {
           const nums = line.findingIds.map((id) => numbers.get(id)).filter((n): n is number => Boolean(n));

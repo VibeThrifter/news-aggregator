@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { ChevronRight, SlidersHorizontal } from "lucide-react";
+
 import {
   listSources,
   updateSource,
@@ -11,61 +13,33 @@ import {
 import { getSpectrumLabel, isAlternativeSource } from "@/lib/format";
 import { AccessCodeForm } from "@/components/admin/AccessCodeForm";
 import { ReportedShared } from "@/components/admin/ReportedShared";
+import { AdminHeader, BUTTON_SECONDARY, Notice, Toggle } from "@/components/admin/ui";
+import { Favicon } from "@/components/explore/ui/primitives";
 
 function SpectrumBadge({ spectrum }: { spectrum: string | number | null }) {
   if (spectrum === null || spectrum === undefined) return null;
 
-  // Alternative sources
   if (isAlternativeSource(spectrum)) {
     return (
-      <span className="inline-flex shrink-0 items-center rounded-full border border-purple-500/60 bg-purple-500/10 px-2 py-0.5 text-xs font-semibold text-purple-200">
+      <span className="inline-flex shrink-0 items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-xs font-semibold text-purple-800">
         Alternatief
       </span>
     );
   }
 
-  // Numeric spectrum (0-10 scale)
+  // Numeric spectrum (0-10 scale): left blue, centre grey, right red (like the spectrum bars)
   const score = typeof spectrum === "number" ? spectrum : 5;
-  const label = getSpectrumLabel(score);
-
-  // Color based on position: left=rose, center=sky, right=amber
-  let style = "border-sky-500/60 bg-sky-500/10 text-sky-200"; // default center
-  if (score <= 3) {
-    style = "border-rose-500/60 bg-rose-500/10 text-rose-200"; // left
-  } else if (score >= 7) {
-    style = "border-amber-500/60 bg-amber-500/10 text-amber-200"; // right
-  }
+  const style =
+    score <= 3
+      ? "border-blue-200 bg-blue-50 text-blue-800"
+      : score >= 7
+        ? "border-red-200 bg-red-50 text-red-800"
+        : "border-paper-300 bg-paper-100 text-ink-700";
 
   return (
-    <span className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${style}`}>
-      {label} ({score})
+    <span className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-semibold ${style}`}>
+      {getSpectrumLabel(score)} · {score}
     </span>
-  );
-}
-
-function Toggle({
-  checked,
-  onChange,
-  disabled,
-  label,
-}: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  disabled?: boolean;
-  label: string;
-}) {
-  return (
-    <label className="relative inline-flex cursor-pointer items-center">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        disabled={disabled}
-        className="peer sr-only"
-      />
-      <div className="peer h-6 w-11 rounded-full bg-slate-600 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-slate-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-brand-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-brand-300 peer-disabled:cursor-not-allowed peer-disabled:opacity-50"></div>
-      <span className="sr-only">{label}</span>
-    </label>
   );
 }
 
@@ -79,38 +53,89 @@ function SourceRow({
   updating: boolean;
 }) {
   return (
-    <tr className="border-b border-slate-700 hover:bg-slate-800/50">
+    <tr className="border-t border-paper-200 hover:bg-paper-100/60">
       <td className="px-4 py-3">
-        <div className="flex flex-col gap-1">
-          <span className="font-medium text-slate-100">{source.display_name}</span>
-          <span className="text-xs text-slate-400">{source.source_id}</span>
+        <div className="flex items-center gap-3">
+          <Favicon name={source.display_name} size={20} />
+          <div className="min-w-0">
+            <p className="font-semibold text-ink-900">{source.display_name}</p>
+            <p className="font-mono text-xs text-ink-400">{source.source_id}</p>
+          </div>
         </div>
       </td>
       <td className="px-4 py-3">
         <SpectrumBadge spectrum={source.spectrum} />
       </td>
-      <td className="hidden px-4 py-3 md:table-cell">
-        <span className="max-w-xs truncate text-xs text-slate-400" title={source.feed_url}>
-          {source.feed_url}
-        </span>
+      <td className="max-w-[280px] px-4 py-3">
+        <p className="truncate text-xs text-ink-500" title={source.feed_url}>
+          {source.feed_url.replace(/^https?:\/\/(www\.)?/, "")}
+        </p>
       </td>
-      <td className="px-4 py-3 text-center">
-        <Toggle
-          checked={source.enabled}
-          onChange={(enabled) => onUpdate(source.source_id, { enabled })}
-          disabled={updating}
-          label={`Toggle ${source.display_name} enabled`}
-        />
+      <td className="px-4 py-3">
+        <div className="flex justify-center">
+          <Toggle
+            checked={source.enabled}
+            onChange={(enabled) => onUpdate(source.source_id, { enabled })}
+            disabled={updating}
+            label={`${source.display_name} ophalen`}
+          />
+        </div>
       </td>
-      <td className="px-4 py-3 text-center">
-        <Toggle
-          checked={source.is_main_source}
-          onChange={(is_main_source) => onUpdate(source.source_id, { is_main_source })}
-          disabled={updating}
-          label={`Toggle ${source.display_name} as main source`}
-        />
+      <td className="px-4 py-3">
+        <div className="flex justify-center">
+          <Toggle
+            checked={source.is_main_source}
+            onChange={(is_main_source) => onUpdate(source.source_id, { is_main_source })}
+            disabled={updating}
+            label={`${source.display_name} als hoofdbron`}
+          />
+        </div>
       </td>
     </tr>
+  );
+}
+
+/** On phones a source is a row of its own, with both switches in view. */
+function SourceItem({
+  source,
+  onUpdate,
+  updating,
+}: {
+  source: NewsSource;
+  onUpdate: (sourceId: string, update: { enabled?: boolean; is_main_source?: boolean }) => Promise<void>;
+  updating: boolean;
+}) {
+  return (
+    <li className="flex items-start gap-3 px-4 py-3">
+      <Favicon name={source.display_name} size={20} className="mt-0.5" />
+      <div className="min-w-0 flex-1 space-y-1">
+        <p className="font-semibold text-ink-900">{source.display_name}</p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <SpectrumBadge spectrum={source.spectrum} />
+          <span className="font-mono text-xs text-ink-400">{source.source_id}</span>
+        </div>
+      </div>
+      <div className="shrink-0 space-y-2 text-xs text-ink-500">
+        <label className="flex items-center justify-end gap-2">
+          Ophalen
+          <Toggle
+            checked={source.enabled}
+            onChange={(enabled) => onUpdate(source.source_id, { enabled })}
+            disabled={updating}
+            label={`${source.display_name} ophalen`}
+          />
+        </label>
+        <label className="flex items-center justify-end gap-2">
+          Hoofdbron
+          <Toggle
+            checked={source.is_main_source}
+            onChange={(is_main_source) => onUpdate(source.source_id, { is_main_source })}
+            disabled={updating}
+            label={`${source.display_name} als hoofdbron`}
+          />
+        </label>
+      </div>
+    </li>
   );
 }
 
@@ -177,144 +202,102 @@ export default function AdminPage() {
   const mainCount = sources.filter((s) => s.is_main_source).length;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <Link
-            href="/"
-            className="text-sm text-brand-400 hover:text-brand-300"
-          >
-            &larr; Terug naar events
-          </Link>
-          <h1 className="mt-1 text-2xl font-bold text-slate-100">
-            Admin Dashboard
-          </h1>
-          <p className="text-sm text-slate-400">
-            Beheer nieuwsbronnen en hun instellingen
-          </p>
-        </div>
-        <button
-          onClick={handleInitialize}
-          disabled={updating}
-          className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {updating ? "Bezig..." : "Bronnen initialiseren"}
-        </button>
-      </div>
+    <div className="mx-auto max-w-5xl space-y-6 pb-16">
+      <AdminHeader
+        back={{ href: "/", label: "Nieuws" }}
+        title="Beheer"
+        subtitle="Nieuwsbronnen, toegang en wat lezers meldden"
+        action={
+          <button type="button" onClick={handleInitialize} disabled={updating} className={BUTTON_SECONDARY}>
+            {updating ? "Bezig…" : "Bronnen initialiseren"}
+          </button>
+        }
+      />
 
       <AccessCodeForm />
       <ReportedShared />
 
-      {/* Quick Links */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Link
-          href="/admin/llm-config"
-          className="rounded-lg border border-slate-700 bg-slate-800 p-4 transition-colors hover:border-slate-600 hover:bg-slate-700/50"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-semibold text-slate-100">LLM Configuratie</p>
-              <p className="text-sm text-slate-400">Prompts, parameters en scoring</p>
-            </div>
-            <span className="text-slate-400">&rarr;</span>
-          </div>
-        </Link>
-        <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-semibold text-slate-100">Bronnen beheer</p>
-              <p className="text-sm text-slate-400">Hieronder op deze pagina</p>
-            </div>
-            <span className="text-slate-400">&darr;</span>
-          </div>
-        </div>
-      </div>
+      <Link
+        href="/admin/llm-config"
+        className="group flex items-center gap-4 rounded-2xl border border-paper-300 bg-paper-50 p-5 transition-colors hover:bg-paper-100"
+      >
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-paper-100 text-ink-700">
+          <SlidersHorizontal size={18} aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-serif text-lg font-bold text-ink-900">LLM-configuratie</span>
+          <span className="block text-sm text-ink-500">Welk model elke stap gebruikt, de prompts, parameters en scores</span>
+        </span>
+        <ChevronRight size={20} className="shrink-0 text-ink-400 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+      </Link>
 
-      {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-lg border border-slate-700 bg-slate-800 p-4">
-          <p className="text-sm text-slate-400">Totaal bronnen</p>
-          <p className="text-2xl font-bold text-slate-100">{sources.length}</p>
-        </div>
-        <div className="rounded-lg border border-slate-700 bg-slate-800 p-4">
-          <p className="text-sm text-slate-400">Ingeschakeld voor polling</p>
-          <p className="text-2xl font-bold text-green-400">{enabledCount}</p>
-        </div>
-        <div className="rounded-lg border border-slate-700 bg-slate-800 p-4">
-          <p className="text-sm text-slate-400">Hoofdbronnen (voor weergave)</p>
-          <p className="text-2xl font-bold text-brand-400">{mainCount}</p>
-        </div>
-      </div>
+      {error ? <Notice tone="error">{error}</Notice> : null}
+      {message ? <Notice tone="ok">{message}</Notice> : null}
 
-      {/* Messages */}
-      {error && (
-        <div className="rounded-lg border border-red-700 bg-red-900/30 px-4 py-3 text-red-300">
-          {error}
+      <section aria-labelledby="sources-title" className="space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 id="sources-title" className="font-serif text-2xl font-bold text-ink-900">
+            Bronnen
+          </h2>
+          {!loading ? (
+            <p className="text-sm text-ink-500">
+              {sources.length} bronnen · {enabledCount} worden opgehaald · {mainCount} {mainCount === 1 ? "hoofdbron" : "hoofdbronnen"}
+            </p>
+          ) : null}
         </div>
-      )}
-      {message && (
-        <div className="rounded-lg border border-green-700 bg-green-900/30 px-4 py-3 text-green-300">
-          {message}
-        </div>
-      )}
 
-      {/* Explanation */}
-      <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
-        <h2 className="mb-2 font-semibold text-slate-100">Uitleg</h2>
-        <div className="space-y-2 text-sm text-slate-300">
-          <p>
-            <strong className="text-green-400">Ingeschakeld:</strong> Bronnen worden gepolled voor nieuwe artikelen (elke 15 minuten).
-            Uitgezette bronnen worden niet meer gepolled.
-          </p>
-          <p>
-            <strong className="text-brand-400">Hoofdbron:</strong> Events worden alleen getoond als ze minstens een artikel van een hoofdbron bevatten.
-            Andere bronnen dienen als aanvulling voor pluriformiteitsanalyse.
-          </p>
-          <p className="text-slate-400">
-            Tip: Gebruik NOS als baseline hoofdbron en de rest als aanvullende bronnen voor diverse perspectieven.
-          </p>
-        </div>
-      </div>
+        <ul className="divide-y divide-paper-200 rounded-2xl border border-paper-300 bg-paper-50 text-sm md:hidden">
+          {loading ? <li className="px-4 py-8 text-center text-ink-500">Laden…</li> : null}
+          {!loading && sources.length === 0 ? (
+            <li className="px-4 py-8 text-center text-ink-500">Geen bronnen gevonden. Kies &quot;Bronnen initialiseren&quot; om te beginnen.</li>
+          ) : null}
+          {sources.map((source) => (
+            <SourceItem key={source.source_id} source={source} onUpdate={handleUpdate} updating={updating} />
+          ))}
+        </ul>
 
-      {/* Sources table */}
-      <div className="overflow-x-auto rounded-lg border border-slate-700">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-800 text-xs uppercase text-slate-400">
-            <tr>
-              <th className="px-4 py-3">Bron</th>
-              <th className="px-4 py-3">Spectrum</th>
-              <th className="hidden px-4 py-3 md:table-cell">Feed URL</th>
-              <th className="px-4 py-3 text-center">Ingeschakeld</th>
-              <th className="px-4 py-3 text-center">Hoofdbron</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
+        <div className="hidden overflow-x-auto rounded-2xl border border-paper-300 bg-paper-50 md:block">
+          <table className="w-full text-left text-sm">
+            <thead className="text-xs font-semibold text-ink-500">
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
-                  Laden...
-                </td>
+                <th className="px-4 py-3 font-semibold">Bron</th>
+                <th className="px-4 py-3 font-semibold">Spectrum</th>
+                <th className="px-4 py-3 font-semibold">Feed</th>
+                <th className="px-4 py-3 text-center font-semibold">Ophalen</th>
+                <th className="px-4 py-3 text-center font-semibold">Hoofdbron</th>
               </tr>
-            ) : sources.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
-                  Geen bronnen gevonden. Klik op &quot;Bronnen initialiseren&quot; om te beginnen.
-                </td>
-              </tr>
-            ) : (
-              sources.map((source) => (
-                <SourceRow
-                  key={source.source_id}
-                  source={source}
-                  onUpdate={handleUpdate}
-                  updating={updating}
-                />
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr className="border-t border-paper-200">
+                  <td colSpan={5} className="px-4 py-8 text-center text-ink-500">
+                    Laden…
+                  </td>
+                </tr>
+              ) : sources.length === 0 ? (
+                <tr className="border-t border-paper-200">
+                  <td colSpan={5} className="px-4 py-8 text-center text-ink-500">
+                    Geen bronnen gevonden. Kies &quot;Bronnen initialiseren&quot; om te beginnen.
+                  </td>
+                </tr>
+              ) : (
+                sources.map((source) => <SourceRow key={source.source_id} source={source} onUpdate={handleUpdate} updating={updating} />)
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="space-y-1.5 text-sm text-ink-600">
+          <p>
+            <strong className="font-semibold text-ink-900">Ophalen:</strong> de feed wordt elke 15 minuten gelezen op nieuwe artikelen. Uitgezette bronnen
+            worden niet meer opgehaald.
+          </p>
+          <p>
+            <strong className="font-semibold text-ink-900">Hoofdbron:</strong> een nieuwsitem verschijnt alleen als het minstens één artikel van een hoofdbron
+            heeft. De andere bronnen vullen het aan voor de vergelijking. Tip: NOS als hoofdbron, de rest aanvullend.
+          </p>
+        </div>
+      </section>
     </div>
   );
 }

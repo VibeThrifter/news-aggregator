@@ -12,7 +12,7 @@ import { formatEventTimeframe } from "@/lib/format";
 
 import { useExplore } from "../ExploreContext";
 import { EntityText } from "../entity/EntityText";
-import { Favicon } from "../ui/primitives";
+import { Favicon, SubHeading } from "../ui/primitives";
 import { FindingRow } from "./FindingRow";
 import { useFocusRing } from "./Markers";
 
@@ -70,7 +70,7 @@ export function TijdlijnTab() {
         {thread.earlier.length ? <EpisodeList title="Eerder in dit verhaal" episodes={thread.earlier} /> : null}
 
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-500">Dit nieuws</p>
+          <SubHeading className="mb-2">Dit nieuws</SubHeading>
           <ol className="ml-2 space-y-2.5 border-l-2 border-ink-900 pl-4">
             {axis.map((row, i) =>
               row.kind === "own" ? (
@@ -133,7 +133,7 @@ function PublicationRow({ outletKey, t, lagMinutes }: { outletKey: string; t: nu
 function EpisodeList({ title, episodes }: { title: string; episodes: Episode[] }) {
   return (
     <div>
-      <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-500">{title}</p>
+      <SubHeading className="mb-1">{title}</SubHeading>
       <ul className="divide-y divide-paper-200">
         {episodes.map((episode) => (
           <li key={episode.eventId}>
@@ -166,7 +166,7 @@ function PeopleElsewhere({ people }: { people: ReturnType<typeof storyThread>["p
   const [openKey, setOpenKey] = useState<string | null>(null);
   return (
     <div>
-      <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-500">Dezelfde mensen in ander nieuws</p>
+      <SubHeading className="mb-1">Dezelfde mensen in ander nieuws</SubHeading>
       <ul className="divide-y divide-paper-200">
         {people.slice(0, 8).map((person) => (
           <li key={person.key}>

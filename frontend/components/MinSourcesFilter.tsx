@@ -83,39 +83,41 @@ export default function MinSourcesFilter({
   }, []);
 
   return (
-    <div className={`flex items-center gap-2 text-sm ${className}`}>
-      <span className="text-ink-400">min. bronnen</span>
-      <div className="flex items-center">
-        <button
-          type="button"
-          onClick={handleDecrement}
-          disabled={(parseInt(localValue, 10) || 1) <= 1}
-          className="flex h-7 w-7 items-center justify-center text-ink-400 transition-colors hover:text-ink-700 disabled:opacity-30"
-          aria-label="Verlaag minimum aantal bronnen"
-        >
-          <Minus size={14} />
-        </button>
-        <input
-          ref={inputRef}
-          id="min-sources"
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          value={localValue}
-          onChange={handleChange}
-          onBlur={handleBlur}
-          className="w-8 border-0 border-b border-paper-300 bg-transparent py-1 text-center text-base sm:text-sm text-ink-700 transition-colors focus:border-accent-orange focus:outline-none"
-          aria-label="Minimum aantal bronnen"
-        />
-        <button
-          type="button"
-          onClick={handleIncrement}
-          className="flex h-7 w-7 items-center justify-center text-ink-400 transition-colors hover:text-ink-700"
-          aria-label="Verhoog minimum aantal bronnen"
-        >
-          <Plus size={14} />
-        </button>
-      </div>
+    <div
+      className={`inline-flex min-h-[40px] items-center gap-1 rounded-full border border-paper-300 bg-paper-50 pl-3.5 pr-1 text-sm ${className}`}
+    >
+      <label htmlFor="min-sources" className="whitespace-nowrap text-ink-500">
+        Min. bronnen
+      </label>
+      <button
+        type="button"
+        onClick={handleDecrement}
+        disabled={(parseInt(localValue, 10) || 1) <= 1}
+        className="flex h-8 w-8 items-center justify-center rounded-full text-ink-500 transition-colors hover:bg-paper-200 hover:text-ink-900 disabled:opacity-30 disabled:hover:bg-transparent"
+        aria-label="Verlaag minimum aantal bronnen"
+      >
+        <Minus size={14} />
+      </button>
+      <input
+        ref={inputRef}
+        id="min-sources"
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        value={localValue}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        className="w-6 bg-transparent text-center text-base font-semibold text-ink-900 focus:outline-none sm:text-sm"
+        aria-label="Minimum aantal bronnen"
+      />
+      <button
+        type="button"
+        onClick={handleIncrement}
+        className="flex h-8 w-8 items-center justify-center rounded-full text-ink-500 transition-colors hover:bg-paper-200 hover:text-ink-900"
+        aria-label="Verhoog minimum aantal bronnen"
+      >
+        <Plus size={14} />
+      </button>
     </div>
   );
 }

@@ -38,6 +38,16 @@ a:hover {
   text-decoration: none;
 }
 
+/* Rows of chips and tabs scroll sideways without a scrollbar (ScrollRow shows the edges) */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* Draggables: no iOS callout or text selection on long-press */
 .no-callout {
   -webkit-touch-callout: none;

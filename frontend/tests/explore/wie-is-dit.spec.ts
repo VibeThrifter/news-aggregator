@@ -47,9 +47,10 @@ test.describe("Wie is dit?", () => {
   });
 
   test("a private resident is never researched", async ({ page }) => {
+    // An old link to the story sheet unfolds the whole story in the page
     await page.goto("/event/demo?p=samenvatting");
-    const summary = page.getByRole("dialog").filter({ hasText: "Het hele verhaal" });
-    await summary.getByRole("button", { name: "Henk de Boer" }).click();
+    const story = page.getByRole("region", { name: "Het hele verhaal" });
+    await story.getByRole("button", { name: "Henk de Boer" }).click();
     const sheet = page.getByRole("dialog").filter({ hasText: "Netwerk & onderzoek" });
     await expect(sheet.getByText("Wordt niet uitgezocht", { exact: true })).toBeVisible();
     await expect(sheet.getByText("Privépersoon — wordt niet uitgezocht.")).toBeVisible();
