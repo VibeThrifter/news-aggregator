@@ -417,6 +417,8 @@ class IngestService:
                     article = result.get("article")
                     if article is not None:
                         new_articles.append(article)
+                    # Closed before the next page is fetched
+                    await session.commit()
 
             try:
                 await session.commit()
@@ -491,6 +493,10 @@ class IngestService:
         correlation_id: Optional[str],
     ) -> AsyncGenerator[Dict[str, Any], None]:
         logger_ctx = logger.bind(reader_id=reader_id, correlation_id=correlation_id)
+        # Stored items are skipped before their page is fetched; then the read transaction ends, so
+        # no transaction stays open while pages are fetched ("idle in transaction" for minutes)
+        known = await repo.known_items(items)
+        await session.commit()
         headers = {"User-Agent": (profile.user_agent if profile and profile.user_agent else "News360Ingest/0.1")}
         if profile and profile.headers:
             headers.update(profile.headers)
@@ -501,6 +507,10 @@ class IngestService:
             follow_redirects=True,
         ) as client:
             for item in items:
+                if (item.guid or item.url) in known:
+                    yield {"status": "duplicates", "article_id": None}
+                    continue
+
                 # Skip De Andere Krant edition promo pages (not real articles)
                 if item.title and "Uitgave" in item.title and item.title.strip().startswith("20"):
                     logger_ctx.debug(

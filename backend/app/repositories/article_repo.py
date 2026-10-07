@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Dict, List
 import asyncio
 
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, or_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -167,6 +167,35 @@ class ArticleRepository:
             await self.session.rollback()
             self.log.error("article_persist_failed", error=str(exc), url=feed_item.url)
             raise
+
+    async def known_items(self, items: List[FeedItem]) -> set[str]:
+        """Keys (guid, else URL) of the feed items that are already stored, in one query.
+
+        A feed repeats its latest items every poll. Fetching each page again before seeing the
+        duplicate (for some sites with a browser) made a poll run past its timeout.
+        """
+        if not items:
+            return set()
+        urls = {item.url for item in items}
+        guids = {item.guid for item in items if item.guid}
+        stmt = select(Article.url, Article.guid).where(or_(Article.url.in_(urls), Article.guid.in_(guids)))
+        rows = (await self.session.execute(stmt)).all()
+        stored_urls = {row.url for row in rows}
+        stored_guids = {row.guid for row in rows if row.guid}
+        known = {
+            item.guid or item.url
+            for item in items
+            if item.url in stored_urls or (item.guid and item.guid in stored_guids)
+        }
+        # AD keeps the article id when a live article gets a new URL
+        for item in items:
+            source_name = item.source_metadata.get("name")
+            source_article_id = item.source_metadata.get("source_article_id")
+            if (item.guid or item.url) in known or source_name not in SOURCES_WITH_ARTICLE_ID or not source_article_id:
+                continue
+            if await self._find_by_source_article_id(source_name, source_article_id):
+                known.add(item.guid or item.url)
+        return known
 
     async def _find_existing(self, url: str, guid: str | None) -> Article | None:
         """The stored article with this URL, else with this guid."""

@@ -186,3 +186,24 @@ async def test_parse_failure_with_rss_summary_fallback(monkeypatch, ingest_servi
     async with session_factory() as session:
         stored = (await session.execute(select(Article))).scalar_one()
         assert stored.content == sample_feed_item.summary
+
+
+@pytest.mark.asyncio
+async def test_stored_items_are_not_fetched_again(monkeypatch, ingest_service, sample_feed_item, sample_html, session_factory):
+    """A feed repeats its latest items every poll: a stored item is skipped before its page is fetched."""
+    calls: list[str] = []
+
+    async def fake_fetch(url: str, **_: object) -> str:
+        calls.append(url)
+        return sample_html
+
+    monkeypatch.setattr("backend.app.services.ingest_service.fetch_article_html", fake_fetch)
+
+    profile = ingest_service.reader_profiles.get("nos_rss")
+    first = await ingest_service.process_feed_items(reader_id="nos_rss", items=[sample_feed_item], profile=profile)
+    again = await ingest_service.process_feed_items(reader_id="nos_rss", items=[sample_feed_item], profile=profile)
+
+    assert first["ingested"] == 1
+    assert again["duplicates"] == 1
+    assert again["ingested"] == 0
+    assert calls == [sample_feed_item.url]
