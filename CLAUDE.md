@@ -6,6 +6,7 @@ This document provides Claude Code with essential context and guidelines for wor
 - Never commit without asking
 - Frontend build warnings about `<img>` vs `<Image>` are expected and NOT errors - the build succeeds despite these warnings
 - Supabase storage (owner's rule 2026-10-07): Supabase keeps what the app shows; working data goes once nothing reads it, and never at the cost of accuracy. Event Maintenance clears every day the embedding + tf-idf of articles that are only in archived events (new articles are matched against event centroids, which stay) and raw LLM responses older than 7 days (`STORAGE_PRUNE_ENABLED`, `RAW_LLM_RESPONSE_RETENTION_DAYS`). `normalized_tokens` is not stored; centroids are stored with 6 decimals (`round_centroid`). The full article text and `normalized_text` stay (search, rebuilding vectors), but anon cannot read the text (migration 013). Images are not in Supabase, only links (`image_url`), which stay. Measure before cutting: check that a change leaves clustering, related events and search unchanged
+- Supabase security (2026-10-07, migration 014): the public anon key (in every browser) only reads. Writes go through the backend (postgres) or a SECURITY DEFINER function; `llm_config` is backend only (`/admin/llm-config`). Every table in `public` has RLS on: a new table enables it in its migration, adds a read policy only for what the frontend shows, and never grants anon/authenticated INSERT, UPDATE or DELETE. New tables get only SELECT for anon by default
 
 ## 📋 Project Overview
 
@@ -203,23 +204,17 @@ De LLM prompts worden opgeslagen in de Supabase `llm_config` tabel. De lokale te
 
 **Workflow bij prompt wijzigingen:**
 
-1. **Wijzig BEIDE** - database én lokale template:
+1. **Wijzig BEIDE** - database én lokale template. De database gaat via de backend (die moet draaien): de
+   publieke anon-sleutel mag sinds migratie 014 alleen lezen en ziet `llm_config` niet:
    ```bash
-   # Update database
+   # Update database (de backend leegt meteen zijn config-cache)
    PYTHONPATH=. python3.11 -c "
    import requests
 
    new_prompt = '''<NIEUWE PROMPT HIER>'''
 
-   url = 'https://xfqvwplrgwubbgbumzwk.supabase.co/rest/v1/llm_config'
-   headers = {
-       'apikey': '<SUPABASE_ANON_KEY>',
-       'Authorization': 'Bearer <SUPABASE_ANON_KEY>',
-       'Content-Type': 'application/json',
-       'Prefer': 'return=minimal'
-   }
-   resp = requests.patch(url + '?key=eq.prompt_factual', headers=headers, json={'value': new_prompt})
-   print(f'Database: {resp.status_code}')  # 204 = success
+   resp = requests.patch('http://localhost:8000/admin/llm-config/prompt_factual', json={'value': new_prompt})
+   print(f'Database: {resp.status_code}')  # 200 = success
    "
    ```
 
@@ -236,10 +231,8 @@ De LLM prompts worden opgeslagen in de Supabase `llm_config` tabel. De lokale te
 ```bash
 PYTHONPATH=. python3.11 -c "
 import requests
-url = 'https://xfqvwplrgwubbgbumzwk.supabase.co/rest/v1/llm_config'
-headers = {'apikey': '<SUPABASE_ANON_KEY>'}
-resp = requests.get(url + '?key=eq.prompt_factual&select=value', headers=headers)
-print(resp.json()[0]['value'])
+resp = requests.get('http://localhost:8000/admin/llm-config/prompt_factual')
+print(resp.json()['value'])
 "
 ```
 
