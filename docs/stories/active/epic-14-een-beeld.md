@@ -691,10 +691,60 @@ propagandamodel:
   bron-check en aanklager, in plaats van na 14 dagen ongezien te worden opgeruimd. De aanklager krijgt 4 rondes per
   dag (was 2).
 
+Vervolg 2026-10-07: het hele proces opgeschoond. Eigenaar: "Schoon het hele proces met agents die aan
+propagandamodel werken op.. geen humans in de loop maar het moet effectief zijn en goed werken en zorgen dat er geen
+gaten vallen en gestroomlijnd en duidelijk verloopt". De analyse vond werk dat op niemand wachtte en dubbel werk:
+- **Gaten**:
+  - 19 van de 30 voorgestelde argumenten kregen "twijfel" van de bron-check. Daarna gebeurde er 14 dagen niets,
+    en dan werden ze verworpen;
+  - 59 goedgekeurde verbanden hadden geen enkel steunend argument. De bronzoeker zocht alleen bij bestaande
+    argumenten;
+  - 1.963 voorstellen voor een bronklasse wachtten op een reviewer. 2.242 bronnen stonden daardoor op
+    "onbeoordeeld" (gewicht 0,15);
+  - verbanden zonder mechanisme bleven eeuwig hangen, en de entiteiten eraan ook;
+  - sinds augustus werden nieuwe bronnen niet meer gearchiveerd;
+  - een bevestigd bezwaar werd nooit geverifieerd.
+- **Dubbel werk**:
+  - de agentlijst noemde 16 agents, waarvan 12 standaard "aan", maar er draaiden er 3;
+  - `nieuws-autokeur` keurde goed zonder bron-check, naast de uurronde die dat mét check doet;
+  - de nieuws-scout werd vanuit twee plekken gestart;
+  - vier inhaalstanden van de bron-check draaiden elk uur voor een lege wachtrij;
+  - het oude merge-script `auto_merge_service.py` deed niets meer.
+
+Nu, in het propagandamodel:
+- **Eén ronde per uur, in 13 stappen**: eerst repareren en controleren, dan beslissen, dan opruimen. Elk stuk werk
+  eindigt in een eindtoestand, met de reden erbij.
+- **Bronzoeker**: zoekt ook een betere bron bij een voorstel met twijfel (een vervangend voorstel) en een steunend
+  argument voor een verband zonder argument. Daarna wordt het origineel meteen verworpen: vervangen, of "geen betere
+  bron gevonden".
+- **Bronklassen**: twee onafhankelijke oordelen per bron; bij verschil geldt het voorzichtigste.
+- **Mechanisme-toewijzer**: wat buiten het model valt, wordt afgewezen met reden. Een invloedspatroon zonder
+  mechanisme wacht op een RfC.
+- **Bezwaren** die de bron-check bevestigt, worden geverifieerd. **Archiveren** is een vaste stap van de ronde.
+- **Planning**: alleen de ronde (elk uur), `nieuws-scout` (max 6 per dag) en `nieuws-bewijs` (max 3 per dag, samen
+  de 6 verbanden die de nieuws-app per dag klaarzet). Het propagandamodel plant de rondes. De nieuws-app zet alleen
+  doelen en voorrang klaar (`NIEUWS_SCOUT_ENABLED=false`, `NIEUWS_BEWIJS_ENABLED=false` in `.env`; dat geldt na de
+  volgende herstart van de backend).
+- **Eerste ronde** (2026-10-07, 21:13, 13 minuten):
+  - de bronzoeker vond voor 8 voorstellen met twijfel een betere bron. 3 vervangers hielden stand; 5 gingen nog
+    steeds verder dan de bron. De bronzoeker houdt een bewering daarom sindsdien binnen wat de bron letterlijk zegt;
+  - 11 verbanden zonder mechanisme vielen buiten het model (een opleiding binnen een hogeschool, een
+    vakbondsvoorzitter, een partijfusie) en zijn afgewezen; 1 wacht op een RfC;
+  - 160 bronnen kregen een klasse: 75 keer waren de oordelen het eens, 78 keer gold het voorzichtigste. Na een
+    scherpere instructie zijn 29 besluiten opnieuw genomen: de eigen site van een organisatie over haar bestuur is
+    geen grijze bron;
+  - 39 argumenten geverifieerd en 10 bronnen gearchiveerd; 20 argumenten verworpen, elk met de reden erbij.
+  - Stand na de ronde: 16 voorgestelde argumenten (was 30), 16 voorgestelde verbanden (was 32, nog 4 zonder
+    mechanisme) en 1.830 open bronvoorstellen (was 1.963; 160 per ronde).
+- Tests: `scripts/test_automatische_beoordeling.py` stap 1–22. Elf andere suites zijn ook groen: `test_auto_merge`,
+  `test_immuunsysteem`, `test_nieuws_autokeur`, `test_nieuws_doelen`, `test_bron_classificatie`,
+  `test_bezwaar_resolutie`, `test_scoring`, `test_admin_veto`, `test_fase2`, `test_fase3` en
+  `test_publieke_intake`.
+
 ### Open
 - De aanklager (Opus) draait alleen tussen 08:00 en 22:00 uur. Wat 's avonds klaar staat, wacht tot de ochtend.
-- Diep onderzoek (`nieuws-bewijs`, Opus) blijft begrensd op 6 verbanden per dag. De bron-check en de bronzoeker
-  hebben geen dagbudget.
+- Op een slapende Mac draait er niets. De gemiste ronde volgt bij het ontwaken.
+- Voorspellingen hebben nog geen agent. De eerste deadline is 1 maart 2027.
 
 ## Story 14.18: Eén stijl voor de hele site
 
