@@ -5,7 +5,7 @@
  * words of the analysis (never the article text: copyright).
  */
 
-import { buildEntityLinks, segmentText, type TextSegment } from "./entity-linker";
+import { buildEntityLinks, segmentText, type LinkerInput, type TextSegment } from "./entity-linker";
 import { summarySentences } from "./summary";
 import type { ExploreInput } from "./types";
 
@@ -25,8 +25,15 @@ const cache = new WeakMap<ExploreInput, Map<string, OutletSentence[]>>();
 export function outletSentences(input: ExploreInput): Map<string, OutletSentence[]> {
   const cached = cache.get(input);
   if (cached) return cached;
-  const links = buildEntityLinks({ outlets: input.outlets, entities: [] });
-  const sentences = summarySentences(input.summary.body);
+  const byOutlet = outletSentencesIn(input.summary.body, input.outlets);
+  cache.set(input, byOutlet);
+  return byOutlet;
+}
+
+/** The same for any summary body and outlets (the front page has no exploration). */
+export function outletSentencesIn(body: string, outlets: LinkerInput["outlets"]): Map<string, OutletSentence[]> {
+  const links = buildEntityLinks({ outlets, entities: [] });
+  const sentences = summarySentences(body);
   const segmented = sentences.map((sentence) => segmentText(sentence, links));
   const entries = new Map<string, { last: number; parts: OutletSentence }[]>();
 
@@ -48,7 +55,5 @@ export function outletSentences(input: ExploreInput): Map<string, OutletSentence
     });
   });
 
-  const byOutlet = new Map(Array.from(entries, ([key, list]) => [key, list.map((entry) => entry.parts)] as const));
-  cache.set(input, byOutlet);
-  return byOutlet;
+  return new Map(Array.from(entries, ([key, list]) => [key, list.map((entry) => entry.parts)] as const));
 }

@@ -14,7 +14,7 @@ import { useEntityLinks } from "./EntityLinks";
  * Inline tap target inside running text: the padding makes the hit area ≥ 32px high while the
  * negative margin keeps the line height (buttons render inline-block).
  */
-const INLINE_TARGET = "-my-2 inline-block rounded-sm px-0.5 py-2 text-left align-baseline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue";
+export const INLINE_TARGET = "-my-2 inline-block rounded-sm px-0.5 py-2 text-left align-baseline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue";
 
 /** A name in running text that opens its entity panel ("Wie is dit?"). */
 export function EntityInline({ link, text }: { link: EntityLink; text: string }) {

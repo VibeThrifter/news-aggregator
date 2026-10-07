@@ -100,6 +100,14 @@ export function resolveSpectrumBadges(distribution?: SpectrumDistribution | null
     .sort((a, b) => b.count - a.count);
 }
 
+/** Who brought the news, as in the head of the event page: "NOS en RTL Nieuws + 4 buitenlandse", "5 Nederlandse bronnen". */
+export function outletsLine(dutch: string[], foreign: number): string {
+  const names = dutch.length === 0 ? "" : dutch.length <= 2 ? dutch.join(" en ") : `${dutch.length} Nederlandse bronnen`;
+  const abroad = foreign ? `${foreign} buitenlandse` : "";
+  if (names && abroad) return `${names} + ${abroad}`;
+  return names || (foreign ? `${foreign} buitenlandse bronnen` : "");
+}
+
 export function resolveEventSlug(event: Pick<EventListItem, "id" | "slug">): string {
   const slug = event.slug?.trim();
   if (slug) {

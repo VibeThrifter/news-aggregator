@@ -30,6 +30,7 @@ import type {
 import { getSupabase } from "@/lib/supabase";
 import type { RawExploration, RawExploreArticle } from "@/lib/explore/input";
 import { filterNeighborhood } from "@/lib/explore/pm-graph";
+import { stripMarkdown } from "@/lib/explore/summary";
 import { createLocalPm, extendSlice, type PmSlice } from "@/lib/explore/pm-local";
 import {
   parseWikiSearch,
@@ -255,6 +256,9 @@ function extractTitleFromSummary(
     }
   }
 
+  // The LLM sometimes puts the title in bold ("**Titel**")
+  title = stripMarkdown(title);
+
   // Truncate long titles (only for card views, not detail pages)
   if (options?.truncate !== false && title.length > MAX_TITLE_LENGTH) {
     // Try to break at a word boundary
@@ -271,6 +275,19 @@ export async function listEvents(
   options?: ApiFetchOptions
 ): Promise<ApiResponse<EventListItem[]>> {
   const { startDate, endDate, category, minSources = 1, search, searchAllPeriods = false, includeWithoutInsights = false } = filters ?? {};
+
+  // Main sources: a news item is only shown with at least one article of an enabled main source.
+  // - No sources configured at all (fresh system): show every news item.
+  // - Sources configured but no main source enabled: show nothing.
+  const [{ data: allSources }, { data: enabledMainSources }] = await Promise.all([
+    getSupabase().from('news_sources').select('id').limit(1),
+    getSupabase().from('news_sources').select('display_name').eq('is_main_source', true).eq('enabled', true),
+  ]);
+  const hasAnySourcesConfigured = (allSources || []).length > 0;
+  const mainSourceNames = (enabledMainSources || []).map((s: { display_name: string }) => s.display_name);
+  if (hasAnySourcesConfigured && mainSourceNames.length === 0) {
+    return { data: [] };
+  }
 
   // Build query with server-side filters
   // By default, only show events with LLM insights (to avoid showing article titles which is copyright)
@@ -289,18 +306,38 @@ export async function listEvents(
       last_updated_at,
       spectrum_distribution,
       archived_at,
-      llm_insights${includeWithoutInsights ? '' : '!inner'} (summary),
+      llm_insights${includeWithoutInsights ? '' : '!inner'} (
+        summary,
+        gap0:coverage_gaps->0->>perspective,
+        gap1:coverage_gaps->1->>perspective,
+        gap2:coverage_gaps->2->>perspective,
+        gap3:coverage_gaps->3->>perspective,
+        gap4:coverage_gaps->4->>perspective,
+        gap5:coverage_gaps->5->>perspective
+      ),
+      ${hasAnySourcesConfigured ? 'main:event_articles!inner ( articles!inner ( source_name ) ),' : ''}
       event_articles (
         articles (
           source_name,
-          source_metadata,
+          spectrum:source_metadata->spectrum,
           image_url,
           published_at,
           is_international
         )
       )
     `)
-    .is('archived_at', null);
+    .is('archived_at', null)
+    // One analysis per event: the newest, as on the event page. A new analysis by another
+    // provider adds a row next to the old one (one row per event and provider).
+    .order('generated_at', { referencedTable: 'llm_insights', ascending: false })
+    .limit(1, { referencedTable: 'llm_insights' });
+
+  // The main sources filter in the database ("main" is the same join, only for this filter; the
+  // event_articles above keep every outlet). Filtering here instead of afterwards fetched up to
+  // 1000 news items (3 MB) to show fewer than 100, and the query ran into the statement timeout.
+  if (hasAnySourcesConfigured) {
+    query = query.in('main.articles.source_name', mainSourceNames);
+  }
 
   // Apply date range filter unless searching all periods
   if (!searchAllPeriods) {
@@ -345,63 +382,29 @@ export async function listEvents(
     });
   }
 
-  // Get main source display names for filtering
-  // Events should only be shown if they have at least one article from an ENABLED main source
-  // First check if the system has any sources configured at all (unconfigured = show all)
-  const { data: allSources } = await getSupabase()
-    .from('news_sources')
-    .select('id')
-    .limit(1);
-
-  const hasAnySourcesConfigured = (allSources || []).length > 0;
-
-  // Get enabled main sources for filtering
-  const { data: enabledMainSources } = await getSupabase()
-    .from('news_sources')
-    .select('display_name')
-    .eq('is_main_source', true)
-    .eq('enabled', true);
-
-  const mainSourceNames = new Set((enabledMainSources || []).map((s: { display_name: string }) => s.display_name));
-
-  // Filter events based on main source configuration:
-  // - If NO sources are configured at all: show all events (fresh/unconfigured system)
-  // - If sources are configured but no main sources are enabled: show NO events
-  // - If sources are configured and some main sources are enabled: filter to those sources
-  let filteredData: any[];
-  if (!hasAnySourcesConfigured) {
-    // No sources configured at all - show all events (unconfigured system)
-    filteredData = data || [];
-  } else if (mainSourceNames.size === 0) {
-    // Sources are configured but no main sources are enabled - show no events
-    filteredData = [];
-  } else {
-    // Filter to events with at least one enabled main source
-    filteredData = (data || []).filter((event: any) => {
-      const articleSources = new Set<string>(
-        (event.event_articles || [])
-          .map((ea: any) => ea.articles?.source_name)
-          .filter((s: unknown): s is string => typeof s === "string")
-      );
-      // Check if any article source is a main source
-      return Array.from(articleSources).some(source => mainSourceNames.has(source));
-    });
-  }
-
-  const events: EventListItem[] = filteredData.map((event: any) => {
-    // llm_insights is an array from Supabase join, get first element
-    const insightSummary = event.llm_insights?.[0]?.summary;
+  const events: EventListItem[] = (data || []).map((event: any) => {
+    // llm_insights is an array from Supabase join (the newest analysis only, see the query)
+    const insight = event.llm_insights?.[0];
+    const insightSummary = insight?.summary;
     const { title: llmTitle, description: llmDescription } = extractTitleFromSummary(insightSummary);
+    // "Niet aan het woord": the missing voices of the analysis (JSON paths, a few bytes each; hardly
+    // any analysis has more than six)
+    const missingVoices = [insight?.gap0, insight?.gap1, insight?.gap2, insight?.gap3, insight?.gap4, insight?.gap5].filter(
+      (voice: unknown): voice is string => typeof voice === "string" && voice.trim().length > 0,
+    );
 
     // Build source_breakdown from event_articles and find first image + latest article date
     const sourceBreakdownMap = new Map<string, { source: string; article_count: number; spectrum: string | number | null; is_international: boolean }>();
     let featured_image_url: string | null = null;
     let latestArticleDate: Date | null = null;
+    // When Dutch media last wrote about it: Google News finds foreign articles days later
+    let latestDutchDate: Date | null = null;
     for (const ea of event.event_articles || []) {
       const article = ea.articles;
       if (!article) continue;
       const source = article.source_name || 'Unknown';
-      const spectrum = article.source_metadata?.spectrum || null;
+      // Only the spectrum of the metadata (the whole object made the list a quarter heavier)
+      const spectrum = article.spectrum || null;
       const isInternational = article.is_international || false;
       const key = `${source}|${spectrum || ''}|${isInternational}`;
       const existing = sourceBreakdownMap.get(key);
@@ -420,11 +423,14 @@ export async function listEvents(
         if (!latestArticleDate || pubDate > latestArticleDate) {
           latestArticleDate = pubDate;
         }
+        if (!isInternational && (!latestDutchDate || pubDate > latestDutchDate)) {
+          latestDutchDate = pubDate;
+        }
       }
     }
     const source_breakdown: EventSourceBreakdownEntry[] = Array.from(sourceBreakdownMap.values());
-    // Use latest article date as last_updated_at, fallback to event's timestamp
-    const computedLastUpdated = latestArticleDate?.toISOString() || event.last_updated_at;
+    // The time of the news: the latest Dutch article, else the latest article, else the event's timestamp
+    const computedLastUpdated = (latestDutchDate ?? latestArticleDate)?.toISOString() || event.last_updated_at;
 
     return {
       id: event.id,
@@ -443,10 +449,18 @@ export async function listEvents(
       source_breakdown,
       event_type: event.event_type || null,
       featured_image_url,
+      missing_voices: missingVoices,
     };
   });
 
-  return { data: events };
+  // The date range is about the news itself. The query filters on the event's own timestamp, which
+  // the backend also moves when it touches an old event (maintenance, a new analysis).
+  const inRange =
+    searchAllPeriods || !startDate
+      ? events
+      : events.filter((event) => !event.last_updated_at || event.last_updated_at >= `${startDate}T00:00:00.000Z`);
+
+  return { data: inRange };
 }
 
 function encodeEventIdentifier(id: string | number): string {

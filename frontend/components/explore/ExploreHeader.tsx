@@ -10,7 +10,7 @@ import { newsStart, storyThread } from "@/lib/explore/chronology";
 import { useFocusStore } from "@/lib/explore/focus";
 import { useExploreStore } from "@/lib/explore/store";
 import { truncate } from "@/lib/explore/summary";
-import { formatEventTimeframe, getCountryFlag, getCountryName } from "@/lib/format";
+import { formatEventTimeframe, getCountryFlag, getCountryName, outletsLine } from "@/lib/format";
 
 import { useExplore } from "./ExploreContext";
 import { EntityText } from "./entity/EntityText";
@@ -20,13 +20,6 @@ import { PILL } from "./ui/primitives";
 
 /** Characters of the first paragraph shown before "Lees alles" */
 const TEASER_LENGTH = 320;
-
-function outletsLine(dutch: string[], foreign: number): string {
-  const names = dutch.length === 0 ? "" : dutch.length <= 2 ? dutch.join(" en ") : `${dutch.length} Nederlandse bronnen`;
-  const abroad = foreign ? `${foreign} buitenlandse` : "";
-  if (names && abroad) return `${names} + ${abroad}`;
-  return names || (foreign ? `${foreign} buitenlandse bronnen` : "");
-}
 
 export function ExploreHeader() {
   const { exploration, panel, dossierCount } = useExplore();

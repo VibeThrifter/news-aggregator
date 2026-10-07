@@ -39,7 +39,7 @@ import { useExplore } from "../ExploreContext";
 import { SubHeading, Favicon } from "../ui/primitives";
 import { useToast } from "../ui/Toast";
 import { Badge, MARKER_STYLE } from "./Markers";
-import { Avatar } from "./PeopleCards";
+import { AnchorInline, Avatar } from "./PeopleCards";
 import { ScrollRow } from "../ui/ScrollRow";
 
 const NO_ENTRIES: SharedEntry[] = [];
@@ -99,19 +99,6 @@ function describeAnchor(anchor: string | null, exploration: ReturnType<typeof us
   const speaker = anchor.startsWith("speaker:") ? exploration.speakers.byId.get(anchor.slice("speaker:".length)) : undefined;
   if (speaker) return speaker.name;
   return exploration.index.outlet(anchorOutletKey(anchor, exploration.speakers))?.name ?? null;
-}
-
-function Side({ anchor }: { anchor: string }) {
-  const { exploration } = useExplore();
-  const speaker = anchor.startsWith("speaker:") ? exploration.speakers.byId.get(anchor.slice("speaker:".length)) : undefined;
-  const outlet = exploration.index.outlet(anchorOutletKey(anchor, exploration.speakers));
-  if (!speaker && !outlet) return null;
-  return (
-    <span className="inline-flex items-center gap-1">
-      {speaker ? <Avatar speaker={speaker} size={16} /> : outlet ? <Favicon name={outlet.name} domain={outlet.domain} size={14} /> : null}
-      <span className="font-semibold text-ink-700">{speaker?.name ?? outlet?.name}</span>
-    </span>
-  );
 }
 
 /** The kind of an entry, as a small sign: its marker, a face, a site, a date. */
@@ -262,12 +249,15 @@ export function SharedRow({ group, have, onNavigate }: { group: SharedGroup; hav
         <span className="pt-0.5">
           <KindSign entry={lead} />
         </span>
-        <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="min-w-0 flex-1 text-left">
-          <span className="block text-xs font-semibold text-ink-500">{kindLine(lead)}</span>
-          <span className={`block text-sm leading-snug text-ink-900 ${lead.kind === "claim" || lead.kind === "fallacy" ? "italic" : ""}`}>
-            {truncate(lead.text, open ? 300 : 160)}
-          </span>
-          <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-500">
+        <div className="min-w-0 flex-1">
+          <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="block w-full text-left">
+            <span className="block text-xs font-semibold text-ink-500">{kindLine(lead)}</span>
+            <span className={`block text-sm leading-snug text-ink-900 ${lead.kind === "claim" || lead.kind === "fallacy" ? "italic" : ""}`}>
+              {truncate(lead.text, open ? 300 : 160)}
+            </span>
+          </button>
+          {/* Not inside the button: the names in it open their balloon. A tap elsewhere on the line opens the row. */}
+          <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-500" onClick={() => setOpen((value) => !value)}>
             {about ? (
               <span className="inline-flex items-center gap-1">
                 over
@@ -281,15 +271,15 @@ export function SharedRow({ group, have, onNavigate }: { group: SharedGroup; hav
             {sides.map((anchor, i) => (
               <span key={anchor} className="inline-flex items-center gap-1.5">
                 {i > 0 ? <span aria-label="tegenover">⚡</span> : null}
-                <Side anchor={anchor} />
+                <AnchorInline anchor={anchor} plain={Boolean(onNavigate)} />
               </span>
             ))}
             <span className="inline-flex items-center gap-1">
               <Users size={12} aria-hidden="true" /> {group.readers} {group.readers === 1 ? "lezer" : "lezers"}
             </span>
             {group.mine ? <span className="rounded-full border border-ink-300 px-1.5 text-[10px] font-semibold leading-4 text-ink-700">jij ook</span> : null}
-          </span>
-        </button>
+          </div>
+        </div>
         {copy || (group.adopted && !have) ? (
           <button
             type="button"

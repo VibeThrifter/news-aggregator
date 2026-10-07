@@ -5,14 +5,15 @@ import { ChevronRight, FileText, MicOff, Pin, Plus, Sparkles, UserSearch } from 
 import { useFocusStore } from "@/lib/explore/focus";
 import { findingLabel, findingTitle } from "@/lib/explore/findings";
 import { OWN_KIND_LABELS } from "@/lib/explore/labels";
-import { OWN_KINDS, ownEntryOf, resolveOwnAgainst, resolveOwnAnchor } from "@/lib/explore/own";
+import { anchorOutletKey, OWN_KINDS, ownEntryOf, resolveOwnAgainst, resolveOwnAnchor } from "@/lib/explore/own";
 import { initials, type Speaker } from "@/lib/explore/speakers";
 import { truncate } from "@/lib/explore/summary";
 
 import { dossierIds, useExplore } from "../ExploreContext";
-import { EntityText } from "../entity/EntityText";
+import { EntityText, INLINE_TARGET, OutletInline } from "../entity/EntityText";
+import { Balloon } from "../ui/Balloon";
 import { Chip, SubHeading, Favicon, Tag } from "../ui/primitives";
-import { NumberBadge } from "./Markers";
+import { Badge, NumberBadge } from "./Markers";
 import { FoundTag, OwnTag } from "./OwnForm";
 import { OthersAbout, ShareControl } from "./Others";
 import { FoundVoices, VoiceSearchCompact } from "./VoiceSearch";
@@ -120,9 +121,56 @@ export function OwnAbout({ anchor, onNavigate }: { anchor: string; onNavigate?: 
   );
 }
 
+/** A speaker's name in a line: opens the same balloon as the speaker in the picture. */
+export function SpeakerInline({ speakerId }: { speakerId: string }) {
+  const { exploration } = useExplore();
+  const speaker = exploration.speakers.byId.get(speakerId);
+  if (!speaker) return null;
+  return (
+    // The wrapper stops the tap from reaching a tappable parent; the balloon still opens
+    <span className="inline" onClick={(event) => event.stopPropagation()}>
+      <Balloon label={`Over ${speaker.name}`} placement="top" content={(close) => <SpeakerCard speakerId={speaker.id} onNavigate={close} />}>
+        {({ ref, props }) => (
+          <button
+            ref={ref}
+            {...props}
+            type="button"
+            className={`${INLINE_TARGET} font-semibold text-ink-900 underline decoration-paper-300 decoration-2 underline-offset-4`}
+          >
+            <span className="mr-1 inline-block align-[-3px]">
+              <Avatar speaker={speaker} size={16} />
+            </span>
+            {speaker.name}
+          </button>
+        )}
+      </Balloon>
+    </span>
+  );
+}
+
+/**
+ * Who an anchor stands for ("speaker:…" or "outlet:…"), tappable like in the picture. `plain`
+ * inside a balloon: a balloon in a balloon only gets in the way.
+ */
+export function AnchorInline({ anchor, plain = false }: { anchor: string; plain?: boolean }) {
+  const { exploration } = useExplore();
+  const speaker = anchor.startsWith("speaker:") ? exploration.speakers.byId.get(anchor.slice("speaker:".length)) : undefined;
+  const outletKey = speaker ? null : anchorOutletKey(anchor, exploration.speakers);
+  const outlet = outletKey ? exploration.index.outlet(outletKey) : undefined;
+  if (!plain && speaker) return <SpeakerInline speakerId={speaker.id} />;
+  if (!plain && outlet) return <OutletInline outletKey={outlet.key} />;
+  if (!speaker && !outlet) return null;
+  return (
+    <span className="inline-flex items-center gap-1">
+      {speaker ? <Avatar speaker={speaker} size={16} /> : outlet ? <Favicon name={outlet.name} domain={outlet.domain} size={14} /> : null}
+      <span className="font-semibold text-ink-700">{speaker?.name ?? outlet?.name}</span>
+    </span>
+  );
+}
+
 /** A speaker in this news: who they are, what they claim, their interests, and where to go next. */
 export function SpeakerCard({ speakerId, onNavigate, inSheet = false }: { speakerId: string; onNavigate?: () => void; inSheet?: boolean }) {
-  const { exploration, panel, pin, isPinned, toFinding, compose } = useExplore();
+  const { exploration, panel, pin, isPinned, toFinding, compose, numbers } = useExplore();
   const speaker = exploration.speakers.byId.get(speakerId);
   if (!speaker) return null;
   const outlet = exploration.index.outlet(speaker.outletKey);
@@ -185,7 +233,8 @@ export function SpeakerCard({ speakerId, onNavigate, inSheet = false }: { speake
                     }}
                     className="flex min-h-[44px] w-full items-start gap-2 rounded-lg px-1 py-1.5 text-left text-sm hover:bg-paper-100"
                   >
-                    <NumberBadge findingId={finding.id} type="claim" />
+                    {/* The plain badge: the row is the button (a button in a button is invalid HTML) */}
+                    {numbers.get(finding.id) ? <Badge type="claim" number={numbers.get(finding.id) as number} /> : null}
                     <span className="flex-1 italic text-ink-800">{truncate(finding.body.claim.claim, 160)}</span>
                     <ChevronRight size={14} className="mt-1 shrink-0 text-ink-400" aria-hidden="true" />
                   </button>

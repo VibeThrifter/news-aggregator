@@ -11,11 +11,7 @@ import { eventListSwrOptions } from "@/lib/swr-config";
 
 import CategoryNav from "./CategoryNav";
 import DateRangeFilter from "./DateRangeFilter";
-import EventCard from "./EventCard";
-import HeroEventCard from "./HeroEventCard";
-import MediumEventCard from "./MediumEventCard";
-import NewsSidebar from "./NewsSidebar";
-import BestGelezen from "./BestGelezen";
+import { FrontPage } from "./front/FrontPage";
 import MinSourcesFilter from "./MinSourcesFilter";
 import SearchBar from "./SearchBar";
 import { SOCIAL_MEDIA_SOURCES, SourceFilter, SourceInfo } from "./SourceFilter";
@@ -44,20 +40,35 @@ function resolveErrorMessage(error: unknown): string {
   return "Kon de eventfeed niet laden.";
 }
 
-function LoadingSkeleton({ count = 3 }: { count?: number }) {
+/** The shape of the front page while it loads: the lead with "Wie zegt wat?", then cards. */
+export function FrontPageSkeleton() {
+  const bar = "block animate-pulse rounded-full bg-paper-200";
   return (
-    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-label="Nieuws laden">
-      {Array.from({ length: count }).map((_, index) => (
-        <div key={index} className="animate-pulse space-y-4 rounded-2xl border border-paper-300 bg-paper-50 p-5">
-          <span className="block h-3 w-24 rounded-full bg-paper-200" aria-hidden="true" />
-          <span className="block h-5 w-11/12 rounded-full bg-paper-200" aria-hidden="true" />
-          <span className="block h-5 w-2/3 rounded-full bg-paper-200" aria-hidden="true" />
-          <span className="flex items-center gap-2 pt-2" aria-hidden="true">
-            <span className="h-5 w-5 rounded-full bg-paper-200" />
-            <span className="h-3 w-32 rounded-full bg-paper-200" />
-          </span>
+    <div className="space-y-12" aria-busy="true" aria-label="Nieuws laden">
+      <div className="grid grid-cols-1 gap-6 rounded-3xl border border-paper-300 bg-paper-50 p-3 sm:p-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-8 lg:p-5">
+        <div className="space-y-4">
+          <span className="block aspect-[16/9] animate-pulse rounded-2xl bg-paper-200" aria-hidden="true" />
+          <span className={`${bar} h-3 w-40`} aria-hidden="true" />
+          <span className={`${bar} h-7 w-11/12`} aria-hidden="true" />
+          <span className={`${bar} h-7 w-2/3`} aria-hidden="true" />
         </div>
-      ))}
+        <div className="space-y-4" aria-hidden="true">
+          <span className={`${bar} h-6 w-36`} />
+          {[1, 2, 3].map((i) => (
+            <span key={i} className={`block h-20 w-[92%] animate-pulse rounded-[20px] bg-paper-200 ${i === 2 ? "ml-auto" : ""}`} />
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-hidden="true">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="space-y-3 rounded-2xl border border-paper-300 bg-paper-50 p-5">
+            <span className={`${bar} h-3 w-24`} />
+            <span className={`${bar} h-5 w-11/12`} />
+            <span className={`${bar} h-5 w-2/3`} />
+            <span className={`${bar} h-7 w-32`} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -237,7 +248,8 @@ export default function EventFeed() {
   const filtersChanged =
     minSources > 1 ||
     adminMode ||
-    (availableSources.length > 0 && selectedSources.size !== availableSources.filter((source) => !SOCIAL_MEDIA_SOURCES.has(source.name)).length) ||
+    // Per source in the news shown, so a search (fewer sources) does not count as a change
+    availableSources.some((source) => selectedSources.has(source.name) === SOCIAL_MEDIA_SOURCES.has(source.name)) ||
     dateRange.startDate !== defaultRange.startDate ||
     dateRange.endDate !== defaultRange.endDate;
 
@@ -292,33 +304,29 @@ export default function EventFeed() {
     setSelectedSources(sources);
   }, []);
 
-  // Split events for different layout sections
-  const heroEvent = events[0];
-  const mediumEvents = events.slice(1, 7);  // 6 medium cards
-  const sidebarEvents = events.slice(7, 14); // 7 sidebar items
-  const remainingEvents = events.slice(14);
-
   return (
     <div className="space-y-5">
+      <h1 className="sr-only">Het nieuws</h1>
+
       {/* Category Navigation */}
       <CategoryNav activeCategory={activeCategory} />
 
-      {/* Search and filters */}
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-center gap-2">
+      {/* Search, with the filters folded away behind one pill */}
+      <div className="space-y-3">
+        <div className="mx-auto flex max-w-2xl items-center gap-2">
           <SearchBar
             value={searchQuery}
             onChange={handleSearchChange}
             placeholder="Zoek in het nieuws"
-            className="min-w-0 flex-1 lg:w-80 lg:flex-none"
+            className="min-w-0 flex-1"
           />
           <button
             type="button"
             aria-expanded={filtersOpen}
             aria-controls="feed-filters"
             onClick={() => setFiltersOpen((open) => !open)}
-            className={`relative inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm font-semibold transition-colors lg:hidden ${
-              filtersOpen ? "border-ink-900 bg-ink-900 text-white" : "border-paper-300 bg-paper-50 text-ink-800"
+            className={`relative inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm font-semibold transition-colors ${
+              filtersOpen ? "border-ink-900 bg-ink-900 text-white" : "border-paper-300 bg-paper-50 text-ink-800 hover:bg-paper-200"
             }`}
           >
             <SlidersHorizontal size={15} aria-hidden="true" /> Filters
@@ -327,7 +335,7 @@ export default function EventFeed() {
             ) : null}
           </button>
         </div>
-        <div id="feed-filters" className={`${filtersOpen ? "flex" : "hidden"} flex-wrap items-center gap-2 lg:flex`}>
+        <div id="feed-filters" className={`${filtersOpen ? "flex" : "hidden"} flex-wrap items-center justify-center gap-2`}>
           <DateRangeFilter
             startDate={dateRange.startDate}
             endDate={dateRange.endDate}
@@ -360,7 +368,7 @@ export default function EventFeed() {
         {errorMessage ? (
           <ErrorState message={errorMessage} onRetry={handleRefresh} isRetrying={isValidating} />
         ) : isLoading && !data ? (
-          <LoadingSkeleton />
+          <FrontPageSkeleton />
         ) : events.length === 0 ? (
           <EmptyState
             onRetry={handleRefresh}
@@ -371,54 +379,7 @@ export default function EventFeed() {
             isSearchingAllPeriods={searchAllPeriods}
           />
         ) : (
-          <div className="space-y-12">
-            {/* Top stories: the large one, the next six and a news column */}
-            <section aria-labelledby="top-stories">
-              <h2 id="top-stories" className="mb-4 font-serif text-2xl font-bold text-ink-900">
-                Topverhalen
-              </h2>
-
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-                {/* Left: the large story, with "Meest besproken" under it on wide screens */}
-                <div className="lg:col-span-5">
-                  {heroEvent && (
-                    <HeroEventCard event={heroEvent} imageUrl={heroEvent.featured_image_url} />
-                  )}
-                  <div className="hidden lg:block">
-                    <BestGelezen events={events} />
-                  </div>
-                </div>
-
-                {/* Middle: the next stories; on phones "Meest besproken" follows them */}
-                <div className="lg:col-span-4">
-                  {mediumEvents.map((event) => (
-                    <MediumEventCard key={event.id} event={event} imageUrl={event.featured_image_url} />
-                  ))}
-                  <div className="lg:hidden">
-                    <BestGelezen events={events} />
-                  </div>
-                </div>
-
-                {/* Right: Sidebar */}
-                <aside className="lg:col-span-3">
-                  <NewsSidebar events={sidebarEvents} />
-                </aside>
-              </div>
-            </section>
-
-            {remainingEvents.length > 0 && (
-              <section aria-labelledby="more-news">
-                <h2 id="more-news" className="mb-4 font-serif text-2xl font-bold text-ink-900">
-                  Meer nieuws
-                </h2>
-                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                  {remainingEvents.map((event) => (
-                    <EventCard key={event.id} event={event} />
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
+          <FrontPage events={events} />
         )}
       </div>
     </div>

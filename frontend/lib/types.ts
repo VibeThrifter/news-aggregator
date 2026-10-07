@@ -178,6 +178,8 @@ export interface EventListItem {
   llm_provider?: string | null;
   event_type?: string | null;
   featured_image_url?: string | null;
+  /** "Niet aan het woord": the first missing voices of the analysis */
+  missing_voices?: string[] | null;
 }
 
 export interface EventFeedMeta extends Record<string, unknown> {

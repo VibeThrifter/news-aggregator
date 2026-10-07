@@ -12,27 +12,17 @@ import { truncate } from "@/lib/explore/summary";
 import type { Finding } from "@/lib/explore/types";
 
 import { dossierIds, useExplore } from "../ExploreContext";
-import { Favicon } from "../ui/primitives";
+import { OutletInline } from "../entity/EntityText";
 import { Badge, NumberBadge, useFocusRing } from "./Markers";
 import { ShareControl, SharedTag } from "./Others";
 import { OwnForm, OwnTag } from "./OwnForm";
-import { Avatar } from "./PeopleCards";
+import { AnchorInline, SpeakerInline } from "./PeopleCards";
 import { FindingDetail, findingHeadline } from "./FindingDetail";
 
-/** A side of an own contradiction: the speaker (with outlet) or the outlet. */
-function Side({ anchor }: { anchor: string }) {
-  const { exploration } = useExplore();
-  const speaker = anchor.startsWith("speaker:") ? exploration.speakers.byId.get(anchor.slice("speaker:".length)) : undefined;
-  const outlet = exploration.index.outlet(anchorOutletKey(anchor, exploration.speakers));
-  return (
-    <span className="inline-flex items-center gap-1">
-      {speaker ? <Avatar speaker={speaker} size={16} /> : outlet ? <Favicon name={outlet.name} domain={outlet.domain} size={14} /> : null}
-      <span className="font-semibold text-ink-700">{speaker?.name ?? outlet?.name}</span>
-    </span>
-  );
-}
-
-/** Who a finding is about: the speaker of a claim ("Van den Beukel · via NOS") or its outlets. */
+/**
+ * Who a finding is about: the speaker of a claim ("Van den Beukel · via NOS") or its outlets. The
+ * names open the same balloon as in the picture (what the outlet wrote, its article).
+ */
 function Attribution({ finding }: { finding: Finding }) {
   const { exploration } = useExplore();
   const entry = ownEntryOf(finding);
@@ -42,9 +32,9 @@ function Attribution({ finding }: { finding: Finding }) {
     const side = resolveOwnAnchor(entry, exploration);
     return (
       <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-500">
-        {side ? <Side anchor={side} /> : null}
+        {side ? <AnchorInline anchor={side} /> : null}
         <span aria-label="tegenover">⚡</span>
-        <Side anchor={against} />
+        <AnchorInline anchor={against} />
       </span>
     );
   }
@@ -67,20 +57,12 @@ function Attribution({ finding }: { finding: Finding }) {
     <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-500">
       {speaker ? (
         <>
-          <Avatar speaker={speaker} size={16} />
-          <span className="font-semibold text-ink-700">{speaker.name}</span>
+          <SpeakerInline speakerId={speaker.id} />
           {speaker.org ? <span>({speaker.org})</span> : null}
           <span>via</span>
         </>
       ) : null}
-      {outlets.slice(0, 4).map((outlet) =>
-        outlet ? (
-          <span key={outlet.key} className="inline-flex items-center gap-1">
-            <Favicon name={outlet.name} domain={outlet.domain} size={14} />
-            {outlet.name}
-          </span>
-        ) : null,
-      )}
+      {outlets.slice(0, 4).map((outlet) => (outlet ? <OutletInline key={outlet.key} outletKey={outlet.key} /> : null))}
       {outlets.length > 4 ? <span>+{outlets.length - 4}</span> : null}
     </span>
   );
@@ -137,16 +119,15 @@ export function FindingRow({ finding, extra, leading }: { finding: Finding; extr
           ) : (
             <span aria-hidden="true" className="mt-2 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: TAB_BY_ID[finding.tab].color }} />
           ))}
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-          className="min-w-0 flex-1 text-left"
-        >
-          <span className={`block text-sm leading-snug text-ink-900 ${italic ? "italic" : "font-semibold"}`}>
-            {truncate(title || findingTitle(finding, exploration.index), open ? 600 : 180)}
-          </span>
-          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <div className="min-w-0 flex-1">
+          {/* The padding makes a one-line title a big enough tap target; the negative margin keeps the layout */}
+          <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="-my-[7px] block w-full py-[7px] text-left">
+            <span className={`block text-sm leading-snug text-ink-900 ${italic ? "italic" : "font-semibold"}`}>
+              {truncate(title || findingTitle(finding, exploration.index), open ? 600 : 180)}
+            </span>
+          </button>
+          {/* Not inside the button: the names in it are buttons of their own. A tap elsewhere on the line opens the row. */}
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5" onClick={() => setOpen((value) => !value)}>
             <Attribution finding={finding} />
             {/* An opened own entry shows its source as a link below */}
             {meta && !(open && entry?.url) ? <span className="text-xs text-ink-500">{meta}</span> : null}
@@ -155,8 +136,8 @@ export function FindingRow({ finding, extra, leading }: { finding: Finding; extr
             {corrections.length ? (
               <span className="rounded-full bg-orange-100 px-1.5 text-[10px] font-semibold leading-4 text-orange-800">fout volgens jou</span>
             ) : null}
-          </span>
-        </button>
+          </div>
+        </div>
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}

@@ -10,6 +10,7 @@ import { truncate } from "@/lib/explore/summary";
 import { slugify } from "@/lib/explore/normalize";
 
 import { useExplore } from "../ExploreContext";
+import { OutletInline } from "../entity/EntityText";
 import { Chip, Favicon } from "../ui/primitives";
 import { FindingDetail } from "./FindingDetail";
 import { FindingRow } from "./FindingRow";
@@ -43,8 +44,8 @@ export function StemmenTab() {
         const list = speakers.byOutlet.get(outlet.key) ?? [];
         return (
           <section key={outlet.key} className="space-y-1" aria-label={`Wie praat bij ${outlet.name}`}>
-            <p className="flex items-center gap-1.5 text-sm font-semibold text-ink-900">
-              <Favicon name={outlet.name} domain={outlet.domain} size={16} /> {outlet.name}
+            <p className="flex items-center gap-1.5 text-sm">
+              <OutletInline outletKey={outlet.key} />
               {outlet.own ? <OwnTag /> : null}
             </p>
             {pattern ? <p className="text-sm leading-relaxed text-ink-700">{pattern}</p> : null}

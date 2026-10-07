@@ -10,6 +10,7 @@
  */
 
 import { newsStart } from "./chronology";
+import { GROUP_COLORS } from "./colors";
 import type { Exploration } from "./exploration";
 import { frameLabel, toneLabel } from "./labels";
 import { perspectiveEstimates } from "./nearest";
@@ -105,7 +106,7 @@ export function foundVoicesFor(speakers: Pick<SpeakerModel, "speakers">, finding
     .map((speaker) => ({ speakerId: speaker.id, outletKey: speaker.outletKey }));
 }
 
-export const GROUP_COLORS = ["#0ea5e9", "#f59e0b", "#8b5cf6", "#ef4444", "#10b981", "#ec4899", "#64748b"];
+export { GROUP_COLORS };
 const FOREIGN_COLOR = "#64748b";
 const MISSING_COLOR = "#0f766e";
 const OWN_COLOR = "#475569";

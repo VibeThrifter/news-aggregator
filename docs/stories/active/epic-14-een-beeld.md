@@ -772,8 +772,148 @@ Tests:
   langer: de builder leest via `get_read_session()` uit Supabase in plaats van uit de testdatabase.
 - ESLint geeft alleen de bekende waarschuwingen in oude bestanden.
 
+### Heranalyse van de getroffen nieuwsitems (2026-10-07)
+De andere 31 getroffen nieuwsitems gingen één voor één opnieuw door de analyse
+(`/admin/trigger/generate-insights/{id}`, per item twee Sonnet-aanroepen).
+- **Uitkomst**: alle 31 hebben nu een nieuwe analyse van Claude Code, en in alle 31 noemt de samenvatting hun
+  Nederlandse bron.
+  - Eerste ronde: 10 gelukt. 21 mislukten binnen ongeveer 8 seconden met `INSIGHT_GENERATION_FAILED`.
+  - Tweede ronde: 15 gelukt (6298 als proef). Daarna mislukten er 3 op rij, en de ronde stopte.
+  - Derde ronde: de laatste 6 gelukt.
+- **Oorzaak**: in de tweede ronde kwam de reden mee: `EMAXCONNSESSION — max clients reached in session mode, max
+  clients are limited to pool_size: 15`.
+  - De Supabase-pooler (session mode) laat voor het hele project 15 verbindingen toe. De backend mocht er zelf 25
+    openen (`pool_size=10`, `max_overflow=15`) en had er 21 open.
+  - Zat alles vol, dan mislukte binnen seconden alles wat een nieuwe verbinding nodig had.
+  - Opgelost: `DATABASE_POOL_SIZE=6` en `DATABASE_MAX_OVERFLOW=6`, samen 12 en instelbaar. Bij drukte wacht werk op een
+    vrije verbinding (pool timeout 30 s).
+  - De admin-route logt voortaan de reden (`insight_generation_failed`). Eerst ging die alleen naar wie de route
+    aanriep.
+  - Beide gaan pas in na een herstart van de backend.
+- **Gevonden**: een analyse door een andere provider komt als tweede rij naast de oude, want er is één rij per event
+  en provider (`upsert_insight`).
+  - De eventpagina neemt de nieuwste. De voorpagina nam een willekeurige rij en kon zo de oude DeepSeek-samenvatting
+    tonen.
+  - Nu vraagt ook de voorpagina alleen de nieuwste op (`order` + `limit` op `llm_insights`).
+  - De oude rijen staan er nog. Na deze heranalyse hebben 42 events er twee.
+
 ### Open
-- De andere 31 getroffen nieuwsitems gaan sinds 2026-10-07 één voor één opnieuw door de analyse
-  (`/admin/trigger/generate-insights/{id}`). Dat kost per item twee Sonnet-aanroepen en ongeveer 2 minuten.
 - De oude eventpagina (`EventDetailScreen` met `CriticalAnalysis` en dergelijke) heeft nog de oude stijl. Vercel
   toont hem niet (`NEXT_PUBLIC_EXPLORE_UI=1`); opruimen hoort bij Story 11.15.
+
+## Story 14.19: Een voorpagina die bij het beeld past
+
+**Status**: ✅ Done (2026-10-07)
+
+Eigenaar (2026-10-07):
+- "De voorpagina mag nog wel beter eruit zien en beter passen bij de event pagina's"
+- "vooral het meer nieuws is ook mega karig.. je mag de voor pagina helemaal rethinken als het nodig is"
+- "Het moet gewoon echt aansluiten op het idee van de website en aantrekkelijk zijn"
+
+De voorpagina leek op een gewone nieuwssite: een foto met donkere overlay, een zijkolom met tijden, en een muur van
+kaarten met alleen een kop en "NOS · 1 artikel". Nu laat elk nieuwsitem in het klein zien waar de eventpagina over
+gaat: wie het bracht, wat die zei, en wie er niet aan het woord is.
+
+```
+Topverhaal  foto · kop · begin van het verhaal | Wie zegt wat?  ballon per bron (wat die meldde) · Niet aan het woord
+            twee topverhalen ernaast: kop, twee ballonnen (of het begin van het verhaal), bronnen, eerste ontbrekende stem
+Per dag     Vandaag · Gisteren · Zaterdag 3 oktober … : kaarten met foto, kop, begin, bronnen als pillen,
+            de eerste ontbrekende stem (+n); 6 per dag, de rest achter "Nog n nieuwsitems"
+```
+
+Wat er veranderd is:
+- **Wie zegt wat? in het klein.**
+  - Elke ballon is de eerste zin uit de samenvatting die de bron noemt. `outletSentencesIn` gebruikt dezelfde
+    regels als "Wat schreef …?" (korte namen als "RTL", "Een Blik op de NOS" telt niet als NOS).
+  - Wat het begin van het verhaal al zegt, valt weg. Dat geldt ook voor zinnen over de bronnen zelf ("de enige
+    Nederlandse bron").
+  - De ballonnen wisselen links en rechts af, in de kleuren van het beeld (`lib/explore/colors.ts`).
+  - "Niet aan het woord" ziet er net zo uit als op de eventpagina.
+- **Welke verhalen bovenaan staan** (`pickTopStories`): uit de 15 nieuwste telt eerst hoeveel bronnen de analyse
+  aan het woord laat, dan het aantal Nederlandse bronnen, dan alle bronnen en dan wat het nieuwst is. Nieuwsitems
+  zonder analyse komen nooit bovenaan.
+- **Het nieuws per dag** vervangt "Topverhalen", "Nieuws", "Meest besproken" en "Meer nieuws".
+- **Hele koppen**: de lijst knipt de LLM-titel af op 60 tekens. De kaarten tonen de hele titel en korten die zelf in.
+  Vet (`**…**`) in titels is weg.
+- **Volgorde op het moment van het nieuws**:
+  - De tijd van een nieuwsitem is nu die van het laatste Nederlandse artikel. Eerst was het de tijd waarop de
+    backend het event voor het laatst bijwerkte (onderhoud, nieuwe analyse).
+  - Daardoor stonden nieuwsitems van 2 oktober bovenaan "Meer nieuws", en zaten er vijf uit april in "deze week".
+  - Nieuws van voor de gekozen periode valt nu weg.
+  - Google News vindt buitenlandse artikelen soms dagen later; die tellen niet mee voor de tijd.
+- **Zoeken en filters**:
+  - Zoeken staat in het midden. De filters staan ook op desktop achter "Filters".
+  - Het stipje "aangepast" verscheen ten onrechte tijdens het zoeken (minder bronnen in beeld).
+- **Data**: de ontbrekende stemmen komen mee als JSON-paden (`coverage_gaps->0..5->>perspective`), een paar bytes
+  per stem. Er zijn geen extra queries bij gekomen. In de afgelopen week had 0,2% van de analyses meer dan zes
+  ontbrekende stemmen.
+- **Opgeruimd**:
+  - Weg: `HeroEventCard`, `MediumEventCard`, `NewsSidebar`, `BestGelezen`, `CompactEventCard` en `EventCard`.
+  - Nieuw: `components/front/` (`FrontPage`, `StoryCards`, `StoryParts`) en `lib/front-page.ts`.
+  - `outletsLine` staat nu in `lib/format.ts`, zodat de kop van de eventpagina en het topverhaal dezelfde regel
+    tonen.
+
+Gevonden, niet aangepast:
+- In Beheer is alleen NOS hoofdbron. De voorpagina toont daarom alleen nieuwsitems met een NOS-artikel.
+  - Van de afgelopen week zijn dat er 81 van de 982 geanalyseerde, en in Sport geen enkele.
+  - Met RTL Nieuws, NU.nl, AD, De Telegraaf, Het Parool, de Volkskrant en Trouw ook als hoofdbron zouden het er
+    770 zijn.
+  - Welke bronnen hoofdbron zijn, beslist de eigenaar in Beheer.
+
+Tests:
+- Jest: 307 groen, waarvan 15 nieuw in `__tests__/front-page.test.ts` (daglabels, begin van het verhaal, ballonnen
+  per bron, keuze van de topverhalen).
+- tsc en ESLint zijn schoon.
+- Screenshots op 1440 en 390 breed, zonder zijwaarts scrollen: de voorpagina, een categorie, de filters open,
+  zoeken, geen resultaat en "Nog n nieuwsitems".
+
+### Statement timeout (2026-10-07)
+Eigenaar: "canceling statement due to statement timeout".
+- **Oorzaak**:
+  - De rol `anon` (de website) heeft in Supabase een `statement_timeout` van 3 s.
+  - Volgens `pg_stat_statements` duurde de lijstquery van de voorpagina gemiddeld 0,9 tot 1,1 s, met uitschieters
+    tot 2,9 s. Bij drukte op de database (de backend met zijn geplande taken) ging hij daar af en toe overheen.
+  - Afgebroken queries staan niet in die statistiek.
+- **Waarom zo zwaar**:
+  - De query haalde alle nieuwsitems van de week op, 1000 (het maximum van PostgREST), met al hun artikelen en de
+    hele `source_metadata`. Dat was 3,4 MB.
+  - Daarna gooide de browser alles weg zonder artikel van een hoofdbron. Er bleven er 83 over.
+- **Nu**:
+  - De database filtert op hoofdbronnen, via een tweede join met alias:
+    `main:event_articles!inner(articles!inner(source_name))` met `.in('main.articles.source_name', …)`. De gewone
+    `event_articles` houdt alle bronnen voor de pillen.
+  - Van de metadata komt alleen het spectrum mee.
+  - Resultaat: 298 KB in plaats van 3,4 MB, en 0,25 tot 0,55 s in plaats van 0,6 tot 0,9 s bij gewone drukte.
+- **Let op**: met alle grote Nederlandse kranten als hoofdbron worden het weer ±870 nieuwsitems (3 MB) per week. Dan
+  moet de lijst in stukken laden.
+
+## Story 14.20: Namen onder een bevinding openen hun ballon
+
+**Status**: ✅ Done (2026-10-07)
+
+Eigenaar (2026-10-07), met een screenshot van "sensationeel" met "AD" eronder in Hoe gebracht?:
+- "maak ook dit soort dingen klikbaar zodat je de tooltip van artikel weer ziet"
+
+Wat er veranderd is:
+- **In elke rij met een bevinding**, in alle tabs, openen de bron en de spreker onder de kop dezelfde ballon als in
+  "Wie zegt wat?":
+  - bij een bron: "Naar het artikel", "Wat schreef …?" en de artikelen;
+  - bij een spreker: de sprekerkaart.
+  
+  De rij klapt dan niet open. Een tik elders op die regel klapt hem wel open.
+- **De regel met namen staat nu onder de knop.** De namen stonden in de knop die de rij openklapt, en een knop in een
+  knop kan niet (`FindingRow`, `SharedRow`).
+- **Ook aantikbaar**: de spreker en de zijden van een tegenspraak bij "Van anderen", en de kop per bron in "Wie praat?".
+- **In een ballon blijven namen gewone tekst**, want een ballon in een ballon zit in de weg (`AnchorInline` met
+  `plain`).
+- **Nieuw** naast `OutletInline`: `SpeakerInline` en `AnchorInline` (`map/PeopleCards.tsx`).
+- **Opgeruimd**: in de sprekerkaart zat een knop (het nummer) in een knop (de bewering). Nu is het nummer gewoon een
+  label.
+
+Tests:
+- Jest: 307 groen. tsc en ESLint zijn schoon.
+- Playwright explore op desktop, Pixel 7 en iPhone 13: 141 groen.
+  - Eerst viel er één om: de koppen van één regel waren te kleine tikdoelen geworden, nu de regel met namen buiten
+    de knop staat. De knop heeft nu padding met een negatieve marge.
+- In de browser: een tik op de bron onder "sensationeel" opent de bronballon ("Naar het artikel") en de rij blijft
+  dicht; een tik op een spreker onder een bewering opent de sprekerkaart. Er zijn geen fouten in de console.
