@@ -5,15 +5,16 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
 from backend.app.db.dual_write import sync_entities_to_cache
-from backend.app.db.models import Event, LLMInsight
+from backend.app.db.models import Article, Event, EventArticle, LLMInsight
 from backend.app.db.session import get_sessionmaker
 from backend.app.llm.claude_code import is_claude_code
 from backend.app.llm.client import (
@@ -27,7 +28,7 @@ from backend.app.llm.client import (
     LLMTimeoutError,
     MistralClient,
 )
-from backend.app.llm.prompt_builder import PromptBuilder, PromptGenerationResult
+from backend.app.llm.prompt_builder import FOREIGN_RESERVE, PromptBuilder, PromptGenerationResult
 from backend.app.llm.providers import build_llm_client
 from backend.app.llm.schemas import (
     CriticalPayload,
@@ -49,6 +50,8 @@ _extract_title_from_summary = extract_title_from_summary
 ExplorationHook = Callable[..., Awaitable[Any]]
 # Maximum time the exploration refresh may add to an insight generation run.
 EXPLORATION_HOOK_TIMEOUT_SECONDS = 30
+# A growing event gets a new analysis at most this often (EventService and the backfill).
+INSIGHT_REFRESH_TTL = timedelta(minutes=30)
 
 
 @dataclass(slots=True)
@@ -482,6 +485,90 @@ class InsightService:
                 correlation_id=correlation_id,
             )
 
+    async def _events_missing_dutch_outlets(self, *, limit: int) -> list[int]:
+        """Active events whose newest analysis leaves out a Dutch outlet it has room for.
+
+        A Dutch article that joins while the analysis runs, or less than INSIGHT_REFRESH_TTL
+        after it, starts no new one (EventService waits that long). Without a later article
+        its outlet kept no sentence or stance on the event page, and the summary could still
+        call the other outlet the only source (event 7955, 2026-10-06).
+
+        Checked: events with a Dutch article linked from INSIGHT_REFRESH_TTL before their
+        newest analysis on, once that analysis is INSIGHT_REFRESH_TTL old. An outlet counts
+        as missing only while the prompt has room for it (`_select_balanced_subset` puts the
+        newest article of every Dutch outlet first), so the new analysis always ends it.
+        """
+        now = datetime.now(timezone.utc)
+        async with self.session_factory() as session:
+            latest = (
+                select(LLMInsight.event_id, func.max(LLMInsight.generated_at).label("generated_at"))
+                .group_by(LLMInsight.event_id)
+                .subquery()
+            )
+            rows = (
+                await session.execute(
+                    select(
+                        latest.c.event_id, latest.c.generated_at, func.max(EventArticle.linked_at)
+                    )
+                    .join(Event, Event.id == latest.c.event_id)
+                    .join(EventArticle, EventArticle.event_id == latest.c.event_id)
+                    .join(Article, Article.id == EventArticle.article_id)
+                    .where(Event.archived_at.is_(None), Article.is_international.is_(False))
+                    .group_by(latest.c.event_id, latest.c.generated_at)
+                )
+            ).all()
+            dated = [
+                (event_id, _as_utc(generated_at), _as_utc(linked_at))
+                for event_id, generated_at, linked_at in rows
+                if generated_at and linked_at
+            ]
+            candidates = [
+                event_id
+                for event_id, generated_at, linked_at in sorted(
+                    dated, key=lambda row: row[2], reverse=True
+                )
+                if generated_at <= now - INSIGHT_REFRESH_TTL
+                and linked_at > generated_at - INSIGHT_REFRESH_TTL
+            ]
+            if not candidates:
+                return []
+
+            read: dict[int, set[int]] = {}
+            newest: dict[int, datetime] = {}
+            for event_id, generated_at, metadata in await session.execute(
+                select(
+                    LLMInsight.event_id, LLMInsight.generated_at, LLMInsight.prompt_metadata
+                ).where(LLMInsight.event_id.in_(candidates))
+            ):
+                stamp = (
+                    _as_utc(generated_at)
+                    if generated_at
+                    else datetime.min.replace(tzinfo=timezone.utc)
+                )
+                if event_id in newest and stamp <= newest[event_id]:
+                    continue
+                newest[event_id] = stamp
+                read[event_id] = set((metadata or {}).get("selected_article_ids") or [])
+
+            outlets: dict[int, set[str]] = {}
+            covered: dict[int, set[str]] = {}
+            for event_id, article_id, source_name in await session.execute(
+                select(EventArticle.event_id, Article.id, Article.source_name)
+                .join(Article, Article.id == EventArticle.article_id)
+                .where(EventArticle.event_id.in_(candidates), Article.is_international.is_(False))
+            ):
+                outlet = source_name or "onbekend"
+                outlets.setdefault(event_id, set()).add(outlet)
+                if article_id in read.get(event_id, set()):
+                    covered.setdefault(event_id, set()).add(outlet)
+
+        room = max(self.settings.llm_prompt_article_cap - FOREIGN_RESERVE, 1)
+        return [
+            event_id
+            for event_id in candidates
+            if len(covered.get(event_id, set())) < min(len(outlets.get(event_id, set())), room)
+        ][:limit]
+
     @staticmethod
     def _build_prompt_metadata(package: PromptGenerationResult) -> dict[str, Any]:
         metadata: dict[str, Any] = {
@@ -502,7 +589,8 @@ class InsightService:
 
         This method is designed to be called periodically by a scheduler job
         to catch up on events that didn't get insights due to server restarts
-        or other failures.
+        or other failures. With room left in `limit` it then redoes analyses that
+        leave out a Dutch outlet of the event (`_events_missing_dutch_outlets`).
 
         Args:
             limit: Maximum number of events to process per run (rate limiting)
@@ -532,15 +620,23 @@ class InsightService:
             result = await session.execute(stmt)
             event_ids: list[int] = [row[0] for row in result.fetchall()]
 
+        outdated: list[int] = []
+        if len(event_ids) < limit:
+            outdated = await self._events_missing_dutch_outlets(limit=limit - len(event_ids))
+            event_ids += outdated
+
         if not event_ids:
             log.info("backfill_no_events_needed")
             return {
                 "events_found": 0,
+                "events_outdated": 0,
                 "events_processed": 0,
                 "events_failed": 0,
             }
 
-        log.info("backfill_starting", events_to_process=len(event_ids))
+        log.info(
+            "backfill_starting", events_to_process=len(event_ids), events_outdated=len(outdated)
+        )
 
         processed = 0
         failed = 0
@@ -569,10 +665,16 @@ class InsightService:
 
         return {
             "events_found": len(event_ids),
+            "events_outdated": len(outdated),
             "events_processed": processed,
             "events_failed": failed,
             "failed_event_ids": failed_ids if failed_ids else None,
         }
+
+
+def _as_utc(value: datetime) -> datetime:
+    """SQLite gives naive datetimes; Postgres aware ones."""
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 __all__ = ["InsightGenerationOutcome", "InsightService"]

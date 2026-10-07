@@ -77,7 +77,7 @@ export interface FoundVoice {
 
 export interface ExploreArticle {
   id: number;
-  /** Article title — only as link text to the article itself */
+  /** Article title — as link text to the article, and in the balloon when no summary sentence names its outlet */
   title: string;
   url: string;
   urlKey: string;

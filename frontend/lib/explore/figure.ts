@@ -39,9 +39,10 @@ export interface OutletBalloonModel {
   anchor: string;
   outletKey: string;
   /** What the outlet says: its stance, else the summary sentence naming it, else a foreign gist,
-   * else which missing voice it was added for; for a source of the reader what they wrote */
+   * else which missing voice it was added for, else its own headline; for a source of the reader
+   * what they wrote */
   text: string | null;
-  textKind: "stance" | "sentence" | "digest" | "found" | "own" | "none";
+  textKind: "stance" | "sentence" | "digest" | "found" | "headline" | "own" | "none";
   /** Placed in a perspective by estimate (perspective mode) */
   estimated: boolean;
   /** Media and agencies the outlet leans on */
@@ -229,7 +230,11 @@ function outletText(
     return digest ? { text: digest.text, textKind: "digest" } : (foundText ?? { text: null, textKind: "none" });
   }
   const first = sentences.get(outlet.key)?.[0];
-  return first ? { text: first.map((part) => part.text).join(""), textKind: "sentence" } : (foundText ?? { text: null, textKind: "none" });
+  if (first) return { text: first.map((part) => part.text).join(""), textKind: "sentence" };
+  if (foundText) return foundText;
+  // No sentence names it (it joined after the analysis read the news): its own headline, not "1 artikel"
+  const headline = articles.find((article) => article && !article.foundVoice)?.title.trim();
+  return headline ? { text: headline, textKind: "headline" } : { text: null, textKind: "none" };
 }
 
 function outletMeta(outlet: ExploreOutlet, exploration: Exploration): FigureGroup["meta"] {

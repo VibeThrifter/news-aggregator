@@ -24,7 +24,7 @@ from backend.app.events.scoring import (
     compute_hybrid_score,
 )
 from backend.app.repositories import EventRepository, InsightRepository
-from backend.app.services.insight_service import InsightService
+from backend.app.services.insight_service import INSIGHT_REFRESH_TTL, InsightService
 from backend.app.llm.client import BaseLLMClient, LLMResponse
 from backend.app.llm.providers import StepLLMClient
 
@@ -257,7 +257,7 @@ class EventService:
         self.log = logger.bind(component="EventService")
         self.auto_generate_insights = auto_generate_insights
         self.insight_service = insight_service or (InsightService() if auto_generate_insights else None)
-        self.insight_refresh_ttl = insight_refresh_ttl or timedelta(minutes=30)
+        self.insight_refresh_ttl = insight_refresh_ttl or INSIGHT_REFRESH_TTL
         self._pending_insight_events: set[int] = set()
         self._insight_tasks: dict[int, asyncio.Task[None]] = {}
         self._insight_semaphore = asyncio.Semaphore(MAX_CONCURRENT_INSIGHT_TASKS)

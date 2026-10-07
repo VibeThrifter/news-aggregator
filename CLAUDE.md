@@ -155,7 +155,7 @@ make clean             # Clean up generated files
 | Job | Interval | Description |
 | --- | -------- | ----------- |
 | RSS Feed Polling | 15 min | Polls all RSS feeds for new articles |
-| Insight Backfill | 15 min | Generates LLM insights for events missing them |
+| Insight Backfill | 15 min | Generates LLM insights for events missing them, then redoes (≥ 30 min after the last one) analyses that leave out a Dutch outlet that joined later |
 | International Enrichment | 2 hours | Adds international perspectives via Google News (Epic 9) |
 | Event Maintenance | 24 hours | Refreshes centroids, archives stale events |
 | Bias Analysis | 6 hours | Per-sentence bias detection (Epic 10, disabled by default) |

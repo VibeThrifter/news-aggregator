@@ -70,6 +70,16 @@ describe("figure", () => {
     expect(group?.outlets[0].textKind).toBe("stance");
   });
 
+  it("shows the outlet's own headline when no summary sentence names it", () => {
+    // Event 7955: De Telegraaf joined while the analysis ran, so the summary only named AD
+    const raw = oneOutlet();
+    raw.insight!.clusters = [];
+    raw.insight!.summary = "Windpark Dijkerhoven\n\nDe gemeenteraad heeft ingestemd met een windpark.";
+    const figure = buildFigure(buildExploration(raw), (outlet) => isOutletShown(outlet));
+    const balloon = figure.groups.find((item) => item.kind === "outlet")?.outlets[0];
+    expect(balloon).toMatchObject({ textKind: "headline", text: "Windpark levert Dijkerhoven miljoenen op" });
+  });
+
   it("adds foreign outlets with their Dutch gist only when chosen", () => {
     const shown = (outlet: { key: string; isInternational: boolean }) => isOutletShown(outlet, { added: ["dw"], removed: [] });
     const figure = buildFigure(exploration, shown);

@@ -191,7 +191,7 @@ function GroupView({ group, markers }: { group: FigureGroup; markers: Map<string
           <FigureAdd kind="gap" label="Toevoegen" />
         </div>
       ) : null}
-      {group.kind === "outlet" && group.speakers.length === 0 && group.outlets[0]?.textKind === "none" && exploration.input.insight === null ? (
+      {group.kind === "outlet" && group.speakers.length === 0 && (group.outlets[0]?.textKind === "none" || group.outlets[0]?.textKind === "headline") && exploration.input.insight === null ? (
         <p className="mt-2 text-xs text-ink-500">Nog niet geanalyseerd</p>
       ) : null}
     </motion.section>

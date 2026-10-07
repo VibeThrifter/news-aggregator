@@ -847,6 +847,37 @@ De andere 31 getroffen nieuwsitems gingen één voor één opnieuw door de analy
   - Nu vraagt ook de voorpagina alleen de nieuwste op (`order` + `limit` op `llm_insights`).
   - De oude rijen staan er nog. Na deze heranalyse hebben 42 events er twee.
 
+### Een bron die tijdens de analyse binnenkwam (2026-10-07)
+Eigenaar: "hier staat geen tekst bij telegraaf wolkje" (event 7955, Stockholm: alleen "1 artikel").
+- **Oorzaak**: het AD opende het nieuws om 21:40:45, De Telegraaf kwam er 35 seconden later bij. De analyse liep
+  toen al en las alleen het AD. De samenvatting zei "Het is de enige bron in dit overzicht".
+  - Een artikel dat binnenkomt terwijl de analyse loopt, of minder dan 30 minuten erna, start geen nieuwe
+    (`EventService._maybe_schedule_insight_generation`).
+  - Kwam er daarna geen artikel meer, dan bleef de analyse zo staan. De backfill vulde alleen nieuws zonder analyse.
+  - Op 7 oktober om 22 uur was dit zo bij 30 actuele nieuwsitems, zoals "Christa Pike weer bij bewustzijn": NOS,
+    De Telegraaf, RTL Nieuws en AD stonden niet in de analyse.
+- **Backend**: de Insight Backfill (elke 15 minuten) doet na het nieuws zonder analyse ook de analyses opnieuw die een
+  Nederlandse bron missen (`InsightService._events_missing_dutch_outlets`).
+  - Dat geldt alleen voor bronnen die er vanaf 30 minuten vóór de laatste analyse bij kwamen. De laatste analyse moet
+    ook minstens 30 minuten oud zijn, dezelfde wachttijd als bij `EventService` (`INSIGHT_REFRESH_TTL`).
+  - Een bron telt alleen als die in de prompt past (artikelplafond 8, waarvan 2 plekken voor buitenland). Een nieuwe
+    analyse lost het dus altijd op en herhaalt zich niet.
+  - Droge test op de live database: precies de 30 nieuwsitems. De statistiek van de backfill telt ze als
+    `events_outdated`.
+- **Eventpagina**: noemt geen zin van de samenvatting de bron, dan toont het wolkje de kop van het artikel
+  (`textKind: "headline"` in `lib/explore/figure.ts`) in plaats van "1 artikel".
+- Tests:
+  - pytest: `test_insight_backfill_outdated.py` (2 nieuw, groen).
+  - Jest explore: 284 groen, waarvan 1 nieuw.
+  - tsc en ESLint zijn schoon.
+  - Op een screenshot van 7955 staat in het wolkje van De Telegraaf de kop: "Man met mes neergeschoten bij koninklijk
+    paleis in Stockholm: gedroeg zich agressief".
+- 7955 opnieuw geanalyseerd (`/admin/trigger/generate-insights/7955`). De analyse las nu beide artikelen, en de
+  samenvatting noemt AD en De Telegraaf. Het wolkje van De Telegraaf zegt nu: "Benadrukt in de kop dat de man zich
+  agressief gedroeg".
+- De backend is om 22:31 herstart (hij draait zonder auto-reload). De andere 29 komen via de backfill, vanaf de ronde
+  van 22:46, in porties binnen de time-out van 10 minuten per ronde.
+
 ### Open
 - De oude eventpagina (`EventDetailScreen` met `CriticalAnalysis` en dergelijke) heeft nog de oude stijl. Vercel
   toont hem niet (`NEXT_PUBLIC_EXPLORE_UI=1`); opruimen hoort bij Story 11.15.
