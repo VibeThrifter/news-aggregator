@@ -33,8 +33,9 @@ def _create_engine() -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
         echo=False,
         pool_pre_ping=True,
         pool_recycle=300,  # Recycle connections after 5 minutes
-        pool_size=10,  # Increased from 5 to handle concurrent feed polling
-        max_overflow=15,  # Increased from 10 for burst capacity
+        # Within the 15 clients of the Supabase pooler (session mode), see Settings
+        pool_size=settings.database_pool_size,
+        max_overflow=settings.database_max_overflow,
         pool_timeout=30,  # Wait up to 30 seconds for a connection
     )
     factory = async_sessionmaker(

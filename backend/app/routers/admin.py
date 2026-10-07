@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from backend.app.core.logging import get_logger
 from backend.app.core.scheduler import get_scheduler
 from backend.app.services.article_digest import get_article_digest_service
 from backend.app.services.enrich_service import ArticleEnrichmentService
@@ -31,6 +32,7 @@ from backend.app.services.source_service import get_source_service
 from backend.app.services.voice_search import get_voice_search_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+logger = get_logger(__name__)
 
 
 # Pydantic models for request/response
@@ -248,6 +250,8 @@ async def trigger_generate_insights(event_id: int):
             message=str(e),
         )
     except Exception as e:
+        # The reason only went to the caller; a batch of failed runs left no trace in the log
+        logger.warning("insight_generation_failed", event_id=event_id, error=str(e)[:500])
         return _json_api_error(
             status_code=500,
             code="INSIGHT_GENERATION_FAILED",

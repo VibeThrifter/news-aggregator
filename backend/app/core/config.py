@@ -244,6 +244,18 @@ class Settings(BaseSettings):
         default="sqlite+aiosqlite:///./data/db.sqlite",
         description="SQLAlchemy database URL (Supabase PostgreSQL in production)"
     )
+    # The Supabase pooler in session mode allows 15 clients for the whole project. Beyond that it
+    # refuses new ones (EMAXCONNSESSION) and work that needs the database, such as an analysis,
+    # fails within seconds. Pool size + overflow stays below 15; a busy moment waits for a free
+    # connection (pool timeout) instead.
+    database_pool_size: int = Field(
+        default=6,
+        description="Connections the backend keeps open to the database",
+    )
+    database_max_overflow: int = Field(
+        default=6,
+        description="Extra connections at busy moments (pool size + overflow < 15)",
+    )
 
     # Local SQLite Cache Configuration (Story INFRA-1: Egress Optimization)
     backend_read_source: str = Field(
