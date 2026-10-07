@@ -375,8 +375,10 @@ export async function listEvents(
     query = query.ilike('title', `%${search.trim()}%`);
   }
 
-  // Order by most recently updated; all-periods search has a limit, the feed comes in pages
-  query = query.order('last_updated_at', { ascending: false });
+  // Newest news first, by when it started: the backend also moves last_updated_at when it touches an
+  // old event (maintenance, a new analysis), which put old news on the first page. All-periods search
+  // has a limit, the feed comes in pages.
+  query = query.order('first_seen_at', { ascending: false });
   const offset = filters?.offset ?? 0;
   const pageSize = filters?.limit ?? FEED_PAGE_SIZE;
   if (searchAllPeriods) {
