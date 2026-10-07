@@ -5,6 +5,7 @@ This document provides Claude Code with essential context and guidelines for wor
 ## Rules
 - Never commit without asking
 - Frontend build warnings about `<img>` vs `<Image>` are expected and NOT errors - the build succeeds despite these warnings
+- Supabase storage (owner's rule 2026-10-07): Supabase keeps what the app shows; working data goes once nothing reads it, and never at the cost of accuracy. Event Maintenance clears every day the embedding + tf-idf of articles that are only in archived events (new articles are matched against event centroids, which stay) and raw LLM responses older than 7 days (`STORAGE_PRUNE_ENABLED`, `RAW_LLM_RESPONSE_RETENTION_DAYS`). `normalized_tokens` is not stored; centroids are stored with 6 decimals (`round_centroid`). The full article text and `normalized_text` stay (search, rebuilding vectors), but anon cannot read the text (migration 013). Images are not in Supabase, only links (`image_url`), which stay. Measure before cutting: check that a change leaves clustering, related events and search unchanged
 
 ## 📋 Project Overview
 
@@ -157,7 +158,7 @@ make clean             # Clean up generated files
 | RSS Feed Polling | 15 min | Polls all RSS feeds for new articles |
 | Insight Backfill | 15 min | Generates LLM insights for events missing them, then redoes (≥ 30 min after the last one) analyses that leave out a Dutch outlet that joined later |
 | International Enrichment | 2 hours | Adds international perspectives via Google News (Epic 9) |
-| Event Maintenance | 24 hours | Refreshes centroids, archives stale events |
+| Event Maintenance | 24 hours | Refreshes centroids, archives stale events, then clears working data of archived news (storage rule, see Rules) |
 | Bias Analysis | 6 hours | Per-sentence bias detection (Epic 10, disabled by default) |
 | Exploration Refresh | 24 hours (na Event Maintenance) | Event Maintenance → daarna Exploration refresh (entiteiten + gerelateerde events, Epic 11) |
 | Entity Research | 15 min | Wie is dit? (Epic 12): triage van namen in het nieuws (rol + belang), onderzoeksdoelen naar het propagandamodel en resultaten ophalen. De rondes van de pm-agent `nieuws-scout` plant het propagandamodel zelf (launchd, elke 2 uur, max 6/dag, 08–22; sinds 2026-10-07 `NIEUWS_SCOUT_ENABLED=false`: de nieuws-app start ze niet meer). `ENTITY_RESEARCH_ENABLED`, `NIEUWS_SCOUT_*`; vereist migratie 006 + draaiende pm-server |

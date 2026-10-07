@@ -7,13 +7,15 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 
+from sqlalchemy import null, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.config import get_settings
 from backend.app.core.logging import get_logger
-from backend.app.db.models import Article
+from backend.app.db.models import Article, ArticleBiasAnalysis, Event, EventArticle, LLMInsight
 from backend.app.db.session import get_sessionmaker
 from backend.app.repositories import EventMaintenanceBundle, EventRepository
+from backend.app.repositories.event_repo import round_centroid
 from backend.app.services.vector_index import VectorIndexService
 
 log = get_logger(__name__)
@@ -38,6 +40,9 @@ class MaintenanceStats:
     vector_upserts: int
     vector_removals: int
     index_rebuilt: bool
+    article_vectors_pruned: int = 0
+    article_tokens_pruned: int = 0
+    raw_responses_pruned: int = 0
 
     def as_dict(self) -> Dict[str, object]:
         return {
@@ -47,6 +52,9 @@ class MaintenanceStats:
             "vector_upserts": self.vector_upserts,
             "vector_removals": self.vector_removals,
             "index_rebuilt": self.index_rebuilt,
+            "article_vectors_pruned": self.article_vectors_pruned,
+            "article_tokens_pruned": self.article_tokens_pruned,
+            "raw_responses_pruned": self.raw_responses_pruned,
         }
 
 
@@ -59,6 +67,12 @@ def _decode_embedding(payload: bytes | memoryview | None) -> List[float]:
     else:
         buffer.frombytes(payload)
     return list(buffer)
+
+
+def _vectors_pruned(article: Article) -> bool:
+    """Enrichment always stores the embedding, so an enriched article without one was pruned."""
+
+    return article.embedding is None and article.normalized_text is not None
 
 
 def _average_dense(vectors: Sequence[Sequence[float]]) -> List[float] | None:
@@ -191,6 +205,14 @@ class EventMaintenanceService:
                 await self.vector_index.rebuild(session)
                 index_rebuilt = True
 
+        pruned: Dict[str, int] = {}
+        if self.settings.storage_prune_enabled:
+            try:
+                async with self.session_factory() as session:
+                    pruned = await self._prune_working_data(session, now=datetime.now(timezone.utc))
+            except Exception as exc:  # noqa: BLE001 - a failed cleanup must not fail maintenance
+                correlation_log.warning("storage_prune_failed", error=str(exc))
+
         stats = MaintenanceStats(
             events_processed=len(bundles),
             events_recomputed=recompute_result["events_recomputed"],
@@ -198,6 +220,7 @@ class EventMaintenanceService:
             vector_upserts=vector_upserts,
             vector_removals=total_vector_removals,
             index_rebuilt=index_rebuilt,
+            **pruned,
         )
         correlation_log.info("event_maintenance_completed", **stats.as_dict())
         return stats
@@ -217,8 +240,14 @@ class EventMaintenanceService:
             tfidf_vectors = [article.tfidf_vector or {} for article in articles]
             entity_groups = [article.entities or [] for article in articles]
 
-            centroid_embedding = _average_dense(embeddings)
-            centroid_tfidf = _average_tfidf(tfidf_vectors)
+            if any(_vectors_pruned(article) for article in articles):
+                # An archived event that came back: the vectors of its old articles were pruned,
+                # but its stored centroid already holds them (plus the new article), so keep it.
+                centroid_embedding = event.centroid_embedding
+                centroid_tfidf = event.centroid_tfidf
+            else:
+                centroid_embedding = round_centroid(_average_dense(embeddings))
+                centroid_tfidf = _average_tfidf(tfidf_vectors)
             centroid_entities = _merge_entities(entity_groups)
             last_candidates = [article.published_at or article.fetched_at for article in articles]
             first_candidates = [article.published_at or article.fetched_at for article in articles]
@@ -267,6 +296,56 @@ class EventMaintenanceService:
         timestamp = datetime.now(timezone.utc)
         await repo.archive_events(candidates, timestamp)
         return candidates
+
+    async def _prune_working_data(self, session: AsyncSession, *, now: datetime) -> Dict[str, int]:
+        """Clear working data the app never reads (storage rule 2026-10-07, see CLAUDE.md).
+
+        Accuracy stays the same: new articles are matched against event centroids (kept), the
+        recompute above only reads articles of active events, unlinked articles keep their vectors
+        (they can still join an event), and the full text and normalized_text stay.
+        """
+
+        linked = (
+            select(EventArticle.article_id).where(EventArticle.article_id == Article.id).exists()
+        )
+        in_active_event = (
+            select(EventArticle.article_id)
+            .join(Event, Event.id == EventArticle.event_id)
+            .where(EventArticle.article_id == Article.id, Event.archived_at.is_(None))
+            .exists()
+        )
+        vectors = await session.execute(
+            update(Article)
+            .where(linked, ~in_active_event)
+            .where(or_(Article.embedding.is_not(None), Article.tfidf_vector.is_not(None)))
+            .values(embedding=None, tfidf_vector=null())
+            .execution_options(synchronize_session=False)
+        )
+        tokens = await session.execute(
+            update(Article)
+            .where(Article.normalized_tokens.is_not(None))
+            .values(normalized_tokens=null())
+            .execution_options(synchronize_session=False)
+        )
+        cutoff = now - timedelta(days=self.settings.raw_llm_response_retention_days)
+        raw_responses = 0
+        for model, created in (
+            (LLMInsight, LLMInsight.generated_at),
+            (ArticleBiasAnalysis, ArticleBiasAnalysis.analyzed_at),
+        ):
+            result = await session.execute(
+                update(model)
+                .where(model.raw_response.is_not(None), created < cutoff)
+                .values(raw_response=None)
+                .execution_options(synchronize_session=False)
+            )
+            raw_responses += result.rowcount or 0
+        await session.commit()
+        return {
+            "article_vectors_pruned": vectors.rowcount or 0,
+            "article_tokens_pruned": tokens.rowcount or 0,
+            "raw_responses_pruned": raw_responses,
+        }
 
     async def _detect_index_drift(self, session: AsyncSession) -> bool:
         repo = EventRepository(session)

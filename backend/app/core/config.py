@@ -476,6 +476,19 @@ class Settings(BaseSettings):
         default=True,
         description="Trigger a full vector index rebuild when drift is detected",
     )
+    storage_prune_enabled: bool = Field(
+        default=True,
+        description=(
+            "Event maintenance clears working data the app never reads: embedding and tf-idf of "
+            "articles that are only in archived events, and old raw LLM responses"
+        ),
+    )
+    raw_llm_response_retention_days: int = Field(
+        default=7,
+        ge=1,
+        le=365,
+        description="Keep raw LLM responses (llm_insights, article_bias_analyses) this many days",
+    )
     event_score_weight_embedding: float = Field(
         default=0.6,
         ge=0.0,

@@ -108,7 +108,7 @@ async def test_enrichment_updates_article_fields(session_factory, tmp_path):
         result = await session.execute(select(Article))
         stored = result.scalar_one()
         assert stored.normalized_text
-        assert stored.normalized_tokens
+        assert stored.normalized_tokens is None  # not stored: nothing reads it
         assert stored.embedding
         assert len(stored.embedding) == len(array('f', [0.1, 0.2, 0.3]).tobytes())
         assert stored.tfidf_vector

@@ -217,7 +217,7 @@ class ArticleRepository:
             raise ValueError(f"Article {article_id} not found")
 
         article.normalized_text = payload.normalized_text
-        article.normalized_tokens = payload.normalized_tokens
+        # normalized_tokens is not stored: nothing reads it (storage rule 2026-10-07)
         article.embedding = payload.embedding
         article.tfidf_vector = payload.tfidf_vector
         article.entities = payload.entities
