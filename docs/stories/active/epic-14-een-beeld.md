@@ -937,6 +937,49 @@ Eigenaar: "canceling statement due to statement timeout".
 - **Let op**: met alle grote Nederlandse kranten als hoofdbron worden het weer ±870 nieuwsitems (3 MB) per week. Dan
   moet de lijst in stukken laden.
 
+### Meer hoofdbronnen, laden in stukken en bronnen die stillagen (2026-10-07)
+Eigenaar: "ja er moeten meer hoofdbronnen.. waarom zijn er maar een paar?" en "zijn er bronnen die het niet meer
+doen?"
+- **Waarom alleen NOS**:
+  - Sinds december 2025 is NOS de enige hoofdbron (`DEFAULT_MAIN_SOURCES = {"nos_rss"}`), als ijkpunt.
+  - Elke krant die later is toegevoegd, kwam er als gewone bron bij.
+- **Nu hoofdbron**:
+  - NOS, RTL Nieuws, NU.nl, AD, De Telegraaf, Het Parool, de Volkskrant en Trouw. Gezet via
+    `PATCH /admin/sources/{id}`, dezelfde schakelaar als in Beheer.
+  - Nog geen hoofdbron: GeenStijl, NieuwRechts, NineForNews, De Andere Krant en Een Blik op de NOS.
+- **De lijst laadt in stukken** (eerst gezet, daarna pas de hoofdbronnen, anders kwam de time-out terug):
+  - `listEvents` geeft 120 nieuwsitems per keer (`FEED_PAGE_SIZE`, `range`), met `meta.has_more` en `next_offset`.
+    "Meer nieuws" onder de dagen haalt de volgende.
+  - De topverhalen komen uit de eerste pagina, zodat meer laden het topverhaal niet verschuift.
+  - De standaardkeuze van bronnen (alles behalve sociale media) geldt ook voor bronnen die pas op een latere pagina
+    opduiken.
+  - **Volgorde op `first_seen_at`**. Op `last_updated_at`, dat onderhoud en een nieuwe analyse verzetten, stond oud
+    nieuws (1 tot en met 4 oktober) naast vandaag, en ontbrak gisteren. Op `first_seen_at` is pagina 1 vandaag en
+    gisteren, en de query duurt 0,3 s in plaats van 1,3 s.
+  - In productie: pagina 1 is 293 KB en komt in 0,2 tot 0,4 s binnen, pagina 2 is 300 KB. Er zijn geen fouten en de
+    pagina scrolt nergens zijwaarts.
+- **Bronnen die stillagen**:
+  - Het pakket `playwright` stond in `requirements.txt` maar ontbrak in `.venv`. Daardoor:
+    - sloeg de backend elk artikel van de Volkskrant, Het Parool en Trouw over; hun RSS heeft geen samenvatting, en
+      het laatste artikel was van april;
+    - kregen NU.nl, AD, De Telegraaf, NineForNews en deels NieuwRechts alleen de RSS-samenvatting binnen.
+  - Weer geïnstalleerd: 1.49.0 met `playwright-stealth`. Chromium 1148 stond al op de Mac. Een proef haalt volledige
+    artikelen op van de Volkskrant (6.351 tekens), Trouw (5.742), Het Parool (2.144), NU.nl en AD.
+  - Bij betaalartikelen van De Telegraaf haalde de parser toen de JSON van de betaalmuur op. Zulke tekst telt nu als
+    parse-fout (`looks_like_code` in `ingestion/parser.py`). Bij een parse-fout gebruikt de backend de
+    RSS-samenvatting, net als bij een mislukte fetch; eerst sloeg hij het artikel over (commit e49db1c).
+  - Met `playwright` weer actief haalde de ingest van elk bekend artikel opnieuw de pagina op, en zag pas daarna dat
+    het dubbel was. De eerste ronde liep na 300 s tegen de time-out (918 dubbele, 67 keer een browser). Nu vraagt
+    `ArticleRepository.known_items` in één query (URL, guid, bij AD ook het artikel-id) welke items al bestaan, en
+    haalt de ingest alleen nieuwe pagina's op. Na die controle en na elk opgeslagen artikel sluit de transactie,
+    zodat er tijdens het ophalen geen transactie openstaat. Een andere sessie zag sessies die 13 minuten "idle in
+    transaction" bleven, met locks op `articles` (commit 52ed946).
+  - Een Blik op de NOS levert sinds 24 december 2025 niets. De X-API weigert de sleutel (403, "keys and tokens from
+    a developer App that is attached to a Project"). Herstel vraagt een X-ontwikkelaarsaccount van de eigenaar.
+- **Gevonden door een andere sessie**: hetzelfde verhaal staat vaak los in twee nieuwsitems, bijvoorbeeld 8079 "Messi
+  eert Maradona" (NU.nl) en 7973 "Messi neemt afscheid" (2 bronnen). Van de 120 items op pagina 1 hebben er maar 7
+  twee of meer Nederlandse bronnen. Dat ligt aan de clustering en is nog open.
+
 ## Story 14.20: Namen onder een bevinding openen hun ballon
 
 **Status**: ✅ Done (2026-10-07)
