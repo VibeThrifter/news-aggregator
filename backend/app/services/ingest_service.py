@@ -576,6 +576,15 @@ class IngestService:
                                     )
                                     yield {"status": "parse_failures", "article_id": None}
                                     continue
+                            elif item.summary and item.summary.strip():
+                                # Like a failed fetch: the RSS summary instead of nothing
+                                logger_ctx.info(
+                                    "article_parse_failed_using_rss_summary",
+                                    url=item.url,
+                                    guid=item.guid,
+                                    summary_length=len(item.summary),
+                                )
+                                parsed = ArticleParseResult(text=item.summary, summary=item.summary[:320])
                             else:
                                 logger_ctx.warning(
                                     "article_parse_failed_skip",

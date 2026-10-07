@@ -161,3 +161,28 @@ async def test_fetch_failure_without_summary_counts_as_failure(monkeypatch, inge
     async with session_factory() as session:
         result = await session.execute(select(Article))
         assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_parse_failure_with_rss_summary_fallback(monkeypatch, ingest_service, sample_feed_item, session_factory):
+    """When the page text is unusable (a paywall as code) the RSS summary is used, like a failed fetch."""
+    from backend.app.ingestion import ArticleParseError
+
+    async def fake_fetch(url: str, **_: object) -> str:
+        return "<html><body>paywall</body></html>"
+
+    def fake_parse(html: str, **_: object):
+        raise ArticleParseError("Extracted text is page code (paywall?), not an article")
+
+    monkeypatch.setattr("backend.app.services.ingest_service.fetch_article_html", fake_fetch)
+    monkeypatch.setattr("backend.app.services.ingest_service.parse_article_html", fake_parse)
+
+    profile = ingest_service.reader_profiles.get("nos_rss")
+    stats = await ingest_service.process_feed_items(reader_id="nos_rss", items=[sample_feed_item], profile=profile)
+
+    assert stats["parse_failures"] == 0
+    assert stats["ingested"] == 1
+
+    async with session_factory() as session:
+        stored = (await session.execute(select(Article))).scalar_one()
+        assert stored.content == sample_feed_item.summary

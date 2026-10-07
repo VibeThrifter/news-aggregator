@@ -34,6 +34,20 @@ def _fallback_summary(text: str, max_chars: int = 320) -> str:
     return shorten(clean, width=max_chars, placeholder="…")
 
 
+# Text that is page code rather than an article (a paywall widget as JSON, De Telegraaf): quotes,
+# braces and backslashes make up a large share of it, which they never do in sentences.
+_CODE_CHARS = frozenset('{}[]"\\')
+_CODE_SHARE = 0.08
+
+
+def looks_like_code(text: str) -> bool:
+    """True when extracted text is mostly code, such as the JSON of a paywall."""
+    sample = text[:2000]
+    if not sample:
+        return False
+    return sum(1 for char in sample if char in _CODE_CHARS) / len(sample) > _CODE_SHARE
+
+
 def parse_article_html(html: str, *, url: Optional[str] = None) -> ArticleParseResult:
     """Parse raw HTML into normalized text and summary using Trafilatura."""
 
@@ -63,6 +77,9 @@ def parse_article_html(html: str, *, url: Optional[str] = None) -> ArticleParseR
     if not text:
         logger.warning("article_parse_failed", url=url, reason="no_text")
         raise ArticleParseError("Article contains no readable text")
+    if looks_like_code(text):
+        logger.warning("article_parse_failed", url=url, reason="looks_like_code")
+        raise ArticleParseError("Extracted text is page code (paywall?), not an article")
 
     summary = (data.get("summary") or data.get("title") or "").strip()
     if not summary:
