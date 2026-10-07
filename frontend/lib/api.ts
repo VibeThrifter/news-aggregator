@@ -77,10 +77,19 @@ export interface EventListFilters {
   searchAllPeriods?: boolean;
   /** Admin mode: include events without LLM insights */
   includeWithoutInsights?: boolean;
+  /** Paging of the feed: where this page starts and how many items it holds (FEED_PAGE_SIZE) */
+  offset?: number;
+  limit?: number;
 }
 
 /** Maximum events returned when searching all periods */
 const SEARCH_ALL_LIMIT = 50;
+
+/**
+ * News items per page of the feed. A week of news from every main source is about 900 items
+ * (3 MB): one query for all of it can run into the statement timeout of the website (3 s).
+ */
+export const FEED_PAGE_SIZE = 120;
 
 const FALLBACK_API_BASE_URL = "http://localhost:8000";
 const rawBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
@@ -366,10 +375,14 @@ export async function listEvents(
     query = query.ilike('title', `%${search.trim()}%`);
   }
 
-  // Order by most recently updated and apply limit for all-periods search
+  // Order by most recently updated; all-periods search has a limit, the feed comes in pages
   query = query.order('last_updated_at', { ascending: false });
+  const offset = filters?.offset ?? 0;
+  const pageSize = filters?.limit ?? FEED_PAGE_SIZE;
   if (searchAllPeriods) {
     query = query.limit(SEARCH_ALL_LIMIT);
+  } else {
+    query = query.range(offset, offset + pageSize - 1);
   }
 
   const { data, error } = await query;
@@ -460,7 +473,12 @@ export async function listEvents(
       ? events
       : events.filter((event) => !event.last_updated_at || event.last_updated_at >= `${startDate}T00:00:00.000Z`);
 
-  return { data: inRange };
+  // A full page means there may be more (counted before the range filter above)
+  const received = (data || []).length;
+  return {
+    data: inRange,
+    meta: { has_more: !searchAllPeriods && received === pageSize, next_offset: offset + received },
+  };
 }
 
 function encodeEventIdentifier(id: string | number): string {

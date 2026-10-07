@@ -12,12 +12,16 @@ import { LeadStory, StoryCard, TopStory } from "./StoryCards";
 /** News items per day before "Nog n nieuwsitems" */
 const PER_DAY = 6;
 
-/** The front page: the lead with "Wie zegt wat?", two more top stories, then the news per day. */
-export function FrontPage({ events }: { events: EventListItem[] }) {
+/**
+ * The front page: the lead with "Wie zegt wat?", two more top stories, then the news per day.
+ * `leadPool`: where the top stories come from (the first page, so loading more keeps the lead).
+ */
+export function FrontPage({ events, leadPool = events }: { events: EventListItem[]; leadPool?: EventListItem[] }) {
   const { top, days } = useMemo(() => {
-    const top = pickTopStories(events, events.length >= 6 ? 3 : 1);
-    return { top, days: groupByDay(events.filter((event) => !top.includes(event))) };
-  }, [events]);
+    const top = pickTopStories(leadPool, leadPool.length >= 6 ? 3 : 1);
+    const topIds = new Set(top.map((event) => event.id));
+    return { top, days: groupByDay(events.filter((event) => !topIds.has(event.id))) };
+  }, [events, leadPool]);
   const [lead, ...next] = top;
 
   return (

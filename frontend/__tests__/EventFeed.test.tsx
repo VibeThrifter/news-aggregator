@@ -9,6 +9,11 @@ jest.mock("swr", () => ({
   default: jest.fn(),
 }));
 
+jest.mock("@/lib/api", () => ({
+  ...jest.requireActual("@/lib/api"),
+  listEvents: jest.fn(),
+}));
+
 jest.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
@@ -21,6 +26,7 @@ type EventFeedResponse = {
 };
 
 const useSWR = jest.requireMock("swr").default as jest.Mock;
+const listEvents = jest.requireMock("@/lib/api").listEvents as jest.Mock;
 
 function buildResponse(
   overrides: Partial<SWRResponse<EventFeedResponse, Error>>,
@@ -107,5 +113,29 @@ describe("EventFeed", () => {
 
     fireEvent.click(refreshButton);
     expect(mutate).toHaveBeenCalledWith(undefined, { revalidate: true });
+  });
+
+  it("loads the next page under the news with Meer nieuws", async () => {
+    const recent = new Date().toISOString();
+    useSWR.mockReturnValue(
+      buildResponse({
+        data: {
+          data: [{ ...sampleEvent, last_updated_at: recent }],
+          meta: { has_more: true, next_offset: 120 },
+        },
+      }),
+    );
+    listEvents.mockResolvedValue({
+      data: [{ ...sampleEvent, id: 43, slug: "tweede-pagina", title: "Nieuws van de tweede pagina", last_updated_at: recent }],
+      meta: { has_more: false, next_offset: 121 },
+    });
+
+    render(<EventFeed />);
+    fireEvent.click(screen.getByRole("button", { name: "Meer nieuws" }));
+
+    expect(await screen.findByText("Nieuws van de tweede pagina")).toBeInTheDocument();
+    expect(listEvents).toHaveBeenCalledWith(expect.objectContaining({ offset: 120 }));
+    // The last page was not full: no button any more
+    expect(screen.queryByRole("button", { name: "Meer nieuws" })).not.toBeInTheDocument();
   });
 });

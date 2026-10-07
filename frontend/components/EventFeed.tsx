@@ -3,14 +3,15 @@
 import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
-import { SlidersHorizontal } from "lucide-react";
+import { ChevronDown, SlidersHorizontal } from "lucide-react";
 
-import { ApiClientError, EventListFilters, listEvents } from "@/lib/api";
+import { ApiClientError, EventListFilters, listEvents, type EventListItem } from "@/lib/api";
 import { DEFAULT_CATEGORY, getCategoryLabel } from "@/lib/categories";
 import { eventListSwrOptions } from "@/lib/swr-config";
 
 import CategoryNav from "./CategoryNav";
 import DateRangeFilter from "./DateRangeFilter";
+import { PILL } from "./explore/ui/primitives";
 import { FrontPage } from "./front/FrontPage";
 import MinSourcesFilter from "./MinSourcesFilter";
 import SearchBar from "./SearchBar";
@@ -183,7 +184,8 @@ export default function EventFeed() {
   const [dateRange, setDateRange] = useState(getDefaultDateRange);
   const [searchAllPeriods, setSearchAllPeriods] = useState(false);
   const [adminMode, setAdminMode] = useState(false);
-  const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
+  // The sources the reader chose; null = the default (every source except social media)
+  const [chosenSources, setChosenSources] = useState<Set<string> | null>(null);
   // On phones the filters fold away behind one button
   const [filtersOpen, setFiltersOpen] = useState(false);
 
@@ -201,17 +203,50 @@ export default function EventFeed() {
   // SWR key changes when filters change, triggering a new fetch
   const swrKey = useMemo(() => buildSwrKey(filters), [filters]);
 
-  // Story 4 (INFRA): Event list cached for 5 minutes to reduce Supabase egress
+  // Story 4 (INFRA): Event list cached for 5 minutes to reduce Supabase egress. This is the first
+  // page; "Meer nieuws" adds the next ones (FEED_PAGE_SIZE each).
   const { data, error, isLoading, isValidating, mutate } = useSWR<EventFeedResponse>(
     swrKey,
     () => listEvents(filters),
     eventListSwrOptions,
   );
 
+  // The next pages, for the filters they were loaded with
+  const [more, setMore] = useState<{ key: string; events: EventListItem[]; nextOffset: number; hasMore: boolean } | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<string | null>(null);
+  const extra = more?.key === swrKey ? more : null;
+  const loaded = useMemo(() => {
+    const firstPage = data?.data ?? [];
+    const seen = new Set(firstPage.map((event) => event.id));
+    // A page can repeat an item when the list moved in between
+    return [...firstPage, ...(extra?.events ?? []).filter((event) => !seen.has(event.id))];
+  }, [data?.data, extra]);
+  const hasMore = extra ? extra.hasMore : Boolean(data?.meta?.has_more);
+  const nextOffset = extra ? extra.nextOffset : Number(data?.meta?.next_offset ?? 0);
+
+  const loadMore = useCallback(async () => {
+    setLoadingMore(true);
+    setMoreError(null);
+    try {
+      const page = await listEvents({ ...filters, offset: nextOffset });
+      setMore((current) => ({
+        key: swrKey,
+        events: [...(current?.key === swrKey ? current.events : []), ...page.data],
+        nextOffset: Number(page.meta?.next_offset ?? nextOffset),
+        hasMore: Boolean(page.meta?.has_more),
+      }));
+    } catch (err) {
+      setMoreError(resolveErrorMessage(err));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [filters, nextOffset, swrKey]);
+
   // Extract all unique sources from all events for the filter
   const availableSources: SourceInfo[] = useMemo(() => {
     const sourceMap = new Map<string, number>();
-    for (const event of data?.data ?? []) {
+    for (const event of loaded) {
       for (const entry of event.source_breakdown ?? []) {
         const current = sourceMap.get(entry.source) ?? 0;
         sourceMap.set(entry.source, current + entry.article_count);
@@ -221,27 +256,31 @@ export default function EventFeed() {
       name,
       articleCount,
     }));
-  }, [data?.data]);
+  }, [loaded]);
 
-  // Initialize selected sources when data loads (exclude commentary sources by default)
-  const [hasInitializedSources, setHasInitializedSources] = useState(false);
-  if (availableSources.length > 0 && selectedSources.size === 0 && !hasInitializedSources) {
-    setSelectedSources(new Set(availableSources.filter((s) => !SOCIAL_MEDIA_SOURCES.has(s.name)).map((s) => s.name)));
-    setHasInitializedSources(true);
-  }
+  // Until the reader chooses, every source except social media; also the sources that only appear
+  // on a later page
+  const selectedSources = useMemo(
+    () => chosenSources ?? new Set(availableSources.filter((s) => !SOCIAL_MEDIA_SOURCES.has(s.name)).map((s) => s.name)),
+    [chosenSources, availableSources],
+  );
 
   // Filter events by selected sources (client-side)
   const events = useMemo(() => {
-    const allEvents = data?.data ?? [];
     // If no sources selected or all sources selected, show all events
     if (selectedSources.size === 0 || selectedSources.size === availableSources.length) {
-      return allEvents;
+      return loaded;
     }
     // Filter events that have at least one article from a selected source
-    return allEvents.filter((event) =>
+    return loaded.filter((event) =>
       (event.source_breakdown ?? []).some((entry) => selectedSources.has(entry.source))
     );
-  }, [data?.data, selectedSources, availableSources.length]);
+  }, [loaded, selectedSources, availableSources.length]);
+  // The top stories come from the first page: loading more does not change the lead
+  const leadPool = useMemo(() => {
+    const firstPage = new Set((data?.data ?? []).map((event) => event.id));
+    return events.filter((event) => firstPage.has(event.id));
+  }, [data?.data, events]);
 
   const errorMessage = error ? resolveErrorMessage(error) : null;
   const defaultRange = useMemo(getDefaultDateRange, []);
@@ -301,7 +340,7 @@ export default function EventFeed() {
   }, []);
 
   const handleSourceSelectionChange = useCallback((sources: Set<string>) => {
-    setSelectedSources(sources);
+    setChosenSources(sources);
   }, []);
 
   return (
@@ -379,7 +418,22 @@ export default function EventFeed() {
             isSearchingAllPeriods={searchAllPeriods}
           />
         ) : (
-          <FrontPage events={events} />
+          <>
+            <FrontPage events={events} leadPool={leadPool} />
+            {hasMore ? (
+              <div className="mt-12 flex flex-col items-center gap-2">
+                <button type="button" onClick={() => void loadMore()} disabled={loadingMore} className={`${PILL} disabled:opacity-60`}>
+                  {loadingMore ? (
+                    <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-ink-400 border-t-transparent" />
+                  ) : (
+                    <ChevronDown size={16} aria-hidden="true" />
+                  )}
+                  Meer nieuws
+                </button>
+                {moreError ? <p className="text-sm text-red-700">{moreError}</p> : null}
+              </div>
+            ) : null}
+          </>
         )}
       </div>
     </div>
