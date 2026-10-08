@@ -20,7 +20,8 @@ import { RouteList } from "./RouteList";
 
 /**
  * The five filters (+ tegenmacht) for this news item: structural relations from the propaganda model
- * around the outlets and actors, and signals from the AI analysis. Evidence, not a verdict.
+ * around the outlets and actors, and signals from the AI analysis. Evidence, not a verdict. The
+ * decision-making categories (Epic 15) only appear when the network you built has relations in them.
  */
 export function FiltersSheet() {
   const { exploration, panel } = useExplore();
@@ -44,6 +45,10 @@ export function FiltersSheet() {
         {FILTERS.map((filter) => {
           const relations = structural.get(filter.id) ?? [];
           const eventSignals = signals.find((entry) => entry.filter === filter.id)?.signals ?? [];
+          // Epic 15: a decision-making category has no signals from the analysis; only when the
+          // network you built has relations in it
+          const media = filter.group === "media";
+          if (!media && relations.length === 0) return null;
           return (
             <section key={filter.id} className="space-y-3 rounded-2xl border border-paper-300 bg-paper-50 p-4">
               <div>
@@ -74,6 +79,7 @@ export function FiltersSheet() {
                   <p className="text-sm text-ink-500">Geen verbanden geladen.</p>
                 )}
               </div>
+              {media ? (
               <div className="space-y-1">
                 <p className="text-sm font-semibold text-ink-700">In dit nieuws</p>
                 {eventSignals.length ? (
@@ -101,6 +107,7 @@ export function FiltersSheet() {
                   <p className="text-sm text-ink-500">Geen signalen.</p>
                 )}
               </div>
+              ) : null}
             </section>
           );
         })}
@@ -172,7 +179,7 @@ function RelationSentence({ relation, entities }: { relation: PmRelation; entiti
   const last = otherEnd(relation, first);
   return (
     <>
-      {entities.get(first)?.name ?? first} <span className="text-ink-500">{pmRelationLabel(relation.relation_type, relation.mechanism)}</span>{" "}
+      {entities.get(first)?.name ?? first} <span className="text-ink-500">{pmRelationLabel(relation.relation_type, relation.mechanism, relation.functie)}</span>{" "}
       {entities.get(last)?.name ?? last}
     </>
   );

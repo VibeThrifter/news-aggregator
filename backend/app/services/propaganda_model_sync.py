@@ -87,6 +87,9 @@ APPROVED_STATUS = "goedgekeurd"
 # Epic 12: elements approved by the automatic news pipeline (pm machine account) are flagged, and
 # the not-yet-merged evidence of the pipeline's research agent is exported as unreviewed sources.
 AUTO_APPROVER_ACCOUNT = "nieuws-autokeur"
+# Since 2026-10-07 the propaganda model's hourly automatic review approves everything (account
+# merge-service, after an independent source check); both count as "automatically added".
+AUTO_APPROVER_ACCOUNTS: frozenset[str] = frozenset({AUTO_APPROVER_ACCOUNT, "merge-service"})
 AUTO_RESEARCH_CONTRIBUTORS: frozenset[str] = frozenset({"nieuws-scout"})
 # Argument properties that are never read (political-position layer and machtsvalentie).
 EXCLUDED_PROPERTIES: tuple[str, ...] = ("politieke_positie", "machtsvalentie")
@@ -196,8 +199,9 @@ CERTAINTY_PLAUSIBLE_MIN = 0.14
 # Presentation constants
 # --------------------------------------------------------------------------------------
 
-# Informative relation types first. MUST match the CASE in pm_neighborhood (migration 005) and
-# TYPE_PRIORITY in frontend/lib/explore/pm-local.ts; unlisted types rank after the list.
+# Informative relation types first. MUST match the CASE in pm_neighborhood (migration 016) and
+# TYPE_PRIORITY in frontend/lib/explore/pm-local.ts; unlisted types rank after the list. The
+# decision-making types (Epic 15) come last: offices and hierarchy connect everything.
 RELATION_TYPE_PRIORITY: tuple[str, ...] = (
     "eigendom",
     "financiering",
@@ -212,6 +216,10 @@ RELATION_TYPE_PRIORITY: tuple[str, ...] = (
     "mediaplatform",
     "personeel",
     "lidmaatschap",
+    "ambt",
+    "zeggenschap",
+    "geschenk",
+    "controle",
 )
 _PRIORITY_INDEX = {name: index for index, name in enumerate(RELATION_TYPE_PRIORITY)}
 OWNERSHIP_RELATION_TYPES: frozenset[str] = frozenset({"eigendom", "financiering"})
@@ -225,10 +233,17 @@ EXPORTED_FILTERS: frozenset[str] = frozenset(
         "tegenmacht",
         "cross_filter",
         "systeemactor",
+        # Uitbreiding C (Epic 15): the decision-making categories
+        "formele_macht",
+        "belangen",
+        "kennis_advies",
+        "polder",
+        "werving",
     }
 )
-# The six filters a relation can belong to (pm_relations.filters), in display order. MUST match
-# the ARRAY[...] order in pm_neighborhood (migration 005); relations without any filter are
+# The categories a relation can belong to (pm_relations.filters), in display order: the five
+# filters, tegenmacht, then the five decision-making categories (Epic 15). MUST match the
+# ARRAY[...] order in pm_neighborhood (migration 016); relations without any category are
 # counted under UNFILTERED ("overig") in its filter_counts.
 FILTERS: tuple[str, ...] = (
     "eigendom",
@@ -237,14 +252,30 @@ FILTERS: tuple[str, ...] = (
     "flak",
     "ideologie",
     "tegenmacht",
+    "formele_macht",
+    "belangen",
+    "kennis_advies",
+    "polder",
+    "werving",
 )
 UNFILTERED = "overig"
+# The six media filters (Herman & Chomsky + tegenmacht), the scope of the app before Epic 15.
+MEDIA_FILTERS: frozenset[str] = frozenset(FILTERS[:6])
+# Uitbreiding C of the propaganda model (2026-10-07): decision-making categories and relation
+# types. Until PROPAGANDA_SYNC_BESTUUR is on, relations that only belong to these (and entities
+# that only have such relations) stay out of the pm_* tables, so the live app is unchanged.
+BESTUUR_CATEGORIES: frozenset[str] = frozenset(
+    {"formele_macht", "belangen", "kennis_advies", "polder", "werving"}
+)
+BESTUUR_RELATION_TYPES: frozenset[str] = frozenset({"ambt", "zeggenschap", "controle", "geschenk"})
 # Version of the pm_* row format (pm_meta.format). A sync is never skipped as "unchanged" while
 # the stored format differs, so a new column is filled right after the migration adds it.
 # 4: auto_approved + unreviewed sources (Epic 12); 5: arguments + mechanisms; 6: sources an
 # independent A1 re-read found to carry the argument ("checked", automatic review 2026-10-06);
-# 7: what that re-read found when it did not hold ("check": deels / draagt_niet / citaat_weg)
-SNAPSHOT_FORMAT = "7"
+# 7: what that re-read found when it did not hold ("check": deels / draagt_niet / citaat_weg);
+# 8: decision-making (Epic 15): bestuurslaag + wikidata on entities, functie on relations, the
+# five decision-making categories in filters, merge-service approvals flagged as automatic
+SNAPSHOT_FORMAT = "8"
 MAX_SOURCES_PER_OWNER = 12
 MAX_QUOTE_LENGTH = 300
 # Arguments shown with a relation (migration 010): whether it exists, how strong, when it held and
@@ -324,6 +355,11 @@ DEMO_ARGUMENT_FOCUS: dict[int, str] = {
 # Display names (copied from propaganda-model paginas.NAAM_WEERGAVE; roles + mechanisms).
 DISPLAY_NAMES: dict[str, str] = {
     "mediaeigenaar": "Media-eigenaar",
+    # Uitbreiding C (Epic 15)
+    "eu_instelling": "EU-instelling",
+    "ministeriele_verantwoordelijkheid": "Ministeriële verantwoordelijkheid",
+    "hierarchische_aansturing": "Hiërarchische aansturing",
+    "akkoord_preemptie": "Akkoord-preëmptie",
     "raad_van_commissarissen": "Raad van commissarissen (RvC)",
     "columnist_opiniemaker": "Columnist / opiniemaker",
     "elite_forum": "Elite-forum",
@@ -640,6 +676,29 @@ _READ_QUERIES: dict[str, str] = {
 }
 
 
+def _read_decision_making_fields(connection: sqlite3.Connection, raw: PmRawData) -> None:
+    """Uitbreiding C (Epic 15): entities.bestuurslaag, the Wikidata id (externe_ids) and
+    relations.functie. Older databases without these columns/table give None."""
+
+    def column(query: str) -> dict[int, Any]:
+        try:
+            return {row[0]: row[1] for row in connection.execute(query)}
+        except sqlite3.OperationalError:
+            return {}
+
+    layer = column("SELECT id, bestuurslaag FROM entities WHERE bestuurslaag IS NOT NULL")
+    wikidata = column(
+        "SELECT entity_id, MIN(waarde) FROM externe_ids WHERE stelsel = 'wikidata' "
+        "GROUP BY entity_id"
+    )
+    office = column("SELECT id, functie FROM relations WHERE functie IS NOT NULL")
+    for entity in raw.entities:
+        entity["bestuurslaag"] = layer.get(entity["id"])
+        entity["wikidata"] = wikidata.get(entity["id"])
+    for relation in raw.relations:
+        relation["functie"] = office.get(relation["id"])
+
+
 def read_pm_database(path: Path | str) -> PmRawData:
     """Read the rows needed for the sync (read-only connection, approved rows only)."""
 
@@ -654,6 +713,7 @@ def read_pm_database(path: Path | str) -> PmRawData:
     try:
         for name, query in _READ_QUERIES.items():
             setattr(raw, name, [dict(row) for row in connection.execute(query)])
+        _read_decision_making_fields(connection, raw)
         try:
             raw.mechanism_filters = [
                 dict(row)
@@ -700,7 +760,7 @@ def read_pm_database(path: Path | str) -> PmRawData:
 
 
 def auto_approved_ids(rows: Iterable[Mapping[str, Any]]) -> dict[str, set[int]]:
-    """Entities/relations whose LATEST status change is an approval by the news pipeline.
+    """Entities/relations whose LATEST status change is an automatic approval.
 
     ``rows`` are edit_log rows (id, table_name, record_id, changed_by, new_value) in id order. A
     later human status change (e.g. withdrawing the approval) wins, so the flag disappears.
@@ -720,7 +780,7 @@ def auto_approved_ids(rows: Iterable[Mapping[str, Any]]) -> dict[str, set[int]]:
         )
     result: dict[str, set[int]] = {"entities": set(), "relations": set()}
     for (table, record_id), (changed_by, status) in latest.items():
-        if changed_by == AUTO_APPROVER_ACCOUNT and status == APPROVED_STATUS and table in result:
+        if changed_by in AUTO_APPROVER_ACCOUNTS and status == APPROVED_STATUS and table in result:
             result[table].add(record_id)
     return result
 
@@ -1565,8 +1625,67 @@ class PmSnapshot:
         )
 
 
-def transform(raw: PmRawData, *, synced_at: datetime | None = None) -> PmSnapshot:
-    """Turn raw pm rows into pm_* rows. Pure: no I/O."""
+def register_only_relations(
+    arguments: Iterable[Mapping[str, Any]],
+    citations: Iterable[Mapping[str, Any]],
+    sources: Mapping[int, Mapping[str, Any]],
+) -> set[int]:
+    """Relations whose every live supporting root argument cites only register sources
+    (cluster_key 'register:…', the propaganda model's register pipeline, Uitbreiding C)."""
+
+    register = {
+        sid
+        for sid, row in sources.items()
+        if str(row.get("cluster_key") or "").startswith("register:")
+    }
+    cited: dict[int, list[int]] = defaultdict(list)
+    for row in citations:
+        cited[row["argument_id"]].append(row["source_id"])
+    roots: dict[int, list[int]] = defaultdict(list)
+    for row in arguments:
+        if (
+            row.get("relation_id")
+            and row.get("parent_argument_id") is None
+            and row.get("stance") == "supporting"
+            and row.get("status") != "verworpen"
+        ):
+            roots[row["relation_id"]].append(row["id"])
+    return {
+        rid
+        for rid, ids in roots.items()
+        if all(cited.get(aid) and all(sid in register for sid in cited[aid]) for aid in ids)
+    }
+
+
+def is_bestuur_only(
+    relation: Mapping[str, Any],
+    mechanisms: Mapping[int, Mapping[str, Any]],
+    mechanism_tags: Mapping[int, Sequence[str]],
+    register_only: frozenset[int] | set[int] = frozenset(),
+) -> bool:
+    """Whether a relation belongs only to the decision-making layer (Uitbreiding C): a new
+    relation type, a relation that rests only on register facts, or a mechanism whose
+    categories include a decision-making one and none of the six media filters."""
+
+    if relation.get("relation_type") in BESTUUR_RELATION_TYPES:
+        return True
+    if relation.get("id") in register_only:
+        return True
+    mechanism = mechanisms.get(relation.get("mechanism_id"))
+    if mechanism is None:
+        return False
+    categories = set(mechanism_tags.get(mechanism["id"], ())) | {mechanism.get("filter")}
+    return bool(categories & BESTUUR_CATEGORIES) and not categories & MEDIA_FILTERS
+
+
+def transform(
+    raw: PmRawData, *, synced_at: datetime | None = None, bestuur: bool = False
+) -> PmSnapshot:
+    """Turn raw pm rows into pm_* rows. Pure: no I/O.
+
+    ``bestuur=False`` (default, PROPAGANDA_SYNC_BESTUUR off) leaves out the decision-making
+    layer: relations for which :func:`is_bestuur_only` holds, and entities whose every approved
+    relation is such a relation."""
 
     synced = synced_at or datetime.now(timezone.utc)
     roles = {row["id"]: row for row in raw.roles}
@@ -1587,8 +1706,31 @@ def transform(raw: PmRawData, *, synced_at: datetime | None = None) -> PmSnapsho
     citations = [row for row in raw.citations if row["argument_id"] in exported_arg_ids]
 
     entities = [row for row in raw.entities if _is_approved(row)]
-    entity_ids = {row["id"] for row in entities}
     approved_relations = [row for row in raw.relations if _is_approved(row)]
+    if not bestuur:
+        register_only = register_only_relations(arguments, citations, sources)
+        hidden = [
+            row
+            for row in approved_relations
+            if is_bestuur_only(row, mechanisms, mechanism_tags, register_only)
+        ]
+        if hidden:
+            hidden_ids = {row["id"] for row in hidden}
+            approved_relations = [
+                row for row in approved_relations if row["id"] not in hidden_ids
+            ]
+            kept_ends = {row["source_id"] for row in approved_relations} | {
+                row["target_id"] for row in approved_relations
+            }
+            hidden_ends = {row["source_id"] for row in hidden} | {
+                row["target_id"] for row in hidden
+            }
+            entities = [
+                row
+                for row in entities
+                if row["id"] not in hidden_ends or row["id"] in kept_ends
+            ]
+    entity_ids = {row["id"] for row in entities}
 
     scores = score_arguments(arguments, citations, sources, raw.maintainers)
     certainty_roots, influence_roots = _root_payloads(scores)
@@ -1677,6 +1819,7 @@ def transform(raw: PmRawData, *, synced_at: datetime | None = None) -> PmSnapsho
                 "bidirectional": bool(relation.get("bidirectional")),
                 "source_count": relation_source_counts.get(relation["id"], 0),
                 "auto_approved": relation["id"] in auto_relations,
+                "functie": _as_text(relation.get("functie")),
             }
         )
 
@@ -1699,6 +1842,8 @@ def transform(raw: PmRawData, *, synced_at: datetime | None = None) -> PmSnapsho
                 "active_until": _as_text(entity.get("active_until")),
                 "degree": degree.get(entity["id"], 0),
                 "auto_approved": entity["id"] in auto_entities,
+                "bestuurslaag": entity.get("bestuurslaag"),
+                "wikidata": entity.get("wikidata"),
             }
         )
 
@@ -1741,10 +1886,12 @@ def assert_no_excluded_layers(payload: str | PmSnapshot | Mapping[str, Any]) -> 
         )
 
 
-def load_snapshot(path: Path | str, *, synced_at: datetime | None = None) -> PmSnapshot:
+def load_snapshot(
+    path: Path | str, *, synced_at: datetime | None = None, bestuur: bool = False
+) -> PmSnapshot:
     """Read + transform + check (synchronous; run it in a thread from async code)."""
 
-    snapshot = transform(read_pm_database(path), synced_at=synced_at)
+    snapshot = transform(read_pm_database(path), synced_at=synced_at, bestuur=bestuur)
     assert_no_excluded_layers(snapshot)
     return snapshot
 
@@ -2151,7 +2298,9 @@ class PropagandaModelSyncService:
     ) -> None:
         self.settings = settings or get_settings()
         self._write = write_session_factory or _default_write_factory
-        self._load = loader or load_snapshot
+        self._load = loader or (
+            lambda path: load_snapshot(path, bestuur=bool(self.settings.propaganda_sync_bestuur))
+        )
         self._lock = asyncio.Lock()
         self.last_run: dict[str, Any] | None = None
 

@@ -296,6 +296,7 @@ Currently, schema changes are applied manually:
 | `007_waarom_zo.sql` | RPC function `pm_paths` (routes between entities of the propaganda model; Epic 13, Story 13.1) |
 | `009_stemmen_zoeken.sql` | `access_codes`, `voice_searches` (RLS without policies) + RPC functions `access_code_role`, `request_voice_search`, `voice_searches_for_event`, `review_voice_candidate` ("Zoek met AI" for missing voices; Epic 14, Story 14.10) |
 | `012_van_anderen.sql` | `shared_entries`, `shared_entry_adoptions`, `shared_entry_reports` (RLS without policies) + RPC functions `share_entry`, `unshare_entry`, `shared_entries_for_event`, `adopt_shared_entry`, `report_shared_entry`, `shared_entries_reported`, `moderate_shared_entry` (readers share what they added and take over what others shared; Epic 14, Story 14.15) |
+| `016_besluitvorming.sql` | `pm_entities.bestuurslaag`/`wikidata`, `pm_relations.functie`; `pm_neighborhood`, `pm_paths`, `pm_details` and `request_relation_research` with the decision-making layer of the propaganda model (Epic 15, Story 15.1) |
 
 ```bash
 # plain postgresql:// connection string (not the postgresql+asyncpg:// SQLAlchemy URL)
@@ -400,6 +401,17 @@ check the access code). No backend job: the app calls the functions directly.
 ```bash
 psql "postgresql://postgres:<password>@<host>:5432/postgres" \
   -f database/migrations/012_van_anderen.sql
+```
+
+**016 - Besluitvorming in het netwerk (Epic 15, Story 15.1).** Three columns and four replaced SECURITY DEFINER
+functions: the decision-making categories in the filter order, the new relation types in the priority and route
+strengths, the office and the government layer in their rows. The `ALTER TABLE`s need a short exclusive lock: while
+the backend runs, give each its own transaction with `SET LOCAL lock_timeout = '1s'` (retry when the table is busy),
+then run the rest of the file. Needs 005, 007, 008, 010 and 011.
+
+```bash
+psql "postgresql://postgres:<password>@<host>:5432/postgres" \
+  -f database/migrations/016_besluitvorming.sql
 ```
 
 **Future**: Alembic migrations for version-controlled schema evolution.

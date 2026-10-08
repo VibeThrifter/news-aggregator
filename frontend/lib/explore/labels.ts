@@ -180,8 +180,23 @@ export const BIAS_SOURCE_LABELS: Record<string, string> = {
   quote: "In een quote",
 };
 
-/** Herman & Chomsky filters as used by the propaganda-model project, plus tegenmacht. */
-export type FilterId = "eigendom" | "advertentie" | "sourcing" | "flak" | "ideologie" | "tegenmacht";
+/**
+ * Herman & Chomsky filters as used by the propaganda-model project, plus tegenmacht, and (Epic 15)
+ * the five decision-making categories of the same network (after Domhoff). A relation can belong to
+ * several: the categories overlap.
+ */
+export type FilterId =
+  | "eigendom"
+  | "advertentie"
+  | "sourcing"
+  | "flak"
+  | "ideologie"
+  | "tegenmacht"
+  | "formele_macht"
+  | "belangen"
+  | "kennis_advies"
+  | "polder"
+  | "werving";
 
 export interface FilterDefinition {
   id: FilterId;
@@ -189,17 +204,24 @@ export interface FilterDefinition {
   question: string;
   /** Short question to explore one node along this filter (Epic 13: "Wie betaalt?") */
   ask: string;
-  /** Colour from propaganda-model web/huisstijl.css */
+  /** Colour from propaganda-model web/huisstijl.css (decision-making: web/shared_vocab.js) */
   color: string;
+  /** Media (the five filters + tegenmacht) or besluitvorming (Epic 15) */
+  group: "media" | "besluitvorming";
 }
 
 export const FILTERS: FilterDefinition[] = [
-  { id: "eigendom", label: "Eigendom", question: "Wie is de eigenaar?", ask: "Wie bezit wat?", color: "#e74c3c" },
-  { id: "advertentie", label: "Advertenties", question: "Wie betaalt de rekening?", ask: "Wie betaalt?", color: "#f0a030" },
-  { id: "sourcing", label: "Bronnen", question: "Wie mag het verhaal vertellen?", ask: "Wie praat mee?", color: "#3498db" },
-  { id: "flak", label: "Flak", question: "Wie oefent druk uit op de berichtgeving?", ask: "Wie valt aan?", color: "#9b59b6" },
-  { id: "ideologie", label: "Ideologie", question: "Welk wereldbeeld is vanzelfsprekend?", ask: "Welke kringen?", color: "#2ecc71" },
-  { id: "tegenmacht", label: "Tegenmacht", question: "Wie houdt de macht in toom?", ask: "Wie spreekt tegen?", color: "#1abc9c" },
+  { id: "eigendom", label: "Eigendom", question: "Wie is de eigenaar?", ask: "Wie bezit wat?", color: "#e74c3c", group: "media" },
+  { id: "advertentie", label: "Advertenties", question: "Wie betaalt de rekening?", ask: "Wie betaalt?", color: "#f0a030", group: "media" },
+  { id: "sourcing", label: "Bronnen", question: "Wie mag het verhaal vertellen?", ask: "Wie praat mee?", color: "#3498db", group: "media" },
+  { id: "flak", label: "Flak", question: "Wie oefent druk uit op de berichtgeving?", ask: "Wie valt aan?", color: "#9b59b6", group: "media" },
+  { id: "ideologie", label: "Ideologie", question: "Welk wereldbeeld is vanzelfsprekend?", ask: "Welke kringen?", color: "#2ecc71", group: "media" },
+  { id: "tegenmacht", label: "Tegenmacht", question: "Wie houdt de macht in toom?", ask: "Wie spreekt tegen?", color: "#1abc9c", group: "media" },
+  { id: "formele_macht", label: "Formele macht", question: "Wie mag hierover besluiten?", ask: "Wie beslist?", color: "#5468ff", group: "besluitvorming" },
+  { id: "belangen", label: "Belangen", question: "Wie heeft er belang bij, en hoe komt het binnen?", ask: "Wie heeft belang?", color: "#c4d630", group: "besluitvorming" },
+  { id: "kennis_advies", label: "Kennis & advies", question: "Wie levert de kennis en het advies?", ask: "Wie adviseert?", color: "#e15ef2", group: "besluitvorming" },
+  { id: "polder", label: "Polder", question: "Wie zit er aan tafel?", ask: "Wie zit aan tafel?", color: "#c08552", group: "besluitvorming" },
+  { id: "werving", label: "Werving", question: "Wie komt waar terecht, en via wie?", ask: "Wie benoemt wie?", color: "#22d3ee", group: "besluitvorming" },
 ];
 
 /** Short question per filter key, "overig" included (relations without a filter). */
@@ -246,6 +268,11 @@ export const PM_RELATION_LABELS: Record<string, string> = {
   zelfcensuur: "past zelfcensuur toe voor",
   lobbyt: "lobbyt bij",
   algoritmische_filtering: "filtert algoritmisch",
+  // Epic 15 (decision-making)
+  ambt: "heeft een ambt bij",
+  zeggenschap: "heeft zeggenschap over",
+  controle: "controleert",
+  geschenk: "gaf een geschenk aan",
 };
 
 /**
@@ -312,8 +339,19 @@ export function mechanismKey(mechanism: string | null | undefined): string {
     .replace(/^_+|_+$/g, "");
 }
 
-/** The words of a relation read as "source … target"; for "beinvloeding" those of its mechanism. */
-export function pmRelationLabel(type: string, mechanism?: string | null): string {
+/** "Secretaris-generaal" → "secretaris-generaal"; "Kamerlid", "Europarlementariër" and abbreviations stay */
+function officeWords(functie: string): string {
+  const text = functie.trim();
+  if (/^(Kamerlid|Europarlementari|[A-Z]{2,})/.test(text)) return text;
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
+
+/**
+ * The words of a relation read as "source … target"; for "beinvloeding" those of its mechanism, for
+ * an office (Epic 15) the office the register gives: "is secretaris-generaal bij".
+ */
+export function pmRelationLabel(type: string, mechanism?: string | null, functie?: string | null): string {
+  if (type === "ambt" && functie?.trim()) return `is ${officeWords(functie)} bij`;
   if (type === "beinvloeding" && mechanism?.trim()) {
     return INFLUENCE_PHRASES[mechanismKey(mechanism)]?.[0] ?? `beïnvloedt via ${mechanism.trim().toLowerCase()}`;
   }
@@ -350,9 +388,15 @@ const PM_RELATION_REVERSE_LABELS: Record<string, string> = {
   zelfcensuur: "is onderwerp van zelfcensuur bij",
   lobbyt: "wordt belobbyd door",
   algoritmische_filtering: "wordt algoritmisch gefilterd door",
+  // Epic 15 (decision-making)
+  ambt: "heeft als ambtsdrager",
+  zeggenschap: "valt onder",
+  controle: "wordt gecontroleerd door",
+  geschenk: "kreeg een geschenk van",
 };
 
-export function pmRelationReverseLabel(type: string, mechanism?: string | null): string {
+export function pmRelationReverseLabel(type: string, mechanism?: string | null, functie?: string | null): string {
+  if (type === "ambt" && functie?.trim()) return `heeft als ${officeWords(functie)}`;
   if (type === "beinvloeding" && mechanism?.trim()) {
     return INFLUENCE_PHRASES[mechanismKey(mechanism)]?.[1] ?? `wordt via ${mechanism.trim().toLowerCase()} beïnvloed door`;
   }
@@ -368,7 +412,7 @@ export const PM_AFFILIATIONS: ReadonlySet<string> = new Set(["lidmaatschap", "pe
 /** Entity types that are a group others are a member of */
 const GROUP_TYPES = new Set(["partij", "elite_netwerk", "vakbond", "lobbygroep"]);
 
-type ReadableRelation = Pick<PmRelation, "source_id" | "target_id" | "relation_type" | "mechanism">;
+type ReadableRelation = Pick<PmRelation, "source_id" | "target_id" | "relation_type" | "mechanism"> & { functie?: string | null };
 
 /**
  * The end a relation's label is read from: its source, but for an affiliation the person (or the
@@ -385,8 +429,8 @@ export function labelSourceId(relation: ReadableRelation, typeOf: (id: number) =
 /** The words of a relation read from one of its ends: "RIVM is vaste bron voor …", "NOS leunt als bron op …". */
 export function relationWords(relation: ReadableRelation, fromId: number, typeOf: (id: number) => string | null | undefined): string {
   return labelSourceId(relation, typeOf) === fromId
-    ? pmRelationLabel(relation.relation_type, relation.mechanism)
-    : pmRelationReverseLabel(relation.relation_type, relation.mechanism);
+    ? pmRelationLabel(relation.relation_type, relation.mechanism, relation.functie)
+    : pmRelationReverseLabel(relation.relation_type, relation.mechanism, relation.functie);
 }
 
 export function filterLabel(filter: string | null | undefined): string {

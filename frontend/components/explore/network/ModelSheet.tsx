@@ -15,7 +15,27 @@ const FILTER_TEXT: Record<string, string> = {
   flak: "Wie oefent druk uit? Georganiseerde kritiek, klachten en rechtszaken kunnen berichtgeving sturen.",
   ideologie: "Welk wereldbeeld is vanzelfsprekend? Frames die niet ter discussie staan, bepalen wat redelijk lijkt.",
   tegenmacht: "Wat houdt macht in toom? Onafhankelijke journalistiek, toezicht en kritische stemmen werken tegen de filters in.",
+  formele_macht: "Wie mag hierover besluiten? Kabinet en ministeries met hun topambtenaren, uitvoeringsorganisaties, gemeenten, provincies, waterschappen en de EU.",
+  belangen: "Wie heeft er belang bij, en hoe komt het binnen? Lobby met een toegangspas tot de Kamer, geschenken en betaalde reizen, subsidies en nevenfuncties.",
+  kennis_advies: "Wie levert de kennis en het advies? De Raad van State, planbureaus, adviescolleges, consultants en denktanks.",
+  polder: "Wie zit er aan tafel? Werkgevers en vakbonden in de SER en bij akkoorden die vastliggen voordat de Kamer erover praat.",
+  werving: "Wie komt waar terecht, en via wie? Benoemingen, kandidatenlijsten en de overstap tussen politiek, ambtenarij, bedrijfsleven en media.",
 };
+
+function FilterList({ group }: { group: "media" | "besluitvorming" }) {
+  return (
+    <ul className="space-y-3">
+      {FILTERS.filter((filter) => filter.group === group).map((filter) => (
+        <li key={filter.id} className="flex gap-3">
+          <span aria-hidden="true" className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: filter.color }} />
+          <span>
+            <strong>{filter.label}.</strong> {FILTER_TEXT[filter.id]}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export function ModelSheet() {
   const { panel } = useExplore();
@@ -32,16 +52,15 @@ export function ModelSheet() {
           Het propagandamodel beschrijft hoe nieuws gefilterd wordt door structuren, <strong>niet door een complot</strong>.
           Eigendom, geld, bronnen, druk en ideologie werken samen, meestal zonder dat iemand dat zo bedoelt.
         </p>
-        <ul className="space-y-3">
-          {FILTERS.map((filter) => (
-            <li key={filter.id} className="flex gap-3">
-              <span aria-hidden="true" className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: filter.color }} />
-              <span>
-                <strong>{filter.label}.</strong> {FILTER_TEXT[filter.id]}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <FilterList group="media" />
+        <div className="space-y-3">
+          <h3 className="font-serif text-lg font-bold text-ink-900">Besluitvorming</h3>
+          <p>
+            In hetzelfde netwerk staat ook wie besluit en wie daar invloed op heeft, naar G. William Domhoff (<em>Who Rules
+            America?</em>). Eén verband kan in meer categorieën vallen.
+          </p>
+          <FilterList group="besluitvorming" />
+        </div>
         <div className="space-y-2 rounded-xl border border-paper-300 bg-paper-100 p-3">
           <p className="font-semibold text-ink-900">Hoe lees je dit?</p>
           <p>

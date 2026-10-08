@@ -48,7 +48,7 @@ export function ActorPmDetailsSheet({ kind, id, demo }: { kind: "entity" | "rela
       {data ? (
         <div className="space-y-5 text-sm">
           <div className="flex flex-wrap gap-1.5">
-            {data.type && kind === "relation" && !relationSentence(data) ? <Tag>{pmRelationLabel(data.type, data.mechanism)}</Tag> : null}
+            {data.type && kind === "relation" && !relationSentence(data) ? <Tag>{pmRelationLabel(data.type, data.mechanism, data.functie)}</Tag> : null}
             {filters.map((filter) => (
               <span key={filter.id} className="inline-flex items-center gap-1 rounded-full border border-paper-300 px-2 py-0.5 text-[11px] font-semibold">
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: filterColor(filter.id) }} aria-hidden="true" />
@@ -67,7 +67,7 @@ export function ActorPmDetailsSheet({ kind, id, demo }: { kind: "entity" | "rela
           </div>
           {data.auto_approved ? (
             <p className="text-xs text-ink-500">
-              Automatisch toegevoegd door de nieuws-pijplijn: alleen neutrale structuurfeiten met een bron. Een mens kan het terugdraaien.
+              Automatisch toegevoegd: een onafhankelijke controle vond het in de bron. Een mens kan het terugdraaien.
             </p>
           ) : null}
           {kind === "relation" && data.arguments ? (

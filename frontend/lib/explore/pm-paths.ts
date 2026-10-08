@@ -44,6 +44,12 @@ export const RELATION_STRENGTH: Readonly<Record<string, number>> = {
   regulering: 0.5,
   alliantie: 0.5,
   oppositie: 0.5,
+  // Epic 15 (migration 016): a gift ties two parties; offices and hierarchy are weak, because
+  // ministries, councils and the Kamer connect everything
+  geschenk: 0.5,
+  controle: 0.4,
+  ambt: 0.35,
+  zeggenschap: 0.35,
 };
 export const DEFAULT_STRENGTH = 0.4;
 

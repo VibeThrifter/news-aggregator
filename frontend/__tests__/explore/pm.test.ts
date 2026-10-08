@@ -191,7 +191,10 @@ describe("exploring neighbours per filter", () => {
   });
 
   it("shows only eigendom, sourcing and ideologie by default", () => {
-    expect([...DEFAULT_HIDDEN_FILTERS].sort()).toEqual(["advertentie", "flak", "overig", "tegenmacht"]);
+    // the decision-making categories (Epic 15) start hidden too
+    expect([...DEFAULT_HIDDEN_FILTERS].sort()).toEqual([
+      "advertentie", "belangen", "flak", "formele_macht", "kennis_advies", "overig", "polder", "tegenmacht", "werving",
+    ]);
     const merged = mergeNeighborhoods([pm.neighborhood(7)!]);
     const scene = pmScene(merged, [{ id: 7, reason: "outlet" }], new Set([7]), { hiddenFilters: new Set(DEFAULT_HIDDEN_FILTERS) });
     expect(scene.edges.some((edge) => edge.relationId === 106)).toBe(false); // overig

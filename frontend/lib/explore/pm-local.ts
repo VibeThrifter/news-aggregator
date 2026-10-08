@@ -24,7 +24,9 @@ export interface PmSlice {
 }
 
 /** Informative relation types first (same order as the pm_neighborhood SQL function). */
-const TYPE_PRIORITY = ["eigendom", "financiering", "adverteerder", "flak", "bron_van", "beinvloeding", "draaideur", "bestuurder", "adviseur", "censuur", "mediaplatform", "personeel", "lidmaatschap"];
+// Same order as pm_neighborhood (migration 016) and RELATION_TYPE_PRIORITY in the sync; the
+// decision-making types (Epic 15) last
+const TYPE_PRIORITY = ["eigendom", "financiering", "adverteerder", "flak", "bron_van", "beinvloeding", "draaideur", "bestuurder", "adviseur", "censuur", "mediaplatform", "personeel", "lidmaatschap", "ambt", "zeggenschap", "geschenk", "controle"];
 
 export function relationRank(relation: PmRelation): number {
   const index = TYPE_PRIORITY.indexOf(relation.relation_type);

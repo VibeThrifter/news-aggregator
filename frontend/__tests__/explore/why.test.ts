@@ -231,6 +231,19 @@ describe("reading relations", () => {
     // Not an affiliation: always from the source
     expect(labelSourceId(byIdOf(143), typeOf)).toBe(82);
   });
+
+  it("reads an office from the register (Epic 15)", () => {
+    expect(pmRelationLabel("ambt", null, "Secretaris-generaal")).toBe("is secretaris-generaal bij");
+    expect(pmRelationReverseLabel("ambt", null, "Secretaris-generaal")).toBe("heeft als secretaris-generaal");
+    expect(pmRelationLabel("ambt", null, "Kamerlid, fractievoorzitter")).toBe("is Kamerlid, fractievoorzitter bij");
+    expect(pmRelationLabel("ambt", null, "Europarlementariër (Renew)")).toBe("is Europarlementariër (Renew) bij");
+    expect(pmRelationLabel("ambt")).toBe("heeft een ambt bij");
+    expect(pmRelationLabel("zeggenschap")).toBe("heeft zeggenschap over");
+    expect(pmRelationReverseLabel("geschenk")).toBe("kreeg een geschenk van");
+    const office = { ...rel(3, 900, 865, "ambt"), functie: "Directeur-generaal" };
+    expect(relationWords(office, 900, typeLookup(news))).toBe("is directeur-generaal bij");
+    expect(relationWords(office, 865, typeLookup(news))).toBe("heeft als directeur-generaal");
+  });
 });
 
 function byIdOf(id: number): PmRelation {

@@ -427,10 +427,14 @@ class PmEntity(Base):
     active_from: Mapped[str | None] = mapped_column(Text, nullable=True)
     active_until: Mapped[str | None] = mapped_column(Text, nullable=True)
     degree: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    # Approved by the automatic news pipeline (pm account nieuws-autokeur, Epic 12)
+    # Approved automatically (pm accounts nieuws-autokeur and merge-service, Epic 12 / 15)
     auto_approved: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )
+    # Uitbreiding C (Epic 15, migration 016): government layer of an organisation
+    # (eu/rijk/provincie/gemeente/waterschap/caribisch/regio) and its Wikidata id (Q…)
+    bestuurslaag: Mapped[str | None] = mapped_column(Text, nullable=True)
+    wikidata: Mapped[str | None] = mapped_column(Text, nullable=True)
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, server_default=func.now()
     )
@@ -475,6 +479,8 @@ class PmRelation(Base):
     source_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    # Office or function as the register gives it, e.g. "Secretaris-generaal" (Epic 15, mig. 016)
+    functie: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Approved by the automatic news pipeline (pm account nieuws-autokeur, Epic 12)
     auto_approved: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()

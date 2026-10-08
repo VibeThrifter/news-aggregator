@@ -350,7 +350,21 @@ export interface ArticleSearchResult {
 
 // Epic 11 Story 11.17: propaganda-model graph (RPC functions from migration 005)
 
-export type PmFilter = "eigendom" | "advertentie" | "sourcing" | "flak" | "ideologie" | "tegenmacht" | "cross_filter" | "systeemactor";
+export type PmFilter =
+  | "eigendom"
+  | "advertentie"
+  | "sourcing"
+  | "flak"
+  | "ideologie"
+  | "tegenmacht"
+  | "cross_filter"
+  | "systeemactor"
+  // Epic 15: the decision-making categories (same field, may overlap with the filters)
+  | "formele_macht"
+  | "belangen"
+  | "kennis_advies"
+  | "polder"
+  | "werving";
 
 export interface PmEntity {
   id: number;
@@ -363,6 +377,10 @@ export interface PmEntity {
   active_until?: string | null;
   /** Epic 12: approved by the news pipeline (machine account nieuws-autokeur), not by a person */
   auto_approved?: boolean;
+  /** Epic 15 (migration 016): government layer of an organisation (eu, rijk, provincie, gemeente, waterschap, caribisch, regio) */
+  bestuurslaag?: string | null;
+  /** Epic 15: Wikidata id (Q…) */
+  wikidata?: string | null;
 }
 
 export type PmCertainty = "onderbouwd" | "aannemelijk" | "onzeker";
@@ -385,6 +403,8 @@ export interface PmRelation {
   bidirectional?: boolean;
   /** Epic 12: approved by the news pipeline (machine account nieuws-autokeur), not by a person */
   auto_approved?: boolean;
+  /** Epic 15 (migration 016): the office or function as the register gives it ("Secretaris-generaal") */
+  functie?: string | null;
 }
 
 export interface PmNeighborhood {
@@ -445,6 +465,10 @@ export interface PmDetails {
   /** Story 14.12, relations: what its mechanism means in the model */
   mechanism_description?: string | null;
   mechanism_effect?: string | null;
+  /** Epic 15 (migration 016): entities: government layer and Wikidata id; relations: the office */
+  bestuurslaag?: string | null;
+  wikidata?: string | null;
+  functie?: string | null;
 }
 
 /** A source an argument cites (Story 14.12) */

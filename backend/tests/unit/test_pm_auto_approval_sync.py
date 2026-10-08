@@ -219,8 +219,22 @@ def test_merged_evidence_is_listed_before_unreviewed(tmp_path: Path) -> None:
     assert rows[0]["quote"] == "Jaarverslag noemt Verbeek."
 
 
+def test_the_automatic_review_counts_as_automatic_approval() -> None:
+    """Since 2026-10-07 the propaganda model's hourly review approves (account merge-service)."""
+
+    rows = [
+        {"id": 1, "table_name": "relations", "record_id": 5, "changed_by": "merge-service",
+         "new_value": '{"status": "goedgekeurd"}'},
+        {"id": 2, "table_name": "entities", "record_id": 9, "changed_by": "merge-service",
+         "new_value": '{"status": "goedgekeurd"}'},
+        {"id": 3, "table_name": "entities", "record_id": 10, "changed_by": "maxime",
+         "new_value": '{"status": "goedgekeurd"}'},
+    ]
+    assert sync.auto_approved_ids(rows) == {"entities": {9}, "relations": {5}}
+
+
 def test_snapshot_format_changed_for_the_new_columns() -> None:
-    # 4: auto_approved + unreviewed sources; 5: arguments + mechanisms (Story 14.12)
-    assert sync.SNAPSHOT_FORMAT == "7"
+    # 4: auto_approved + unreviewed sources; 5: arguments + mechanisms (Story 14.12); 8: Epic 15
+    assert sync.SNAPSHOT_FORMAT == "8"
     assert sync._is_current({"db_mtime": "x", "format": "3"}, "x") is False
-    assert sync._is_current({"db_mtime": "x", "format": "4"}, "x") is False
+    assert sync._is_current({"db_mtime": "x", "format": "7"}, "x") is False

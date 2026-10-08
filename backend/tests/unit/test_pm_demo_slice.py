@@ -331,4 +331,7 @@ def test_committed_demo_slice() -> None:
     # every filter is represented around the seeds
     seeds = {entity["id"] for entity in data["entities"]} & set(pm.DEMO_SEEDS)
     around = [rel for rel in data["relations"] if seeds & {rel["source_id"], rel["target_id"]}]
-    assert {flt for rel in around for flt in rel["filters"]} == set(pm.FILTERS)
+    # the demo is about outlets: every media filter is there (the decision-making categories of
+    # Epic 15 may be, but need not)
+    around_filters = {flt for rel in around for flt in rel["filters"]}
+    assert pm.MEDIA_FILTERS <= around_filters <= set(pm.FILTERS)

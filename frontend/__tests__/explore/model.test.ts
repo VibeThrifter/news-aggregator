@@ -177,7 +177,7 @@ describe("propaganda filter signals", () => {
   const evidence = eventFilterSignals(input, findings);
   const byFilter = Object.fromEntries(evidence.map((entry) => [entry.filter, entry.signals]));
 
-  it("returns all six filters without levels or scores", () => {
+  it("returns all six filters without levels or scores (the decision-making categories have no event signals)", () => {
     expect(evidence.map((entry) => entry.filter)).toEqual(["eigendom", "advertentie", "sourcing", "flak", "ideologie", "tegenmacht"]);
     for (const entry of evidence) {
       expect(Object.keys(entry).sort()).toEqual(["filter", "signals"]);

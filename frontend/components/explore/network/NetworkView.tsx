@@ -878,7 +878,7 @@ function PmNodeTip({
                       <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: filterColor(filter) }} aria-hidden="true" />
                       <span className="min-w-0 flex-1">
                         <span className="block text-xs text-ink-500">
-                          {outgoing ? `${pmRelationLabel(relation.relation_type, relation.mechanism)} →` : `← ${pmRelationLabel(relation.relation_type, relation.mechanism)}`}
+                          {outgoing ? `${pmRelationLabel(relation.relation_type, relation.mechanism, relation.functie)} →` : `← ${pmRelationLabel(relation.relation_type, relation.mechanism, relation.functie)}`}
                         </span>
                         <span className="font-semibold text-ink-900">{other?.name ?? otherId}</span>
                       </span>
@@ -1141,7 +1141,7 @@ function PmEdgeTip({ relation, pmx, pinned, goTo }: { relation: PmRelation; pmx:
     <div className="space-y-2">
       <p className="text-sm leading-snug">
         <span className="font-semibold text-ink-900">{pmx.merged.entities.get(first)?.name ?? first}</span>{" "}
-        <span className="text-ink-600">{pmRelationLabel(relation.relation_type, relation.mechanism)}</span>{" "}
+        <span className="text-ink-600">{pmRelationLabel(relation.relation_type, relation.mechanism, relation.functie)}</span>{" "}
         <span className="font-semibold text-ink-900">{pmx.merged.entities.get(last)?.name ?? last}</span>
         {relation.bidirectional ? <span className="text-ink-500"> (wederzijds)</span> : null}
       </p>

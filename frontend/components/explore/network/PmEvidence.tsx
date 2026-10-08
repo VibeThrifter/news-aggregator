@@ -25,7 +25,7 @@ import type { PmArgument, PmArgumentSource, PmDetails, PmSourceCheck } from "@/l
 
 import { SubHeading, Tag } from "../ui/primitives";
 
-type RelationEnds = Pick<PmDetails, "type" | "mechanism" | "source" | "target">;
+type RelationEnds = Pick<PmDetails, "type" | "mechanism" | "source" | "target" | "functie">;
 
 /** The end a relation is read from (who has the influence, or the person of a tie) and the other */
 function readEnds(details: RelationEnds) {
@@ -39,7 +39,7 @@ function readEnds(details: RelationEnds) {
 /** "RIVM is vaste bron voor NOS", "Heinen is lid van VVD": a relation as a sentence. Null without both ends. */
 export function relationSentence(details: RelationEnds): string | null {
   const ends = readEnds(details);
-  return ends && details.type ? `${ends.first.name} ${pmRelationLabel(details.type, details.mechanism)} ${ends.last.name}` : null;
+  return ends && details.type ? `${ends.first.name} ${pmRelationLabel(details.type, details.mechanism, details.functie)} ${ends.last.name}` : null;
 }
 
 export function ArgumentStatusTag({ status, checked = false, check = null }: { status: string; checked?: boolean; check?: PmSourceCheck | null }) {

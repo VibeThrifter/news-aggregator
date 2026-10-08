@@ -620,6 +620,16 @@ class Settings(BaseSettings):
         le=1440,
         description="Interval of the propaganda-model sync job (only syncs when the file changed)",
     )
+    propaganda_sync_bestuur: bool = Field(
+        default=False,
+        description=(
+            "Sync the decision-making layer of the propaganda model (Uitbreiding C, 2026-10-07): "
+            "relations whose mechanism only has the categories formele_macht, belangen, "
+            "kennis_advies, polder or werving, the new relation types (ambt, zeggenschap, "
+            "controle, geschenk) and entities that only have such relations. Off until the "
+            "frontend shows them (Epic 15); force a sync after switching it on."
+        ),
+    )
 
     # Wie is dit? (Epic 12): research of named entities by the propaganda-model agents
     entity_research_enabled: bool = Field(

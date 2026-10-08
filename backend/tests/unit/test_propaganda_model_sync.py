@@ -44,6 +44,7 @@ MIGRATION = (
     Path(__file__).resolve().parents[3] / "database" / "migrations" / ("005_propagandamodel.sql")
 )
 MIGRATION_010 = MIGRATION.with_name("010_pm_argumenten.sql")
+MIGRATION_016 = MIGRATION.with_name("016_besluitvorming.sql")
 SYNCED_AT = datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)
 
 
@@ -435,6 +436,77 @@ def test_transform_cross_filter_mechanisms() -> None:
     assert relations[12]["filters"] == [] and relations[12]["filter"] is None
 
 
+def test_transform_leaves_out_the_decision_making_layer_until_switched_on() -> None:
+    """Uitbreiding C: bestuur-only relations and their bestuur-only entities stay out by default."""
+
+    entity = {"status": "goedgekeurd", "vervangen": 0}
+    approved = {"status": "goedgekeurd", "vervangen": 0}
+    raw = PmRawData(
+        entities=[
+            {"id": 1, "name": "Ministerie van Financiën", "type": "overheidsinstelling", **entity},
+            {"id": 2, "name": "A.B. Jansen", "type": "persoon", **entity},
+            {"id": 3, "name": "NOS", "type": "omroep", **entity},
+            {"id": 4, "name": "Belastingdienst", "type": "overheidsinstelling", **entity},
+            {"id": 5, "name": "CDA", "type": "partij", **entity},
+            {"id": 6, "name": "B.C.M. Vostermans (burgemeester Peel en Maas)", "type": "persoon",
+             **entity},
+        ],
+        arguments=[
+            {"id": 1, "relation_id": 15, "parent_argument_id": None, "stance": "supporting",
+             "status": "ongecontroleerd", "claim": "register"},
+        ],
+        citations=[{"id": 1, "argument_id": 1, "source_id": 9, "quote": "regel"}],
+        sources=[{"id": 9, "title": "Register van overheidsorganisaties, uitgave 2026-10-08",
+                  "cluster_key": "register:oo", "reliability": "primair"}],
+        relations=[
+            # ambt (new type): SG -> ministry
+            {"id": 10, "source_id": 2, "target_id": 1, "relation_type": "ambt",
+             "mechanism_id": 207, **approved},
+            # zeggenschap via a formele_macht-only mechanism
+            {"id": 11, "source_id": 1, "target_id": 4, "relation_type": "zeggenschap",
+             "mechanism_id": 208, **approved},
+            # ministry is a source for the NOS (media filter): stays
+            {"id": 12, "source_id": 1, "target_id": 3, "relation_type": "bron_van",
+             "mechanism_id": 6, **approved},
+            # lobbyt with a belangen-only mechanism: hidden
+            {"id": 13, "source_id": 3, "target_id": 1, "relation_type": "lobbyt",
+             "mechanism_id": 214, **approved},
+            # draaideur with an overlapping mechanism (sourcing + werving): stays
+            {"id": 14, "source_id": 2, "target_id": 3, "relation_type": "draaideur",
+             "mechanism_id": 18, **approved},
+            # party line (sourcing!) towards a local official, resting only on the register
+            {"id": 15, "source_id": 5, "target_id": 6, "relation_type": "lidmaatschap",
+             "mechanism_id": 92, **approved},
+        ],
+        mechanisms=[
+            {"id": 6, "name": "bron_afhankelijkheid", "filter": "sourcing"},
+            {"id": 18, "name": "draaideurconstructie", "filter": "cross_filter"},
+            {"id": 207, "name": "ambtelijke_leiding", "filter": "formele_macht"},
+            {"id": 208, "name": "hierarchische_aansturing", "filter": "formele_macht"},
+            {"id": 214, "name": "lobbytoegang", "filter": "belangen"},
+            {"id": 92, "name": "partijlijn", "filter": "sourcing"},
+        ],
+        mechanism_filters=[
+            {"mechanism_id": 18, "filter": "sourcing"},
+            {"mechanism_id": 18, "filter": "werving"},
+            {"mechanism_id": 207, "filter": "formele_macht"},
+            {"mechanism_id": 208, "filter": "formele_macht"},
+            {"mechanism_id": 214, "filter": "belangen"},
+        ],
+    )
+    off = transform(raw, synced_at=SYNCED_AT)
+    assert {relation["id"] for relation in off.relations} == {12, 14}
+    # the Belastingdienst and the register-only mayor are hidden; the CDA has no relation left
+    # but was never touched by a kept relation either, so it goes too; the SG keeps the draaideur
+    assert {entity["id"] for entity in off.entities} == {1, 2, 3}
+    for relation in off.relations:
+        assert set(relation["filters"]) <= set(FILTERS)
+
+    on = transform(raw, synced_at=SYNCED_AT, bestuur=True)
+    assert {relation["id"] for relation in on.relations} == {10, 11, 12, 13, 14, 15}
+    assert {entity["id"] for entity in on.entities} == {1, 2, 3, 4, 5, 6}
+
+
 @pytest.mark.parametrize(
     ("filters", "wanted", "expected"),
     [
@@ -756,7 +828,8 @@ def test_generate_aliases_edge_cases() -> None:
 
 def test_relation_priority_and_sort_key() -> None:
     assert relation_priority("eigendom") == 0
-    assert relation_priority("lidmaatschap") == len(RELATION_TYPE_PRIORITY) - 1
+    assert relation_priority("lidmaatschap") == RELATION_TYPE_PRIORITY.index("lidmaatschap")
+    assert relation_priority("controle") == len(RELATION_TYPE_PRIORITY) - 1
     assert relation_priority("onbekend") == len(RELATION_TYPE_PRIORITY)
     assert relation_priority(None) == len(RELATION_TYPE_PRIORITY)
     relations = [
@@ -771,7 +844,9 @@ def test_relation_priority_and_sort_key() -> None:
 
 
 def test_sql_priority_matches_python() -> None:
-    sql = MIGRATION.read_text(encoding="utf-8")
+    # the newest pm_neighborhood (migration 016) carries the priority CASE
+    sql = MIGRATION_016.read_text(encoding="utf-8")
+    sql = sql.split("CREATE OR REPLACE FUNCTION pm_neighborhood(", 1)[1].split("$$;", 1)[0]
     pairs = re.findall(r"WHEN '([a-z_]+)' THEN (\d+)", sql)
     assert [name for name, _ in pairs] == list(RELATION_TYPE_PRIORITY)
     assert [int(rank) for _, rank in pairs] == list(range(len(RELATION_TYPE_PRIORITY)))
@@ -898,12 +973,42 @@ def test_migration_filters_contract() -> None:
         "ALTER TABLE pm_relations ADD COLUMN IF NOT EXISTS filters TEXT[] NOT NULL DEFAULT '{}';"
         in sql
     )
-    # filter_counts order: FILTERS + the "overig" bucket (same order as Python)
-    quoted = ", ".join(f"'{name}'" for name in (*FILTERS, pm.UNFILTERED))
-    flat = " ".join(sql.split())
-    assert f"ARRAY[{quoted}]" in flat
     details = sql.split("CREATE OR REPLACE FUNCTION pm_details(", 1)[1].split("$$;", 1)[0]
     assert "'filters', NULL::json" in details and "'filters', r.filters" in details
+
+
+def test_migration_016_contract() -> None:
+    """Epic 15: the newest pm_neighborhood/pm_paths/pm_details/request_relation_research."""
+
+    sql = MIGRATION_016.read_text(encoding="utf-8")
+    flat = " ".join(sql.split())
+    # filter_counts order: FILTERS + the "overig" bucket (same order as Python)
+    quoted = ", ".join(f"'{name}'" for name in (*FILTERS, pm.UNFILTERED))
+    assert f"ARRAY[{quoted}]" in flat
+    for column in (
+        "pm_entities ADD COLUMN IF NOT EXISTS bestuurslaag TEXT",
+        "pm_entities ADD COLUMN IF NOT EXISTS wikidata TEXT",
+        "pm_relations ADD COLUMN IF NOT EXISTS functie TEXT",
+    ):
+        assert f"ALTER TABLE {column};" in sql
+    neighborhood = sql.split("CREATE OR REPLACE FUNCTION pm_neighborhood(", 1)[1]
+    neighborhood = neighborhood.split("$$;", 1)[0]
+    order = re.findall(r"WHEN '(\w+)' THEN (\d+)", neighborhood)
+    assert [name for name, _ in order] == list(pm.RELATION_TYPE_PRIORITY)
+    assert [int(rank) for _, rank in order] == list(range(len(pm.RELATION_TYPE_PRIORITY)))
+    assert "'functie', p.functie" in neighborhood
+    assert "'bestuurslaag', e.bestuurslaag" in neighborhood
+    paths = sql.split("CREATE OR REPLACE FUNCTION pm_paths(", 1)[1].split("$$;", 1)[0]
+    assert "WHEN 'ambt' THEN 0.35" in paths and "WHEN 'zeggenschap' THEN 0.35" in paths
+    details = sql.split("CREATE OR REPLACE FUNCTION pm_details(", 1)[1].split("$$;", 1)[0]
+    assert "'functie', r.functie" in details and "'wikidata', e.wikidata" in details
+    research = sql.split("CREATE OR REPLACE FUNCTION request_relation_research(", 1)[1].split(
+        "$$;", 1
+    )[0]
+    for kind in ("ambt", "zeggenschap", "geschenk"):
+        assert f"'{kind}'" in research
+    assert "BEGIN;" in sql and "COMMIT;" in sql
+    assert sql.rstrip().endswith("NOTIFY pgrst, 'reload schema';")
 
 
 def test_sources_an_independent_re_read_confirmed_are_marked_checked():

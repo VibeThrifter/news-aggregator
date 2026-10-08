@@ -33,16 +33,11 @@ export function eventFilterSignals(
   findings: Finding[],
   index: ArticleIndex = new ArticleIndex(input),
 ): FilterEvidence[] {
-  const signals: Record<FilterId, FilterSignal[]> = {
-    eigendom: [],
-    advertentie: [],
-    sourcing: [],
-    flak: [],
-    ideologie: [],
-    tegenmacht: [],
-  };
+  // Event signals exist for the media filters only (the decision-making categories of Epic 15 come
+  // from the propaganda model itself, not from the analysis of one event)
+  const signals: Partial<Record<FilterId, FilterSignal[]>> = {};
   const push = (filter: FilterId, text: string, finding: Finding | undefined, outletKeys: string[] = []) => {
-    signals[filter].push({ text, findingIds: finding ? [finding.id] : [], outletKeys });
+    (signals[filter] ??= []).push({ text, findingIds: finding ? [finding.id] : [], outletKeys });
   };
   const name = (key: string | null | undefined) => (key ? (index.outlet(key)?.name ?? key) : "een bron");
 
@@ -152,7 +147,10 @@ export function eventFilterSignals(
     }
   }
 
-  return FILTERS.map((filter) => ({ filter: filter.id, signals: signals[filter.id] }));
+  return FILTERS.filter((filter) => filter.group === "media").map((filter) => ({
+    filter: filter.id,
+    signals: signals[filter.id] ?? [],
+  }));
 }
 
 function capitalize(value: string): string {
