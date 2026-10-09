@@ -105,6 +105,22 @@ class EntityResearchRepository:
             query = query.limit(limit)
         return list((await self.session.execute(query)).scalars())
 
+    async def unlinked_people(self, limit: int = 1000) -> list[EntityResearch]:
+        """Persons with a role but no propaganda-model link yet (Epic 15: local office holders the
+        register names with initials are linked once the model has them)."""
+
+        query = (
+            select(EntityResearch)
+            .where(
+                EntityResearch.kind == "person",
+                EntityResearch.pm_entity_id.is_(None),
+                EntityResearch.role_label.is_not(None),
+            )
+            .order_by(EntityResearch.entity_key)
+            .limit(limit)
+        )
+        return list((await self.session.execute(query)).scalars())
+
     async def count_queued_since(self, since: datetime, *, requested: bool) -> int:
         condition = (
             EntityResearch.last_requested_at.is_not(None)

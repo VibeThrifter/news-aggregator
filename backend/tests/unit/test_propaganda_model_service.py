@@ -133,6 +133,35 @@ async def test_write_snapshot_full_refresh(pm_db: Path) -> None:
             assert (await session.get(PmRelation, 111)).filters == []
 
 
+async def test_write_snapshot_waits_for_pending_columns(
+    pm_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Story 14.23: a restart before migration 017 must not stop the sync."""
+
+    async def pending(session, table, columns):  # the live database before the migration
+        return {"origin", "added_at"} if table == "pm_relations" else set()
+
+    monkeypatch.setattr(pm, "missing_columns", pending)
+    async with _database() as factory:
+        snapshot = load_snapshot(pm_db)
+        assert all("origin" in row and "added_at" in row for row in snapshot.relations)
+        async with factory() as session:
+            await write_snapshot(session, snapshot)
+        assert await _count(factory, PmRelation) == len(snapshot.relations)
+        async with factory() as session:
+            assert (await session.get(PmRelation, 100)).origin is None
+            meta = await read_sync_meta(session)
+        # the older format is stored, so the first sync after the migration fills the columns
+        assert meta["format"] == "8" and pm.SNAPSHOT_FORMAT == "9"
+        assert pm._is_current(meta, meta["db_mtime"]) is False
+
+
+async def test_missing_columns_only_checks_postgres() -> None:
+    async with _database() as factory:
+        async with factory() as session:
+            assert await pm.missing_columns(session, "pm_relations", ["origin"]) == set()
+
+
 async def test_write_snapshot_rolls_back_on_error(pm_db: Path) -> None:
     async with _database() as factory:
         snapshot = load_snapshot(pm_db)

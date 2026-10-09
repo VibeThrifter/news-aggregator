@@ -1041,3 +1041,94 @@ Tests:
     de knop staat. De knop heeft nu padding met een negatieve marge.
 - In de browser: een tik op de bron onder "sensationeel" opent de bronballon ("Naar het artikel") en de rij blijft
   dicht; een tik op een spreker onder een bewering opent de sprekerkaart. Er zijn geen fouten in de console.
+
+## Story 14.23: Wat ertoe doet — Wie zit erachter? en Hoe hangen ze samen?
+
+**Status**: 🔄 In uitvoering (2026-10-09). Nieuws-app gebouwd en getest; nog niet gecommit. Wacht op een OK voor
+migratie 017. Het deel in het propagandamodel (stemtoets, specificiteit, opruimen) is in een git-worktree in de maak.
+
+Eigenaar (2026-10-08), bij "Geen regenboogvlag op Tweede Kamer na verzet van SGP" (AD, De Telegraaf, RTL Nieuws):
+- "Kamran Ullah voor VVD en Telegraaf staat gemarkeerd als dun bewijs maar in het echt is er heel veel bewijs voor"
+- "PVV censureert AD … dit is niet echt van belang als we AD artikelen lezen.. heel onbelangrijk terwijl het zo wel
+  heel erg wordt uitvergroot"
+- "'ondermijnt zo het vertrouwen in de journalistiek' … deze taal moeten we niet overnemen dit is duidelijk een
+  politiek spelletje … waak hier streng voor in propagandamodel"
+- Over "Hoe hangen ze samen?" (Tweede Kamer – CIDI – VVD, Eerste Kamer – Saskia Kluit – PRO): "ontzettend
+  onbelangrijk en random"
+- Over Berghuis (VVD-woordvoerder, RTL Nieuws) en Ullah: "deze info is dan wel weer interessant … mag wel meer van
+  dit soort verbanden laten zien"
+- Over "PVV werkt samen met De Telegraaf" (geen bron, betwist): "slaat ook helemaal nergens op.. staat niet eens op
+  waar het vandaan komt"
+
+Waar het misging:
+- **De app toonde wat in het model bestaat, niet wat ertoe doet.** Elke route van hoogstens twee stappen telde.
+  - PVV → AD (censuur, mechanisme publieke aanval) rust op één argument over Wilders' "tuig van de richel".
+    Dat gaat over journalisten in het algemeen, niet over het AD. Dezelfde koppeling staat ook naar NOS,
+    Volkskrant, RTL, ANP en NRC.
+  - Elke partij zit in de Kamer. "Tweede Kamer – Moorman – PRO" is één willekeurige van tientallen routes.
+- **Verbanden zonder bron bleven goedgekeurd.** Het gaat om 166 van de 173 verbanden zonder levend argument met
+  bron, allemaal uit de eerste AI-opzet van het model (juni 2026). Een voorbeeld is rel 127 "PVV werkt samen met De
+  Telegraaf". De bronzoeker vond niets, maar niets sloot ze af.
+- **Eén lat voor feiten en voor invloed.** "Onderbouwd" vroeg twee onafhankelijke argumenten. Daardoor bleef een
+  cv-regel met één primaire bron altijd "dun".
+  - Het argument over Ullahs VVD-bestuur (2795) propte twee feiten in één zin: bestuur Amsterdam-West 2006–2010
+    en de Kamerkandidatuur van 2010. De bronchecker vond het eerste wel in de bron, het tweede niet: "bron draagt
+    het deels".
+  - "VVD wordt bestuurd door Ullah" las een afdelingsbestuurszetel als het besturen van de partij.
+- **De eigen stem van het model nam retoriek over**: "ondermijnt het vertrouwen", "rechts-populistisch",
+  "neoliberale consensus". De bronchecker laat de duiding bewust ongemoeid, de smaadtoets en NEUTRALITEIT-RENDER
+  kijken alleen naar personen.
+
+Wat het doet in de nieuws-app:
+- **"Wie zit erachter?"** (`behindParties`, `specificParties`, `lineTier` in `lib/explore/why.ts`):
+  - een route met een verband zonder enige bron (`source_count` 0) valt weg, net als een regel met het oordeel
+    onbewezen;
+  - een stap die invloed draagt (geen band van erbij horen) moet rusten op bewijs dat het medium noemt: in de
+    claim, een citaat of een brontitel (`evidenceNames`, `textNames`: "AD" alleen als hoofdletters, "de
+    Volkskrant" ook als "Volkskrant");
+  - de invloed van het medium zelf op de partij telt niet ("NOS lobbyt bij de Tweede Kamer" zegt niet wie achter
+    het nieuws van de NOS zit);
+  - de volgorde: eerst mensen die bij beide kanten horen (Berghuis, Ullah), dan eigendom en geld, dan bronnen,
+    dan andere invloed, dan druk van buiten.
+- **"Hoe hangen ze samen?"** (`governanceRoutes`, `massTie`):
+  - een route valt weg als de tussenpersoon aan beide kanten gewoon lid, medewerker, lobbyist of Kamerlid is;
+  - een minister, bestuurder of adviseur ertussen blijft ("Financiën – minister Heinen – VVD");
+  - een directe band die alleen zegt wie iemand is, valt weg (`whoIsWho`: "VVD heeft als lid Thom van Campen",
+    "Van Campen is Kamerlid"): dat staat al in het nieuws. Een lobby of een ambt van één blijft;
+  - routes zonder bron vallen weg;
+  - het blok verdwijnt als er niets overblijft.
+- **Woorden** (`lib/explore/labels.ts`):
+  - een afgelopen band staat in de verleden tijd ("had als bestuurder", "werkte voor", "was minister … bij");
+  - bestuurder heet "is bestuurder bij" in plaats van "bestuurt";
+  - een type dat niet zegt wat er gebeurde, leest zijn mechanisme: "valt publiekelijk aan" in plaats van
+    "censureert", "is bron voor" in plaats van "werkt samen met".
+- **Feitenlat in de sync** (`certainty_label` in `propaganda_model_sync.py`): een structuurfeit (baan, bestuurszetel,
+  lidmaatschap, ambt, eigendom) is "onderbouwd" met één steunend argument dat een onafhankelijke controle in een
+  geclassificeerde bron terugvond (status geverifieerd, score ≥ 0,30), tenzij een bron het tegenspreekt. Op het echte
+  model gaan 164 verbanden van "aannemelijk" naar "onderbouwd", onder meer Ullah als hoofdredacteur van De Telegraaf.
+- **Herkomst** (sync format 9, migratie `017_herkomst.sql`):
+  - `pm_relations.origin` (opzet, register, eigenaar, assistent, agent; nooit een accountnaam) en `added_at`;
+  - het uitlegblad toont "Herkomst: Uit de eerste opzet van het model, met AI gemaakt (1 jun)";
+  - zolang 017 niet gedraaid is, laat de sync de kolommen weg en bewaart hij format 8 (`PENDING_RELATION_COLUMNS`),
+    zodat een herstart de sync niet stilzet.
+
+In het propagandamodel (in de maak, git-worktree, nog niet live):
+- **Stemtoets**: de eigen stem zegt wat er gebeurde, geen oordeel over gevolgen of bedoelingen en geen etiketten;
+  zo'n oordeel alleen als citaat van wie het zegt. Een stap in de automatische beoordeling, een neutrale
+  herformulering via de gewone controles, en een strenge controle `NEUTRALITEIT-EIGEN-STEM`. De woordenlijst vond
+  25 echte gevallen, waaronder argument 2189 en de omschrijvingen van PVV en VVD.
+- **Specificiteit**: de bronchecker toetst of claim en bron over dít verband gaan. De bronzoeker splitst
+  samengestelde claims (één feit per argument) en neemt alleen een bron die beide kanten noemt.
+- **Opruimen**: een goedgekeurd verband zonder dragende bron waarvoor de bronzoeker niets vond, wordt afgewezen
+  (terug te draaien). De proefrun telde 64 zulke verbanden, 88 zijn nog niet geprobeerd.
+- **Meer mensen tussen redactie en partij**: onderzoeksdoelen voor de redactieleiding van de acht hoofdbronnen.
+
+Tests:
+- Jest: `__tests__/explore/why.test.ts` (6 nieuwe, met de voorbeelden van de eigenaar); alle 332 frontend-tests
+  groen; tsc en ESLint schoon.
+- Pytest: de feitenlat, de herkomst en de kolommen die op een migratie wachten; de 137 tests rond de pm-sync groen.
+- In de app (dev-server, 390 breed) op het regenboogvlag-event:
+  - "Wie zit erachter?" toont VVD (Berghuis, Ullah), "Tweede Kamer → ANP → AD" en PVV via Wilders' framing bij de
+    NOS (met bron, noemt de NOS);
+  - PVV → AD, PVV ↔ De Telegraaf en "Tweede Kamer wordt belobbyd door NOS" zijn weg;
+  - "Hoe hangen ze samen?" is leeg, dus het blok verdwijnt.

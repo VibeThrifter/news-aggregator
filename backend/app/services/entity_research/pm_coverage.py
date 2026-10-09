@@ -14,7 +14,9 @@ Writes to the propaganda model never happen here: they go through its REST API (
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
+import unicodedata
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -62,6 +64,59 @@ class PmEntityInfo:
         return self.type in PERSON_TYPES
 
 
+# Local office holders from the register of government organisations (Epic 15): the propaganda model
+# names them with initials and their office, "B.C.M. Vostermans (burgemeester Peel en Maas)".
+LOCAL_TITLES: tuple[str, ...] = (
+    "burgemeester",
+    "wethouder",
+    "gedeputeerde",
+    "dijkgraaf",
+    "watergraaf",
+    "commissaris van de koning",
+)
+_REGISTER_OFFICIAL = re.compile(
+    r"^(?P<initials>(?:[A-Z][a-z]?\.\s*){1,6})\s*(?P<surname>[^()]+?)\s*"
+    r"\((?P<title>" + "|".join(LOCAL_TITLES) + r")(?:\s*\(waarnemend\))?\s+(?P<place>[^()]+)\)\s*$",
+    re.IGNORECASE,
+)
+COMMON_SURNAME = 3
+_TUSSENVOEGSELS = frozenset(
+    {"van", "de", "der", "den", "ter", "ten", "te", "het", "in", "t", "op", "la", "le"}
+)
+
+
+def _fold(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch)).lower()
+
+
+@dataclass(frozen=True, slots=True)
+class RegisterOfficial:
+    entity_id: int
+    initial: str
+    title: str
+    place: str
+
+
+def _place_key(text: str) -> str:
+    """'Gemeente Peel en Maas' / 'Peel en Maas' -> 'peel-en-maas'."""
+
+    key = slugify(text) or ""
+    return re.sub(r"^(gemeente|provincie|waterschap|hoogheemraadschap|wetterskip)-", "", key)
+
+
+def local_title(label: str | None) -> str | None:
+    """'burgemeester', 'D66-wethouder', 'oud-wethouder' -> the local title (None otherwise)."""
+
+    folded = _fold(label or "").strip()
+    if folded.startswith(("oud-", "voormalig", "ex-")):
+        return None  # a former office holder is not the current one in the register
+    for title in LOCAL_TITLES:
+        if folded == title or folded.endswith("-" + title) or folded.endswith(" " + title):
+            return title
+    return None
+
+
 def compatible(info: PmEntityInfo, kind: str | None) -> bool:
     """No person <-> organisation mix-ups (mirrors the frontend's compatibleMatches)."""
 
@@ -81,6 +136,8 @@ class PmCoverageIndex:
     # slugs of entity names the news research agent proposed that are not approved yet
     pending_slugs: set[str] = field(default_factory=set)
     fingerprint: str | None = None
+    # surname key -> local office holders from the register (Epic 15)
+    officials: dict[str, list[RegisterOfficial]] = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: Path | str) -> PmCoverageIndex:
@@ -122,6 +179,22 @@ class PmCoverageIndex:
         for alias in generate_aliases(entities):
             aliases[alias["alias"]].append(alias["entity_id"])
         index.aliases = dict(aliases)
+        officials: dict[str, list[RegisterOfficial]] = defaultdict(list)
+        for row in entities:
+            match = _REGISTER_OFFICIAL.match(str(row["name"]))
+            if not match:
+                continue
+            official = RegisterOfficial(
+                row["id"],
+                _fold(match["initials"])[:1],
+                _fold(match["title"]),
+                _place_key(match["place"]),
+            )
+            surname = slugify(match["surname"].replace(" - ", "-"))
+            for key in {surname, surname.split("-")[0] if "-" in surname else surname}:
+                if key:
+                    officials[key].append(official)
+        index.officials = dict(officials)
         return index
 
     def lookup(self, aliases: Iterable[str], kind: str | None = None) -> PmEntityInfo | None:
@@ -136,6 +209,52 @@ class PmCoverageIndex:
                 if best is None or (info.degree, -info.id) > (best.degree, -best.id):
                     best = info
         return best
+
+    def lookup_official(
+        self, name: str, label: str | None, places: Iterable[str] = ()
+    ) -> PmEntityInfo | None:
+        """A local office holder from the register by surname plus office plus first initial or
+        place (Epic 15); never on the name alone. "Bert Vostermans" or "burgemeester Vostermans"
+        with the label "burgemeester" and the place "Peel en Maas" -> "B.C.M. Vostermans
+        (burgemeester Peel en Maas)". Only a unique candidate counts."""
+
+        words = [w for w in re.split(r"\s+", name.strip()) if w]
+        words = [w for w in words if local_title(w) is None]  # "burgemeester Vostermans"
+        if not words:
+            return None
+        initial: str | None = None
+        if len(words) >= 2 and _fold(words[0]) not in _TUSSENVOEGSELS:
+            initial = _fold(words[0])[:1]
+            words = words[1:]
+        surname = slugify(" ".join(words))
+        candidates = list(self.officials.get(surname or "", ()))
+        if not candidates:
+            return None
+        title = local_title(label)
+        place_keys = {key for place in places if (key := _place_key(place))}
+
+        def at_place(official: RegisterOfficial) -> bool:
+            return any(
+                official.place == key
+                or official.place.startswith(key + "-")
+                or key.endswith("-" + official.place)
+                for key in place_keys
+            )
+
+        if title:
+            candidates = [c for c in candidates if c.title == title]
+        if initial:
+            candidates = [c for c in candidates if c.initial == initial]
+        placed = [c for c in candidates if at_place(c)] if place_keys else []
+        if placed:
+            candidates = placed
+        # surname plus office plus initial or place, or surname plus initial plus place; a common
+        # surname ("de Vries": three or more office holders) always needs the place
+        common = len(self.officials.get(surname or "", ())) >= COMMON_SURNAME
+        enough = (title and (placed or (initial and not common))) or (initial and placed)
+        if not enough or len({c.entity_id for c in candidates}) != 1:
+            return None
+        return self.entities.get(candidates[0].entity_id)
 
     def is_pending(self, aliases: Iterable[str]) -> bool:
         return any((slugify(alias) or alias) in self.pending_slugs for alias in aliases)

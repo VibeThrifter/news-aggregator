@@ -428,7 +428,7 @@ function ActorEdgeTip({ relation, pmx, pinned, onDetails }: { relation: PmRelati
     <div className="space-y-2">
       <p className="text-sm leading-snug">
         <span className="font-semibold text-ink-900">{pmx.merged.entities.get(first)?.name ?? first}</span>{" "}
-        <span className="text-ink-600">{pmRelationLabel(relation.relation_type, relation.mechanism, relation.functie)}</span>{" "}
+        <span className="text-ink-600">{pmRelationLabel(relation.relation_type, relation.mechanism, relation.functie, relation.active_until)}</span>{" "}
         <span className="font-semibold text-ink-900">{pmx.merged.entities.get(last)?.name ?? last}</span>
       </p>
       <div className="flex flex-wrap gap-1.5">
@@ -500,7 +500,7 @@ function RelationList({
           const otherId = otherEnd(relation, center.id);
           const other = pmx.merged.entities.get(otherId);
           const outgoing = labelSourceId(relation, (id) => pmx.merged.entities.get(id)?.type) === center.id;
-          const label = pmRelationLabel(relation.relation_type, relation.mechanism, relation.functie);
+          const label = pmRelationLabel(relation.relation_type, relation.mechanism, relation.functie, relation.active_until);
           return (
             <li key={relation.id} className="flex items-center gap-1 pr-1">
               <Link

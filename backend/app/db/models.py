@@ -485,6 +485,10 @@ class PmRelation(Base):
     auto_approved: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )
+    # Where it comes from: opzet | register | eigenaar | assistent | agent (Story 14.23, mig. 017)
+    origin: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Date it was added to the model (YYYY-MM-DD)
+    added_at: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper
         return f"<PmRelation id={self.id} {self.source_id}->{self.target_id}>"

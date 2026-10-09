@@ -13,7 +13,7 @@ import { exploreAuxSwrOptions } from "@/lib/swr-config";
 
 import { useExplore } from "../ExploreContext";
 import { ResearchStatusCard } from "../entity/ResearchStatus";
-import { useEntityResearch } from "../entity/useEntityResearch";
+import { fetchResearchLookup, researchSwrKey, researchSwrOptions, useEntityResearch } from "../entity/useEntityResearch";
 import { SubHeading } from "../ui/primitives";
 import { AutoApprovedTag, MiniEgoNetwork } from "./MiniEgoNetwork";
 
@@ -59,21 +59,31 @@ export function PmSection({
   const match = useSWR(["pm-match", aliases.join("|"), demo], () => pmMatch(aliases, { demo }), exploreAuxSwrOptions);
   const matches = compatibleMatches(match.data ?? [], effectiveKind);
   const best = bestMatch(matches, aliases);
-  const wantHood = Boolean(best && (best.degree == null || best.degree >= MIN_NETWORK_DEGREE));
+  const matchSettled = match.data !== undefined || Boolean(match.error);
+
+  // Epic 15: a local office holder the register names with initials ("B.C.M. Vostermans
+  // (burgemeester Peel en Maas)") has no alias match; the research triage links him on surname,
+  // office and initial or place. Same SWR key as useEntityResearch below: one call.
+  const target = researchTarget({ entity, panelKey: entityKey ?? keySlug(entity?.entity_key ?? name), name, kindHint: effectiveKind });
+  const researchKeys = target ? [target.key] : [];
+  const lookup = useSWR(matchSettled && !best ? researchSwrKey(researchKeys, demo) : null, () => fetchResearchLookup(researchKeys, demo), researchSwrOptions);
+  const linked = !best && lookup.data?.row?.pm_entity_id ? lookup.data.row : null;
+  const pmEntityId = best?.entity_id ?? linked?.pm_entity_id ?? null;
+  const knownDegree = best ? best.degree : linked?.pm_degree ?? null;
+
+  const wantHood = Boolean(pmEntityId && (knownDegree == null || knownDegree >= MIN_NETWORK_DEGREE));
   const hood = useSWR(
-    wantHood && best ? ["pm-mini", best.entity_id, demo] : null,
-    () => pmNeighborhood((best as NonNullable<typeof best>).entity_id, { demo, limit: 10 }),
+    wantHood && pmEntityId ? ["pm-mini", pmEntityId, demo] : null,
+    () => pmNeighborhood(pmEntityId as number, { demo, limit: 10 }),
     exploreAuxSwrOptions,
   );
-  const degree = best ? best.degree ?? hood.data?.center.degree ?? null : null;
-  const matchSettled = match.data !== undefined || Boolean(match.error);
+  const degree = pmEntityId ? knownDegree ?? hood.data?.center.degree ?? null : null;
   const hoodSettled = !wantHood || hood.data !== undefined || Boolean(hood.error);
-  const showNetwork = Boolean(best && hood.data && (degree ?? 0) >= MIN_NETWORK_DEGREE && hood.data.relations.length > 0);
+  const showNetwork = Boolean(pmEntityId && hood.data && (degree ?? 0) >= MIN_NETWORK_DEGREE && hood.data.relations.length > 0);
 
-  const target = researchTarget({ entity, panelKey: entityKey ?? keySlug(entity?.entity_key ?? name), name, kindHint: effectiveKind });
   const eventSlug = input.event.slug ?? String(input.event.id);
   const research = useEntityResearch({
-    keys: target ? [target.key] : [],
+    keys: researchKeys,
     name,
     demo,
     // Only research what is not already in the network, once the lookups have settled
@@ -83,17 +93,17 @@ export function PmSection({
   // Actor page: the entity's own slug (news appearances, research) or the pm entity
   const actorKind = effectiveKind === "person" || effectiveKind === "org" ? effectiveKind : kindForPmType(best?.type);
   const slug = entity ? keySlug(entity.entity_key) : target ? keySlug(target.key) : actorKeys(name).slug;
-  const inModel = Boolean(best) || Boolean(research.row?.pm_entity_id);
-  const actorLink = slug ? actorHref(slug, { kind: actorKind, name, demo }) : best ? actorHref(`pm-${best.entity_id}`, { kind: actorKind, name, demo }) : null;
-  const networkLink = best
-    ? `/event/${encodeURIComponent(eventSlug)}/netwerk?lens=propaganda&focus=${encodeURIComponent(`pm:${best.entity_id}`)}`
+  const inModel = Boolean(pmEntityId) || Boolean(research.row?.pm_entity_id);
+  const actorLink = slug ? actorHref(slug, { kind: actorKind, name, demo }) : pmEntityId ? actorHref(`pm-${pmEntityId}`, { kind: actorKind, name, demo }) : null;
+  const networkLink = pmEntityId
+    ? `/event/${encodeURIComponent(eventSlug)}/netwerk?lens=propaganda&focus=${encodeURIComponent(`pm:${pmEntityId}`)}`
     : null;
 
   const researchVisible = Boolean(target) && research.available && !showNetwork;
   if (!matchSettled) {
     return target ? <div className="h-20 animate-pulse rounded-xl bg-paper-200" aria-label="Netwerk laden" /> : null;
   }
-  if (!showNetwork && !researchVisible && !best) return null;
+  if (!showNetwork && !researchVisible && !pmEntityId) return null;
 
   return (
     <section className="space-y-3" aria-labelledby="network-research-title">
@@ -129,13 +139,13 @@ export function PmSection({
         )
       ) : null}
 
-      {best && !showNetwork && hoodSettled ? (
+      {pmEntityId && !showNetwork && hoodSettled ? (
         <p className="text-sm text-ink-600">
           {name} staat in het propagandamodel{degree != null ? ` met ${degree} ${degree === 1 ? "verband" : "verbanden"}` : ""}.
         </p>
       ) : null}
 
-      {actorLink && (target || best) ? (
+      {actorLink && (target || pmEntityId) ? (
         <div className="flex flex-wrap gap-2">
           <Link href={actorLink} className={`${linkButton} bg-ink-900 text-white hover:bg-ink-800`}>
             {inModel || showNetwork ? "Bekijk netwerk" : "Bekijk profiel"} <ArrowRight size={16} aria-hidden="true" />
@@ -148,7 +158,7 @@ export function PmSection({
         </div>
       ) : null}
 
-      {best || showNetwork ? <PmAttribution /> : null}
+      {pmEntityId || showNetwork ? <PmAttribution /> : null}
     </section>
   );
 }

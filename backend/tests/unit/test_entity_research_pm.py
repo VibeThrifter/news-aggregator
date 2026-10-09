@@ -145,6 +145,48 @@ def test_coverage_index_lookup_and_degree(tmp_path: Path) -> None:
     assert index.lookup(["Mark Rutte"], "person").id == 23  # names are slugified
 
 
+def test_register_officials_need_more_than_the_name(tmp_path: Path) -> None:
+    """Epic 15: a local office holder the register names with initials is found by surname plus
+    office plus first initial or place; never on the name alone, and a common surname needs the
+    place."""
+
+    path = create_pm_database(tmp_path)
+    connection = sqlite3.connect(path)
+    try:
+        connection.executemany(
+            "INSERT INTO entities (id, name, type, primary_role_id, status, vervangen) "
+            "VALUES (?,?,'persoon',2,'goedgekeurd',0)",
+            [
+                (60, "B.C.M. Vostermans (burgemeester Peel en Maas)"),
+                (61, "J. de Vries (wethouder Stein)"),
+                (62, "J.M. de Vries (wethouder Hoorn)"),
+                (63, "A. de Vries (wethouder Ede)"),
+                (64, "R.S. Cazemier (burgemeester (waarnemend) Terschelling)"),
+                (65, "W.J.W. Keijzer - Broers (wethouder Midden-Delfland)"),
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    index = PmCoverageIndex.load(path)
+
+    def found(name: str, label: str | None, places: list[str] | None = None) -> int | None:
+        info = index.lookup_official(name, label, places or [])
+        return info.id if info else None
+
+    assert found("Bert Vostermans", "burgemeester") == 60
+    assert found("burgemeester Vostermans", "burgemeester", ["Peel en Maas"]) == 60
+    assert found("Vostermans", "burgemeester") is None  # surname + office only
+    assert found("Bert Vostermans", None) is None  # no office, no place
+    assert found("Bert Vostermans", "wethouder") is None  # other office
+    assert found("Bert Vostermans", "oud-burgemeester") is None  # a former mayor
+    assert found("Jan de Vries", "wethouder") is None  # common surname: the place decides
+    assert found("Jan de Vries", "D66-wethouder", ["Stein"]) == 61
+    assert found("Jan de Vries", "wethouder", ["gemeente Hoorn"]) == 62
+    assert found("Rob Cazemier", "burgemeester") == 64
+    assert found("Wilma Keijzer", "wethouder") == 65  # first part of a double surname
+
+
 def test_coverage_pending_scout_entities(tmp_path: Path) -> None:
     index = PmCoverageIndex.load(pm_db(tmp_path))
     assert index.is_pending(["stichting-stille-polder"]) is True

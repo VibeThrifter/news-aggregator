@@ -270,6 +270,27 @@ def test_certainty_label_thresholds(detail, expected) -> None:
     assert certainty_label(detail) == expected
 
 
+def test_a_verified_structure_fact_is_well_supported_with_one_source() -> None:
+    """Story 14.23: a CV line checked against its source is settled; influence still needs two."""
+
+    verified = {"stance": "supporting", "sigma": 0.7, "cluster": "villamedia", "n_citations": 1}
+    fact = pm.instance_certainty([{**verified, "status": "geverifieerd"}])
+    assert fact["verified_support"] is True and fact["n_support_clusters"] == 1
+    assert certainty_label(fact, "personeel") == CERTAINTY_WELL_SUPPORTED
+    assert certainty_label(fact, "bestuurder") == CERTAINTY_WELL_SUPPORTED
+    # A claim of influence on the same evidence stays plausible
+    assert certainty_label(fact, "beinvloeding") == CERTAINTY_PLAUSIBLE
+    assert certainty_label(fact) == CERTAINTY_PLAUSIBLE
+    # Not checked, or contradicted by a source: the usual bar
+    unchecked = pm.instance_certainty([{**verified, "status": "ongecontroleerd"}])
+    assert certainty_label(unchecked, "personeel") == CERTAINTY_PLAUSIBLE
+    opposed = {**fact, "opposed": True}
+    assert certainty_label(opposed, "personeel") == CERTAINTY_PLAUSIBLE
+    # An unclassified source scores below the bar even when checked
+    weak = pm.instance_certainty([{**verified, "sigma": 0.4, "status": "geverifieerd"}])
+    assert certainty_label(weak, "personeel") == CERTAINTY_PLAUSIBLE
+
+
 def test_instance_certainty_caps_unopposed_scores() -> None:
     roots = [
         {"stance": "supporting", "sigma": 1.0, "cluster": c, "n_citations": 1, "status": "x"}
@@ -1125,3 +1146,17 @@ def test_what_an_independent_re_read_found_when_it_did_not_hold():
         [{"source_id": 10, "quote": "Citaat."}], sources, {}, checked={10}, doubts={10: "deels"}
     )
     assert confirmed[0]["checked"] is True and "check" not in confirmed[0]
+
+
+def test_relations_say_where_they_come_from(snapshot: pm.PmSnapshot) -> None:
+    """Story 14.23: the first draft, a register, the owner, the owner's assistant or an agent."""
+
+    assert pm.relation_origin(None) == pm.ORIGIN_DRAFT
+    assert pm.relation_origin("register-import") == pm.ORIGIN_REGISTER
+    assert pm.relation_origin("assistent") == pm.ORIGIN_ASSISTANT
+    assert pm.relation_origin("maxime", {"maxime"}) == pm.ORIGIN_OWNER
+    assert pm.relation_origin("nieuws-scout", {"maxime"}) == pm.ORIGIN_AGENT
+    origins = {row["origin"] for row in snapshot.relations}
+    assert origins <= {"opzet", "register", "eigenaar", "assistent", "agent"}
+    # Never an account name, and the date only
+    assert all(row["added_at"] is None or len(row["added_at"]) == 10 for row in snapshot.relations)

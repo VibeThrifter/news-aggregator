@@ -247,7 +247,8 @@ export const PM_RELATION_LABELS: Record<string, string> = {
   bron_van: "is bron voor",
   beinvloeding: "beïnvloedt",
   draaideur: "stapte over naar",
-  bestuurder: "bestuurt",
+  // A board member is one of a board: "bestuurt" made "Ullah bestuurt de VVD" of a local board seat
+  bestuurder: "is bestuurder bij",
   adviseur: "adviseert",
   censuur: "censureert",
   mediaplatform: "is platform voor",
@@ -327,7 +328,68 @@ const INFLUENCE_PHRASES: Record<string, [string, string]> = {
   toezichthouder_interventie: ["grijpt in bij", "kreeg voorwaarden van"],
   vakbond_bescherming: ["beschermt de journalisten van", "heeft journalisten onder bescherming van"],
   publieksafleiding: ["leidt de aandacht af van", "wordt afgeleid door"],
+  // Pressure and ties whose relation type says more than happened ("censureert" for a public attack)
+  publieke_aanval: ["valt publiekelijk aan", "wordt publiekelijk aangevallen door"],
+  juridische_dreiging: ["dreigt met juridische stappen tegen", "krijgt juridische dreigementen van"],
+  deplatforming: ["haalt van zijn platform", "is van het platform gehaald door"],
+  statelijke_inhoudsmoderatie: ["vraagt om moderatie bij", "krijgt moderatieverzoeken van"],
+  woo_obstructie: ["houdt Woo-informatie achter voor", "krijgt Woo-informatie niet van"],
+  debanking: ["zegde de bankrekening op van", "kreeg de bankrekening opgezegd door"],
+  strafvervolging_uiting: ["vervolgt om een uiting", "wordt om een uiting vervolgd door"],
+  cancelcampagne: ["voert campagne tegen", "is doelwit van een campagne van"],
+  beroepsnetwerk_lidmaatschap: ["zit in een beroepsnetwerk met", "zit in een beroepsnetwerk met"],
+  omroepverzuiling: ["hoort bij dezelfde zuil als", "hoort bij dezelfde zuil als"],
+  politieke_synchronisatie: ["loopt politiek in de pas met", "loopt politiek in de pas met"],
 };
+
+/**
+ * Ties whose type says exactly what they are (the mechanism only files them under a filter): a
+ * membership, a job, an owner, an office. For every other type the mechanism says what happened.
+ */
+const EXACT_TYPES: ReadonlySet<string> = new Set([
+  "lidmaatschap",
+  "personeel",
+  "dienstverband",
+  "woordvoerder_van",
+  "bestuurder",
+  "adviseur",
+  "draaideur",
+  "eigendom",
+  "investering",
+  "donor",
+  "ambt",
+  "zeggenschap",
+  "controle",
+  "geschenk",
+]);
+
+/** Ties that have ended read in the past tense: "werkte voor", "had als lid" */
+const PAST_LABELS: Readonly<Record<string, [string, string]>> = {
+  lidmaatschap: ["was lid van", "had als lid"],
+  personeel: ["werkte voor", "had als medewerker"],
+  dienstverband: ["was in dienst van", "had in dienst"],
+  woordvoerder_van: ["was woordvoerder van", "had als woordvoerder"],
+  bestuurder: ["was bestuurder bij", "had als bestuurder"],
+  adviseur: ["was adviseur van", "werd geadviseerd door"],
+  eigendom: ["was eigenaar van", "was eigendom van"],
+  ambt: ["had een ambt bij", "had als ambtsdrager"],
+};
+
+/** Whether a tie has ended by now: its end date or year has passed ("2010", "2023-06-01") */
+export function hasEnded(until: string | null | undefined, now = new Date()): boolean {
+  const text = (until ?? "").trim();
+  if (!text) return false;
+  const year = /^(\d{4})$/.exec(text);
+  if (year) return Number(year[1]) <= now.getFullYear();
+  const date = new Date(text);
+  return !Number.isNaN(date.getTime()) && date.getTime() <= now.getTime();
+}
+
+/** The mechanism's words for a type that does not say it exactly, else null */
+function mechanismPhrase(type: string, mechanism: string | null | undefined, side: 0 | 1): string | null {
+  if (EXACT_TYPES.has(type) || !mechanism?.trim()) return null;
+  return INFLUENCE_PHRASES[mechanismKey(mechanism)]?.[side] ?? null;
+}
 
 /** "Bron afhankelijkheid", "Intermedia-agendering" (pm display names) → "bron_afhankelijkheid", … */
 export function mechanismKey(mechanism: string | null | undefined): string {
@@ -347,14 +409,18 @@ function officeWords(functie: string): string {
 }
 
 /**
- * The words of a relation read as "source … target"; for "beinvloeding" those of its mechanism, for
- * an office (Epic 15) the office the register gives: "is secretaris-generaal bij".
+ * The words of a relation read as "source … target"; for "beinvloeding" and other types that do not
+ * say what happened those of its mechanism ("PVV valt publiekelijk aan AD", not "censureert"), for
+ * an office (Epic 15) the office the register gives: "is secretaris-generaal bij". A tie that has
+ * ended (`until`) reads in the past tense: "werkte voor", "was secretaris-generaal bij".
  */
-export function pmRelationLabel(type: string, mechanism?: string | null, functie?: string | null): string {
-  if (type === "ambt" && functie?.trim()) return `is ${officeWords(functie)} bij`;
-  if (type === "beinvloeding" && mechanism?.trim()) {
-    return INFLUENCE_PHRASES[mechanismKey(mechanism)]?.[0] ?? `beïnvloedt via ${mechanism.trim().toLowerCase()}`;
-  }
+export function pmRelationLabel(type: string, mechanism?: string | null, functie?: string | null, until?: string | null): string {
+  const ended = hasEnded(until);
+  if (type === "ambt" && functie?.trim()) return `${ended ? "was" : "is"} ${officeWords(functie)} bij`;
+  if (ended && PAST_LABELS[type]) return PAST_LABELS[type][0];
+  const phrase = mechanismPhrase(type, mechanism, 0);
+  if (phrase) return phrase;
+  if (type === "beinvloeding" && mechanism?.trim()) return `beïnvloedt via ${mechanism.trim().toLowerCase()}`;
   return PM_RELATION_LABELS[type] ?? type.replace(/_/g, " ");
 }
 
@@ -367,7 +433,7 @@ const PM_RELATION_REVERSE_LABELS: Record<string, string> = {
   bron_van: "heeft als bron",
   beinvloeding: "wordt beïnvloed door",
   draaideur: "kreeg als overstapper",
-  bestuurder: "wordt bestuurd door",
+  bestuurder: "heeft als bestuurder",
   adviseur: "wordt geadviseerd door",
   censuur: "wordt gecensureerd door",
   mediaplatform: "verschijnt bij",
@@ -395,11 +461,13 @@ const PM_RELATION_REVERSE_LABELS: Record<string, string> = {
   geschenk: "kreeg een geschenk van",
 };
 
-export function pmRelationReverseLabel(type: string, mechanism?: string | null, functie?: string | null): string {
-  if (type === "ambt" && functie?.trim()) return `heeft als ${officeWords(functie)}`;
-  if (type === "beinvloeding" && mechanism?.trim()) {
-    return INFLUENCE_PHRASES[mechanismKey(mechanism)]?.[1] ?? `wordt via ${mechanism.trim().toLowerCase()} beïnvloed door`;
-  }
+export function pmRelationReverseLabel(type: string, mechanism?: string | null, functie?: string | null, until?: string | null): string {
+  const ended = hasEnded(until);
+  if (type === "ambt" && functie?.trim()) return `${ended ? "had" : "heeft"} als ${officeWords(functie)}`;
+  if (ended && PAST_LABELS[type]) return PAST_LABELS[type][1];
+  const phrase = mechanismPhrase(type, mechanism, 1);
+  if (phrase) return phrase;
+  if (type === "beinvloeding" && mechanism?.trim()) return `wordt via ${mechanism.trim().toLowerCase()} beïnvloed door`;
   return PM_RELATION_REVERSE_LABELS[type] ?? `${pmRelationLabel(type)} (omgekeerd)`;
 }
 
@@ -412,7 +480,7 @@ export const PM_AFFILIATIONS: ReadonlySet<string> = new Set(["lidmaatschap", "pe
 /** Entity types that are a group others are a member of */
 const GROUP_TYPES = new Set(["partij", "elite_netwerk", "vakbond", "lobbygroep"]);
 
-type ReadableRelation = Pick<PmRelation, "source_id" | "target_id" | "relation_type" | "mechanism"> & { functie?: string | null };
+type ReadableRelation = Pick<PmRelation, "source_id" | "target_id" | "relation_type" | "mechanism"> & { functie?: string | null; active_until?: string | null };
 
 /**
  * The end a relation's label is read from: its source, but for an affiliation the person (or the
@@ -429,8 +497,8 @@ export function labelSourceId(relation: ReadableRelation, typeOf: (id: number) =
 /** The words of a relation read from one of its ends: "RIVM is vaste bron voor …", "NOS leunt als bron op …". */
 export function relationWords(relation: ReadableRelation, fromId: number, typeOf: (id: number) => string | null | undefined): string {
   return labelSourceId(relation, typeOf) === fromId
-    ? pmRelationLabel(relation.relation_type, relation.mechanism, relation.functie)
-    : pmRelationReverseLabel(relation.relation_type, relation.mechanism, relation.functie);
+    ? pmRelationLabel(relation.relation_type, relation.mechanism, relation.functie, relation.active_until)
+    : pmRelationReverseLabel(relation.relation_type, relation.mechanism, relation.functie, relation.active_until);
 }
 
 export function filterLabel(filter: string | null | undefined): string {

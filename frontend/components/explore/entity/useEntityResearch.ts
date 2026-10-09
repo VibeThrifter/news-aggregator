@@ -13,7 +13,20 @@ export interface ResearchLookup {
   row: EntityResearch | null;
 }
 
-const researchSwrOptions: SWRConfiguration<ResearchLookup> = {
+/** Research rows of `keys`, the first in order of preference (shared SWR key: one call per render). */
+export function researchSwrKey(keys: string[], demo: boolean): [string, string, boolean] | null {
+  return keys[0] ? ["entity-research", keys.join("|"), demo] : null;
+}
+
+export async function fetchResearchLookup(keys: string[], demo: boolean): Promise<ResearchLookup> {
+  const rows = await getEntityResearch(keys, { demo });
+  if (rows === null) return { available: false, row: null };
+  // Keys in order of preference
+  const row = keys.map((key) => rows.find((candidate) => candidate.entity_key === key)).find(Boolean) ?? null;
+  return { available: true, row };
+}
+
+export const researchSwrOptions: SWRConfiguration<ResearchLookup> = {
   // Short dedupe: polling must be able to fetch again after a minute
   dedupingInterval: 20_000,
   revalidateOnFocus: false,
@@ -36,16 +49,9 @@ export function useEntityResearch(options: {
 }) {
   const { keys, name, demo, request } = options;
   const primary = keys[0] ?? null;
-  const swrKey = primary ? ["entity-research", keys.join("|"), demo] : null;
   const { data, error, isLoading, mutate } = useSWR<ResearchLookup>(
-    swrKey,
-    async () => {
-      const rows = await getEntityResearch(keys, { demo });
-      if (rows === null) return { available: false, row: null };
-      // Keys in order of preference
-      const row = keys.map((key) => rows.find((candidate) => candidate.entity_key === key)).find(Boolean) ?? null;
-      return { available: true, row };
-    },
+    researchSwrKey(keys, demo),
+    () => fetchResearchLookup(keys, demo),
     researchSwrOptions,
   );
   const [requesting, setRequesting] = useState(false);

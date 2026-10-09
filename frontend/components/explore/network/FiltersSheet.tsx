@@ -179,7 +179,7 @@ function RelationSentence({ relation, entities }: { relation: PmRelation; entiti
   const last = otherEnd(relation, first);
   return (
     <>
-      {entities.get(first)?.name ?? first} <span className="text-ink-500">{pmRelationLabel(relation.relation_type, relation.mechanism, relation.functie)}</span>{" "}
+      {entities.get(first)?.name ?? first} <span className="text-ink-500">{pmRelationLabel(relation.relation_type, relation.mechanism, relation.functie, relation.active_until)}</span>{" "}
       {entities.get(last)?.name ?? last}
     </>
   );

@@ -15,8 +15,8 @@ const FLOW_ICONS = { down: ArrowDown, up: ArrowUp, both: ArrowUpDown } as const;
 
 /** "is vaste bron voor" / "leunt als bron op": a step in reading order, by its mechanism. */
 export function stepLabel(step: Pick<ReadStep, "relation" | "forward">): string {
-  const { relation_type: type, mechanism } = step.relation;
-  return step.forward ? pmRelationLabel(type, mechanism) : pmRelationReverseLabel(type, mechanism);
+  const { relation_type: type, mechanism, functie, active_until: until } = step.relation;
+  return step.forward ? pmRelationLabel(type, mechanism, functie, until) : pmRelationReverseLabel(type, mechanism, functie, until);
 }
 
 /**

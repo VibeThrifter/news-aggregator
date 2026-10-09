@@ -61,3 +61,20 @@ export function useWhyRoutes(enabled = true) {
     unavailable: settled && Boolean(actorIds?.length) && (Boolean(routes.error) || routes.data === null),
   };
 }
+
+/**
+ * Epic 15: routes (at most two steps) between the parties of this news themselves, for "Hoe hangen
+ * ze samen?" (decision-making ties are filtered by the caller, governanceRoutes).
+ */
+export function useBetweenRoutes(actorIds: number[] | null, enabled = true) {
+  const { exploration } = useExplore();
+  const { input } = exploration;
+  const demo = input.event.isDemo;
+  const ids = actorIds ?? [];
+  const between = useSWR(
+    enabled && ids.length >= 2 ? ["between-routes", input.event.id, demo, ids.join(",")] : null,
+    () => pmPaths(ids.slice(0, 12), ids, { demo, maxHops: 2, limit: 1 }),
+    exploreAuxSwrOptions,
+  );
+  return { paths: between.data ?? null, loading: between.isLoading };
+}

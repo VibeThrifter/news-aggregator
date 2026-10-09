@@ -14,6 +14,7 @@ import { kindForPmType, resolveActorParams } from "@/lib/explore/research";
 import type { EntityKind } from "@/lib/types";
 import { exploreAuxSwrOptions } from "@/lib/swr-config";
 
+import { fetchResearchLookup, researchSwrKey, researchSwrOptions } from "../entity/useEntityResearch";
 import { WikipediaBlock } from "../entity/Wikipedia";
 import { AutoApprovedTag } from "../network/MiniEgoNetwork";
 import { PILL, Tag } from "../ui/primitives";
@@ -71,8 +72,20 @@ export function ActorScreen({ slug }: { slug: string }) {
     exploreAuxSwrOptions,
   );
   const best = resolved.pmId === null ? bestMatch(compatibleMatches(match.data ?? [], resolved.kind), resolved.aliases) : null;
-  const pmId = resolved.pmId ?? best?.entity_id ?? null;
-  const matching = resolved.pmId === null && resolved.aliases.length > 0 && match.data === undefined && !match.error;
+  // Epic 15: a local office holder the register names with initials is linked by the research triage
+  // (surname, office and initial or place), not by an alias
+  const unmatched = resolved.pmId === null && (match.data !== undefined || Boolean(match.error)) && !best;
+  const lookup = useSWR(
+    unmatched ? researchSwrKey(resolved.researchKeys, demo) : null,
+    () => fetchResearchLookup(resolved.researchKeys, demo),
+    researchSwrOptions,
+  );
+  const linkedId = unmatched ? lookup.data?.row?.pm_entity_id ?? null : null;
+  const pmId = resolved.pmId ?? best?.entity_id ?? linkedId;
+  const matching =
+    resolved.pmId === null &&
+    resolved.aliases.length > 0 &&
+    ((match.data === undefined && !match.error) || (unmatched && lookup.data === undefined && !lookup.error && resolved.researchKeys.length > 0));
 
   // Header facts of the pm entity (one small call; the network loads its own neighbourhood)
   const center = useSWR(pmId !== null ? ["pm-center", pmId, demo] : null, () => pmNeighborhood(pmId as number, { demo, limit: 1 }), exploreAuxSwrOptions);

@@ -234,7 +234,9 @@ def test_the_automatic_review_counts_as_automatic_approval() -> None:
 
 
 def test_snapshot_format_changed_for_the_new_columns() -> None:
-    # 4: auto_approved + unreviewed sources; 5: arguments + mechanisms (Story 14.12); 8: Epic 15
-    assert sync.SNAPSHOT_FORMAT == "8"
+    # 4: auto_approved + unreviewed sources; 5: arguments + mechanisms (Story 14.12); 8: Epic 15;
+    # 9: origin + added_at (Story 14.23)
+    assert sync.SNAPSHOT_FORMAT == "9"
     assert sync._is_current({"db_mtime": "x", "format": "3"}, "x") is False
     assert sync._is_current({"db_mtime": "x", "format": "7"}, "x") is False
+    assert sync._is_current({"db_mtime": "x", "format": "8"}, "x") is False

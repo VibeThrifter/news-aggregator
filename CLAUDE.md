@@ -155,8 +155,23 @@ make clean             # Clean up generated files
   register gives it (`functie`). The registers (government organisations, Tweede Kamer, European Parliament,
   lobbyists) come in without AI; a deterministic registercheck in the model verifies them. The app gives each
   category its own colour and question (`FILTERS` in `lib/explore/labels.ts`, `group` media/besluitvorming), reads an
-  office as "is secretaris-generaal bij" and explains both groups in "Over het propagandamodel". Sync format 8 +
-  migration 016; `PROPAGANDA_SYNC_BESTUUR` switches the layer on. Spec: `docs/stories/active/epic-15-besluitvorming.md`
+  office as "is secretaris-generaal bij" and explains both groups in "Over het propagandamodel". "Hoe hangen ze samen?"
+  under "Wie zit erachter?" shows how parties of the same news hang together through decision-making (colleagues via a
+  hub left out). Local office holders the register names with initials are linked by the research triage (surname +
+  office + initial or place, never the name alone). Sync format 8 + migration 016; `PROPAGANDA_SYNC_BESTUUR` switches
+  the layer on. Spec: `docs/stories/active/epic-15-besluitvorming.md`
+- **What matters, not what exists (Story 14.23, owner 2026-10-08)**: the pm blocks of an event show only links that
+  matter for that news (`lib/explore/why.ts`).
+  - Never a link without a source.
+  - A link of influence rests on evidence that names that outlet ("PVV valt de pers aan" is no link with the AD).
+  - Never the outlet's own influence on a party.
+  - "Hoe hangen ze samen?" skips a station that is one of many on both sides (a member, lobbyist or Kamerlid), and
+    a direct tie that only says who someone is.
+  - People who belong to both the party and the newsroom go first.
+  - A verified structure fact needs one classified source to be "onderbouwd" (`certainty_label`); a claim of
+    influence still needs two clusters.
+  - Relations carry their origin (`origin`/`added_at`, sync format 9, migration 017).
+  - The pm's own voice states what happened. An evaluation only appears as an attributed quote.
 - **RSS Polling**: Automated every 15 minutes via APScheduler (backend)
 - **Insight Backfill**: Scheduled job every 30 minutes catches up on missing LLM insights
 

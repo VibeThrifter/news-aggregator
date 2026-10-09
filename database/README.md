@@ -297,6 +297,7 @@ Currently, schema changes are applied manually:
 | `009_stemmen_zoeken.sql` | `access_codes`, `voice_searches` (RLS without policies) + RPC functions `access_code_role`, `request_voice_search`, `voice_searches_for_event`, `review_voice_candidate` ("Zoek met AI" for missing voices; Epic 14, Story 14.10) |
 | `012_van_anderen.sql` | `shared_entries`, `shared_entry_adoptions`, `shared_entry_reports` (RLS without policies) + RPC functions `share_entry`, `unshare_entry`, `shared_entries_for_event`, `adopt_shared_entry`, `report_shared_entry`, `shared_entries_reported`, `moderate_shared_entry` (readers share what they added and take over what others shared; Epic 14, Story 14.15) |
 | `016_besluitvorming.sql` | `pm_entities.bestuurslaag`/`wikidata`, `pm_relations.functie`; `pm_neighborhood`, `pm_paths`, `pm_details` and `request_relation_research` with the decision-making layer of the propaganda model (Epic 15, Story 15.1) |
+| `017_herkomst.sql` | `pm_relations.origin`/`added_at` (where a relation of the propaganda model comes from and when it was added); `pm_details` returns them (Epic 14, Story 14.23) |
 
 ```bash
 # plain postgresql:// connection string (not the postgresql+asyncpg:// SQLAlchemy URL)
@@ -412,6 +413,16 @@ then run the rest of the file. Needs 005, 007, 008, 010 and 011.
 ```bash
 psql "postgresql://postgres:<password>@<host>:5432/postgres" \
   -f database/migrations/016_besluitvorming.sql
+```
+
+**017 - Herkomst van een verband (Epic 14, Story 14.23).** Two columns on `pm_relations` and a replaced `pm_details`.
+The `ALTER TABLE` runs in its own short transaction with `SET LOCAL lock_timeout = '1s'` (rerun the file when the table
+is busy). Until it ran, the sync (format 9) leaves the columns out and stores format 8, so a backend restart before the
+migration is safe. Needs 005, 010 and 016.
+
+```bash
+psql "postgresql://postgres:<password>@<host>:5432/postgres" \
+  -f database/migrations/017_herkomst.sql
 ```
 
 **Future**: Alembic migrations for version-controlled schema evolution.

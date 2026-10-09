@@ -476,6 +476,51 @@ async def test_triage_assigns_roles_and_decisions(tmp_path: Path) -> None:
     assert (await env["service"].triage())["assessed"] == 0
 
 
+async def test_triage_links_register_officials_triaged_before(tmp_path: Path) -> None:
+    """Epic 15: a wethouder triaged before the model had his register node is linked once it has
+    (surname, office and first initial); with enough relations research is no longer needed."""
+
+    env = await make_env(tmp_path)
+    async with env["factory"]() as session:
+        session.add(
+            EntityResearch(
+                entity_key="person:elise-moeskops",
+                name="Elise Moeskops",
+                kind="person",
+                role_category="politicus",
+                role_label="wethouder",
+                status="nieuw",
+                prominence={"context": {"organisaties": []}},
+            )
+        )
+        await session.commit()
+    connection = sqlite3.connect(env["settings"].propaganda_db_path)
+    try:
+        connection.execute(
+            "INSERT INTO entities (id, name, type, primary_role_id, status, vervangen) "
+            "VALUES (70, 'E. Moeskops (wethouder Amsterdam)', 'persoon', 2, 'goedgekeurd', 0)"
+        )
+        connection.executemany(
+            "INSERT INTO relations (source_id, target_id, relation_type, status, vervangen) "
+            "VALUES (70, ?, 'ambt', 'goedgekeurd', 0)",
+            [
+                (row[0],)
+                for row in connection.execute("SELECT id FROM entities WHERE id <> 70 LIMIT 3")
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    result = await env["service"].triage()
+    assert result["register_linked"] == 1
+    row = (await rows(env["factory"]))["person:elise-moeskops"]
+    assert row.pm_entity_id == 70 and row.pm_degree == 3
+    assert row.status == "niet_nodig"
+    assert row.status_reason.startswith("Staat al in het propagandamodel")
+    # linked once: the next cycle leaves it alone
+    assert (await env["service"].triage())["register_linked"] == 0
+
+
 async def test_triage_keeps_status_of_research_in_progress(tmp_path: Path) -> None:
     env = await make_env(tmp_path)
     service, factory = env["service"], env["factory"]

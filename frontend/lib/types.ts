@@ -469,6 +469,9 @@ export interface PmDetails {
   bestuurslaag?: string | null;
   wikidata?: string | null;
   functie?: string | null;
+  /** Story 14.23 (migration 017), relations: where it comes from (opzet, register, eigenaar, assistent, agent) and when it was added */
+  origin?: string | null;
+  added_at?: string | null;
 }
 
 /** A source an argument cites (Story 14.12) */

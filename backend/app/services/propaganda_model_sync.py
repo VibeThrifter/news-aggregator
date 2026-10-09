@@ -191,9 +191,31 @@ CERTAINTY_UNCERTAIN = "onzeker"
 #   onzeker     everything else: unsourced, disputed or outweighed evidence, and relations
 #               without evidence in the discussion tree (the stored prior / the 0.05 floor never
 #               makes a relation more than "onzeker")
+# A structure fact (a job, a board seat, a membership, an office, an owner; the propaganda
+# model's BEOORDELING_STRUCTUURTYPES) is settled by one document that states it: it is
+# "onderbouwd" with >= 0.30 from one supporting argument that an independent check verified
+# (status geverifieerd) against a classified source, unless sourced evidence contradicts it.
+# Two independent clusters are a bar for claims of influence, not for a CV line (Story 14.23:
+# Kamran Ullah's editorship of De Telegraaf showed as "dun bewijs").
 CERTAINTY_WELL_SUPPORTED_MIN = 0.30
 CERTAINTY_WELL_SUPPORTED_MIN_CLUSTERS = 2
 CERTAINTY_PLAUSIBLE_MIN = 0.14
+STRUCTURE_FACT_TYPES: frozenset[str] = frozenset(
+    {
+        "personeel",
+        "dienstverband",
+        "bestuurder",
+        "adviseur",
+        "woordvoerder_van",
+        "lidmaatschap",
+        "eigendom",
+        "draaideur",
+        "ambt",
+        "zeggenschap",
+        "controle",
+        "geschenk",
+    }
+)
 
 # --------------------------------------------------------------------------------------
 # Presentation constants
@@ -275,7 +297,8 @@ BESTUUR_RELATION_TYPES: frozenset[str] = frozenset({"ambt", "zeggenschap", "cont
 # 7: what that re-read found when it did not hold ("check": deels / draagt_niet / citaat_weg);
 # 8: decision-making (Epic 15): bestuurslaag + wikidata on entities, functie on relations, the
 # five decision-making categories in filters, merge-service approvals flagged as automatic
-SNAPSHOT_FORMAT = "8"
+# 9: where a relation comes from (origin + added_at, Story 14.23, migration 017)
+SNAPSHOT_FORMAT = "9"
 MAX_SOURCES_PER_OWNER = 12
 MAX_QUOTE_LENGTH = 300
 # Arguments shown with a relation (migration 010): whether it exists, how strong, when it held and
@@ -573,6 +596,8 @@ class PmRawData:
     maintainers: set[str] = field(default_factory=set)
     # {"entities": {ids}, "relations": {ids}} whose latest status change is an automatic approval
     auto_approved: dict[str, set[int]] = field(default_factory=dict)
+    # relation id -> the account that created it (edit_log); missing = the first draft
+    relation_creators: dict[int, str] = field(default_factory=dict)
     release_version: str | None = None
     db_mtime: str | None = None
 
@@ -692,11 +717,14 @@ def _read_decision_making_fields(connection: sqlite3.Connection, raw: PmRawData)
         "GROUP BY entity_id"
     )
     office = column("SELECT id, functie FROM relations WHERE functie IS NOT NULL")
+    # Story 14.23: when a relation was added (older databases: unknown)
+    added = column("SELECT id, created_at FROM relations WHERE created_at IS NOT NULL")
     for entity in raw.entities:
         entity["bestuurslaag"] = layer.get(entity["id"])
         entity["wikidata"] = wikidata.get(entity["id"])
     for relation in raw.relations:
         relation["functie"] = office.get(relation["id"])
+        relation["created_at"] = added.get(relation["id"])
 
 
 def read_pm_database(path: Path | str) -> PmRawData:
@@ -754,9 +782,43 @@ def read_pm_database(path: Path | str) -> PmRawData:
             )
         except sqlite3.OperationalError:  # no edit_log (synthetic database)
             raw.auto_approved = {}
+        try:
+            for record_id, changed_by in connection.execute(
+                "SELECT record_id, changed_by FROM edit_log "
+                "WHERE table_name = 'relations' AND action = 'created' ORDER BY id"
+            ):
+                raw.relation_creators.setdefault(int(record_id), changed_by)
+        except sqlite3.OperationalError:  # no edit_log (synthetic database)
+            raw.relation_creators = {}
     finally:
         connection.close()
     return raw
+
+
+# Where a relation comes from (Story 14.23, "staat niet eens op waar het vandaan komt"): the
+# first draft of the model (seeded in June 2026 from AI analyses, no 'created' row in edit_log),
+# a public register, the owner, the owner's AI assistant, or a research agent.
+ORIGIN_DRAFT = "opzet"
+ORIGIN_REGISTER = "register"
+ORIGIN_OWNER = "eigenaar"
+ORIGIN_ASSISTANT = "assistent"
+ORIGIN_AGENT = "agent"
+REGISTER_ACCOUNTS: frozenset[str] = frozenset({"register-import"})
+ASSISTANT_ACCOUNTS: frozenset[str] = frozenset({"assistent"})
+
+
+def relation_origin(creator: str | None, maintainers: Iterable[str] = ()) -> str:
+    """The kind of contributor that added a relation (never the account name itself)."""
+
+    if not creator:
+        return ORIGIN_DRAFT
+    if creator in REGISTER_ACCOUNTS:
+        return ORIGIN_REGISTER
+    if creator in ASSISTANT_ACCOUNTS:
+        return ORIGIN_ASSISTANT
+    if creator in set(maintainers):
+        return ORIGIN_OWNER
+    return ORIGIN_AGENT
 
 
 def auto_approved_ids(rows: Iterable[Mapping[str, Any]]) -> dict[str, set[int]]:
@@ -981,6 +1043,13 @@ def instance_certainty(
         "basis": basis,
         "n_support_clusters": balance["n_support_clusters"],
         "opposed": balance["opposed"],
+        # An independent check confirmed a sourced supporting argument (the bar for a fact)
+        "verified_support": any(
+            root.get("stance") == "supporting"
+            and root.get("status") == "geverifieerd"
+            and root.get("n_citations")
+            for root in roots
+        ),
     }
 
 
@@ -996,8 +1065,12 @@ def derived_influence(prior: float | None, roots: Sequence[Mapping[str, Any]]) -
     return round(basis * (1.0 - weight) + balance["score"] * weight, 4)
 
 
-def certainty_label(detail: Mapping[str, Any]) -> str:
-    """Qualitative label for a derived certainty (see the CERTAINTY_* thresholds)."""
+def certainty_label(detail: Mapping[str, Any], relation_type: str | None = None) -> str:
+    """Qualitative label for a derived certainty (see the CERTAINTY_* thresholds).
+
+    With the relation type, a structure fact needs one verified, classified source instead of two
+    independent clusters (STRUCTURE_FACT_TYPES).
+    """
 
     if detail.get("basis") != "evidence":
         return CERTAINTY_UNCERTAIN
@@ -1005,6 +1078,13 @@ def certainty_label(detail: Mapping[str, Any]) -> str:
     if (
         score >= CERTAINTY_WELL_SUPPORTED_MIN
         and int(detail.get("n_support_clusters") or 0) >= CERTAINTY_WELL_SUPPORTED_MIN_CLUSTERS
+    ):
+        return CERTAINTY_WELL_SUPPORTED
+    if (
+        relation_type in STRUCTURE_FACT_TYPES
+        and score >= CERTAINTY_WELL_SUPPORTED_MIN
+        and detail.get("verified_support")
+        and not detail.get("opposed")
     ):
         return CERTAINTY_WELL_SUPPORTED
     if score >= CERTAINTY_PLAUSIBLE_MIN:
@@ -1813,13 +1893,19 @@ def transform(
                 ),
                 "aard": (mechanism.get("aard") or "direct") if mechanism else None,
                 "description": scrub_text(relation.get("description")),
-                "certainty_label": certainty_label(certainty_detail[relation["id"]]),
+                "certainty_label": certainty_label(
+                    certainty_detail[relation["id"]], relation["relation_type"]
+                ),
                 "active_from": _as_text(relation.get("active_from")),
                 "active_until": _as_text(relation.get("active_until")),
                 "bidirectional": bool(relation.get("bidirectional")),
                 "source_count": relation_source_counts.get(relation["id"], 0),
                 "auto_approved": relation["id"] in auto_relations,
                 "functie": _as_text(relation.get("functie")),
+                "origin": relation_origin(
+                    raw.relation_creators.get(relation["id"]), raw.maintainers
+                ),
+                "added_at": (_as_text(relation.get("created_at")) or "")[:10] or None,
             }
         )
 
@@ -2213,10 +2299,41 @@ async def verify_target_secured(session: AsyncSession) -> list[str]:
     return problems
 
 
+# Columns a later migration adds, with the format before it: until the migration ran, the sync
+# leaves them out and stores the older format, so the first sync after the migration fills them.
+PENDING_RELATION_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("origin", "017_herkomst.sql", "8"),
+    ("added_at", "017_herkomst.sql", "8"),
+)
+
+
+async def missing_columns(session: AsyncSession, table: str, columns: Sequence[str]) -> set[str]:
+    """Columns of ``table`` that the database does not have yet (PostgreSQL only; else none)."""
+
+    if session.get_bind().dialect.name != "postgresql" or not columns:
+        return set()
+    present = set(
+        (
+            await session.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = 'public' AND table_name = :table"
+                ),
+                {"table": table},
+            )
+        ).scalars()
+    )
+    return {column for column in columns if column not in present}
+
+
 async def write_snapshot(
     session: AsyncSession, snapshot: PmSnapshot, *, batch_size: int = 500
 ) -> dict[str, int]:
-    """Full refresh in one transaction: delete pm_* then insert the snapshot in batches."""
+    """Full refresh in one transaction: delete pm_* then insert the snapshot in batches.
+
+    A column a pending migration adds (PENDING_RELATION_COLUMNS) is left out until it exists, so a
+    backend restart before that migration never stops the sync.
+    """
 
     problems = await verify_target_secured(session)
     if problems:
@@ -2224,18 +2341,36 @@ async def write_snapshot(
             "pm_* tables are not secured (run database/migrations/005_propagandamodel.sql and "
             "010_pm_argumenten.sql): " + "; ".join(problems)
         )
+    pending = await missing_columns(
+        session, "pm_relations", [column for column, _, _ in PENDING_RELATION_COLUMNS]
+    )
+    relation_rows = snapshot.relations
+    meta = dict(snapshot.meta)
+    if pending:
+        logger.warning(
+            "pm_relation_columns_pending",
+            columns=sorted(pending),
+            migrations=sorted({name for column, name, _ in PENDING_RELATION_COLUMNS if column in pending}),
+        )
+        relation_rows = [
+            {key: value for key, value in row.items() if key not in pending}
+            for row in snapshot.relations
+        ]
+        meta["format"] = min(
+            (older for column, _, older in PENDING_RELATION_COLUMNS if column in pending), key=int
+        )
     try:
         for model in (PmSource, PmArgument, PmMechanism, PmAlias, PmRelation, PmEntity, PmMeta):
             await session.execute(delete(model))
         entity_rows = [{**row, "synced_at": snapshot.synced_at} for row in snapshot.entities]
         for model, rows in (
             (PmEntity, entity_rows),
-            (PmRelation, snapshot.relations),
+            (PmRelation, relation_rows),
             (PmSource, snapshot.sources),
             (PmArgument, snapshot.arguments),
             (PmMechanism, snapshot.mechanisms),
             (PmAlias, snapshot.aliases),
-            (PmMeta, [{"key": key, "value": value} for key, value in snapshot.meta.items()]),
+            (PmMeta, [{"key": key, "value": value} for key, value in meta.items()]),
         ):
             for start in range(0, len(rows), batch_size):
                 await session.execute(insert(model), rows[start : start + batch_size])

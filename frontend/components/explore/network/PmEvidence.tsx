@@ -13,6 +13,7 @@ import {
   evidenceOf,
   evidenceSummary,
   fromParty,
+  originNote,
   researchNote,
   shortName,
   sourceLabel,
@@ -25,7 +26,7 @@ import type { PmArgument, PmArgumentSource, PmDetails, PmSourceCheck } from "@/l
 
 import { SubHeading, Tag } from "../ui/primitives";
 
-type RelationEnds = Pick<PmDetails, "type" | "mechanism" | "source" | "target" | "functie">;
+type RelationEnds = Pick<PmDetails, "type" | "mechanism" | "source" | "target" | "functie" | "active_until">;
 
 /** The end a relation is read from (who has the influence, or the person of a tie) and the other */
 function readEnds(details: RelationEnds) {
@@ -39,7 +40,7 @@ function readEnds(details: RelationEnds) {
 /** "RIVM is vaste bron voor NOS", "Heinen is lid van VVD": a relation as a sentence. Null without both ends. */
 export function relationSentence(details: RelationEnds): string | null {
   const ends = readEnds(details);
-  return ends && details.type ? `${ends.first.name} ${pmRelationLabel(details.type, details.mechanism, details.functie)} ${ends.last.name}` : null;
+  return ends && details.type ? `${ends.first.name} ${pmRelationLabel(details.type, details.mechanism, details.functie, details.active_until)} ${ends.last.name}` : null;
 }
 
 export function ArgumentStatusTag({ status, checked = false, check = null }: { status: string; checked?: boolean; check?: PmSourceCheck | null }) {
@@ -139,6 +140,8 @@ export function PmRelationDiscussion({ details, demo = false }: { details: PmDet
   const gaps = verdict === "stevig" ? [] : evidenceGaps(evidence, party);
   const research = useSWR(["relation-research", demo, details.id], () => relationResearchStatus([details.id], { demo }), exploreAuxSwrOptions);
   const note = researchNote(research.data?.get(details.id));
+  // Story 14.23: where the link comes from (first draft, register, agent, …)
+  const origin = originNote(details.origin, details.added_at);
   // The description is often the claim of an older argument: only when there is no discussion
   const summary = all.length === 0 ? details.description?.trim() || null : null;
   return (
@@ -151,6 +154,7 @@ export function PmRelationDiscussion({ details, demo = false }: { details: PmDet
         </p>
         {gaps.length ? <p className="text-xs text-ink-600">Wat ontbreekt: {gaps.join(" · ")}</p> : null}
         {note ? <p className="text-xs font-semibold text-ink-700">{note.charAt(0).toUpperCase() + note.slice(1)}</p> : null}
+        {origin ? <p className="text-xs text-ink-600">Herkomst: {origin}</p> : null}
       </div>
       {details.mechanism_description ? (
         <div className="space-y-1">

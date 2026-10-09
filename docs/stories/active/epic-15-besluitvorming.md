@@ -74,7 +74,7 @@ Uitgevoerd:
 
 ## Story 15.2: Tonen — vragen, ambten, routes
 
-**Status**: In uitvoering
+**Status**: ✅ Done (2026-10-08), één punt open
 
 Klaar (2026-10-08):
 - Een ambt leest met de functie uit het register: "is secretaris-generaal bij", "heeft als Kamerlid, fractievoorzitter"
@@ -83,8 +83,23 @@ Klaar (2026-10-08):
 - De vragen in het netwerk gaan vanzelf per categorie en per richting: `filter_counts` en `direction_counts` van
   `pm_neighborhood` hebben de nieuwe categorieën (migratie 016).
 
+- "Hoe hangen ze samen?" onder "Wie zit erachter?": routes van hoogstens twee stappen tussen de partijen uit
+  hetzelfde nieuws die door de besluitvorming lopen (ambt, zeggenschap, controle, geschenk, lobbytoegang of een
+  verband in een besluitvormingscategorie), per paar één, wat nu geldt vóór wat historisch is. Collega's via een hub
+  ("beiden Kamerlid", "beiden in de VVD": twee keer hetzelfde verband en hetzelfde ambt via een knoop met 25 of meer
+  verbanden) zeggen niets en blijven weg (`governanceRoutes` in `lib/explore/why.ts`, `useBetweenRoutes`).
+- Lokale bestuurders uit het nieuws koppelen aan hun registerknoop ("B.C.M. Vostermans (burgemeester Peel en
+  Maas)"): achternaam plus ambt plus eerste voorletter of plaats, nooit de naam alleen; een veelvoorkomende achternaam
+  (drie of meer ambtsdragers) alleen met de plaats (`PmCoverageIndex.lookup_official`). De triage koppelt bij elke
+  cyclus ook namen die eerder werden beoordeeld (`_link_register_officials`); met genoeg verbanden is onderzoek niet
+  meer nodig. Het paneel van een naam en de actorpagina tonen dan het netwerk van die knoop (via
+  `entity_research.pm_entity_id`, zonder migratie). Op echte data (2026-10-08): Melanie van der Horst, Elise Moeskops
+  (wethouders Amsterdam) en Tanja Haseloop-Amsing (burgemeester Oldebroek) gekoppeld, geen foute koppeling.
+
 Open:
-- "Wie zit erachter?": ook bestuursroutes tussen de partijen uit hetzelfde nieuws.
+- `pm_match` kent de koppeling via het onderzoek nog niet: in "Wie zit erachter?" en het netwerk van een event telt
+  een lokale bestuurder pas mee als hij onder zijn naam in het model staat (een uitbreiding van `pm_match` vergt een
+  migratie).
 - Epic 12-triage: een lokale bestuurder in het nieuws koppelt aan zijn registerknoop via achternaam, eerste
   voorletter, rol (burgemeester, wethouder) en plaats.
 - Alles in de stijl van Epic 14: serif kopjes in zinsnotatie, pills, geen uitleg-zinnen.

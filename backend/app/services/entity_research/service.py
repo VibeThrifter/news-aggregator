@@ -47,6 +47,7 @@ from backend.app.services.entity_research.pm_client import (
 )
 from backend.app.services.entity_research.pm_coverage import (
     PmCoverageIndex,
+    local_title,
     read_doelen,
     research_outcome,
 )
@@ -597,6 +598,11 @@ class EntityResearchService:
                 kind = candidate.kind if candidate.kind in ("person", "org") else "unknown"
                 lookup_aliases = {*candidate.aliases, slugify(candidate.name)}
                 info = coverage.lookup(lookup_aliases, kind) if coverage else None
+                if info is None and coverage and kind == "person":
+                    # a local office holder the register names with initials (Epic 15)
+                    info = coverage.lookup_official(
+                        candidate.name, assessment.label, assessment.organisations
+                    )
                 decision = prio.decide(
                     kind=kind,
                     category=assessment.category,
@@ -641,8 +647,41 @@ class EntityResearchService:
                     key, {"status": "overgeslagen", "status_reason": NOT_IN_NEWS, "triaged_at": now}
                 )
                 counts["overgeslagen"] += 1
+            linked = await self._link_register_officials(repo, coverage) if coverage else 0
             await session.commit()
-        return {"assessed": len(candidates), "not_in_news": len(missing), "by_status": dict(counts)}
+        return {
+            "assessed": len(candidates),
+            "not_in_news": len(missing),
+            "by_status": dict(counts),
+            "register_linked": linked,
+        }
+
+    async def _link_register_officials(
+        self, repo: EntityResearchRepository, coverage: PmCoverageIndex
+    ) -> int:
+        """Epic 15: link local office holders the register names with initials ("B.C.M. Vostermans
+        (burgemeester Peel en Maas)") on surname, office and initial or place, also names triaged
+        before the model had them. A link with enough relations makes research unnecessary."""
+
+        linked = 0
+        for row in await repo.unlinked_people():
+            if local_title(row.role_label) is None:
+                continue
+            context = (row.prominence or {}).get("context") or {}
+            places = context.get("organisaties") or []
+            info = coverage.lookup_official(row.name, row.role_label, places)
+            if info is None:
+                continue
+            values: dict[str, Any] = {"pm_entity_id": info.id, "pm_degree": info.degree}
+            enough = info.degree >= self.settings.entity_research_min_pm_relations
+            if row.status == "nieuw" and enough:
+                values["status"] = "niet_nodig"
+                values["status_reason"] = (
+                    f"Staat al in het propagandamodel met {info.degree} verbanden"
+                )
+            await repo.upsert(row.entity_key, values)
+            linked += 1
+        return linked
 
     def _triage_values(
         self,

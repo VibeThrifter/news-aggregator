@@ -275,6 +275,29 @@ export function researchNote(research: RelationResearch | null | undefined, now 
   }
 }
 
+/**
+ * Story 14.23: where a link of the model comes from, in a reader's words ("Uit de eerste opzet van
+ * het model, met AI gemaakt (1 jun)"); null when the sync does not know it (before migration 017).
+ */
+export function originNote(origin: string | null | undefined, addedAt: string | null | undefined, now = new Date()): string | null {
+  const date = shortDate(addedAt, now);
+  const on = date ? ` op ${date}` : "";
+  switch (origin) {
+    case "opzet":
+      return `Uit de eerste opzet van het model, met AI gemaakt${date ? ` (${date})` : ""}`;
+    case "register":
+      return `Uit een openbaar register, toegevoegd${on}`;
+    case "eigenaar":
+      return `Toegevoegd door de maker van het model${on}`;
+    case "assistent":
+      return `Toegevoegd door de AI-assistent van de maker${on}`;
+    case "agent":
+      return `Toegevoegd door een onderzoeksagent${on}`;
+    default:
+      return null;
+  }
+}
+
 /** "2021" from "2021-11-22" or "2021"; null when there is no year */
 export function yearOf(value: string | null | undefined): string | null {
   const match = /\b(1[89]\d{2}|20\d{2})\b/.exec(value ?? "");

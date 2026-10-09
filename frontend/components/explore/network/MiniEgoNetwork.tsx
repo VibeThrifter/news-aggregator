@@ -84,7 +84,7 @@ export function MiniEgoNetwork({ hood, demo = false, max = 10 }: { hood: PmNeigh
 
       <ul className="divide-y divide-paper-200 rounded-xl border border-paper-300" aria-label={`Verbanden van ${center.name}`}>
         {nodes.map((node) => {
-          const label = pmRelationLabel(node.relation.relation_type, node.relation.mechanism, node.relation.functie);
+          const label = pmRelationLabel(node.relation.relation_type, node.relation.mechanism, node.relation.functie, node.relation.active_until);
           return (
             <li key={node.id}>
               <Link
