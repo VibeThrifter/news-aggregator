@@ -6,8 +6,10 @@ and other background jobs according to Story 1.1 requirements.
 """
 
 import asyncio
+import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -39,6 +41,13 @@ ORPHAN_CATCH_UP_TIMEOUT_SECONDS = 240
 INSIGHT_BACKFILL_TIMEOUT_SECONDS = 600
 # Maximum time allowed for maintenance (10 minutes)
 MAINTENANCE_TIMEOUT_SECONDS = 600
+# Event Maintenance runs once a day. An interval trigger counts from the start of the process, and
+# the backend restarts more often than daily: from 2026-10-02 to 10-08 it never ran. At night the
+# Mac sleeps, so a fixed hour is missed as well. The job therefore looks every hour whether its last
+# run is a day ago, and keeps the moment of that run in a file that survives restarts
+MAINTENANCE_CHECK_MINUTES = 60
+MAINTENANCE_FIRST_CHECK_MINUTES = 5
+SCHEDULER_STATE_FILE = Path("data") / "scheduler_state.json"
 # Maximum time allowed for international enrichment (15 minutes)
 INTERNATIONAL_ENRICHMENT_TIMEOUT_SECONDS = 900
 # Maximum time allowed for bias analysis (30 minutes - many LLM calls)
@@ -55,6 +64,22 @@ ENTITY_RESEARCH_TIMEOUT_SECONDS = 600
 EVIDENCE_RESEARCH_TIMEOUT_SECONDS = 300
 
 logger = structlog.get_logger()
+
+
+def _read_state(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_state(path: Path, **values: str) -> None:
+    state = _read_state(path)
+    state.update(values)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial = path.with_suffix(".tmp")
+    partial.write_text(json.dumps(state, indent=2))
+    partial.replace(path)
 
 
 class NewsAggregatorScheduler:
@@ -81,6 +106,7 @@ class NewsAggregatorScheduler:
         # "Wat schreef …?": outcome of the last foreign article digest batch
         self._article_digest_last_run: dict | None = None
         self._voice_search_last_run: dict | None = None
+        self._state_file = SCHEDULER_STATE_FILE
         self._is_running = False
 
     def _get_ingest_service(self) -> IngestService:
@@ -183,13 +209,19 @@ class NewsAggregatorScheduler:
             bias_analysis_enabled=self.settings.bias_analysis_scheduler_enabled,
         )
 
+        # Event Maintenance: every hour it looks whether its last run is a day ago, the first time a
+        # few minutes after the start (see MAINTENANCE_CHECK_MINUTES)
         self.scheduler.add_job(
-            func=self._event_maintenance_job,
-            trigger=IntervalTrigger(hours=self.settings.event_maintenance_interval_hours),
+            func=self._event_maintenance_when_due,
+            trigger=IntervalTrigger(minutes=MAINTENANCE_CHECK_MINUTES),
+            next_run_time=(
+                datetime.now(timezone.utc) + timedelta(minutes=MAINTENANCE_FIRST_CHECK_MINUTES)
+            ),
             id="event_maintenance",
             name="Event Maintenance",
             replace_existing=True,
             max_instances=1,
+            coalesce=True,
         )
 
         # Foreign article digest - Dutch gist of what foreign articles report ("Wat schreef …?")
@@ -397,8 +429,36 @@ class NewsAggregatorScheduler:
             job_logger.error("Insight backfill job failed", error=str(exc))
             self._reset_services()
 
-    async def _event_maintenance_job(self) -> None:
-        """Refresh event centroids, archive stale events, and heal the vector index."""
+    def _maintenance_last_run(self) -> datetime | None:
+        """When Event Maintenance last succeeded, also before a restart."""
+
+        value = _read_state(self._state_file).get("event_maintenance_last_run")
+        try:
+            return datetime.fromisoformat(value) if value else None
+        except (TypeError, ValueError):
+            return None
+
+    def _record_maintenance_run(self) -> None:
+        _write_state(
+            self._state_file, event_maintenance_last_run=datetime.now(timezone.utc).isoformat()
+        )
+
+    async def _event_maintenance_when_due(self) -> None:
+        """Run Event Maintenance when its last successful run is a day ago (or unknown)."""
+
+        last_run = self._maintenance_last_run()
+        interval = timedelta(hours=self.settings.event_maintenance_interval_hours)
+        if last_run is not None and datetime.now(timezone.utc) - last_run < interval:
+            return
+        if await self._event_maintenance_job():
+            self._record_maintenance_run()
+
+    async def _event_maintenance_job(self) -> bool:
+        """Refresh event centroids, archive stale events, and heal the vector index.
+
+        Returns whether the maintenance itself succeeded (the exploration refresh after it may
+        fail).
+        """
 
         correlation_id = str(uuid.uuid4())
         job_logger = logger.bind(correlation_id=correlation_id, job="event_maintenance")
@@ -412,7 +472,7 @@ class NewsAggregatorScheduler:
             if not await ensure_healthy_connection():
                 job_logger.error("Database connection unhealthy, skipping maintenance cycle")
                 self._reset_services()
-                return
+                return False
 
             maintenance_service = self._get_maintenance_service()
             try:
@@ -426,16 +486,17 @@ class NewsAggregatorScheduler:
                     timeout_seconds=MAINTENANCE_TIMEOUT_SECONDS,
                 )
                 self._reset_services()
-                return
+                return False
 
             job_logger.info("Event maintenance job completed", **stats.as_dict())
         except Exception as exc:  # pragma: no cover - defensive logging
             job_logger.error("Event maintenance job failed", error=str(exc))
             self._reset_services()
-            return
+            return False
 
         # Story 11.8: refresh exploration data (own timeout, outside the maintenance timeout)
         await self._run_exploration_refresh(correlation_id)
+        return True
 
     async def _run_exploration_refresh(self, correlation_id: str) -> None:
         """Refresh event entities + related events after maintenance. Never raises."""
@@ -765,12 +826,17 @@ class NewsAggregatorScheduler:
             self._is_running = False
             logger.info("Scheduler stopped")
 
+    def _maintenance_last_run_text(self) -> str | None:
+        last_run = self._maintenance_last_run()
+        return last_run.isoformat() if last_run else None
+
     def get_job_status(self) -> dict:
         """Get status of scheduled jobs."""
         if not self._is_running:
             return {
                 "status": "stopped",
                 "jobs": [],
+                "event_maintenance_last_run": self._maintenance_last_run_text(),
                 "exploration_last_run": self._exploration_last_run,
                 "propagandamodel_last_run": self._propaganda_sync_last_run,
                 "entity_research_last_run": self._entity_research_last_run,
@@ -793,6 +859,7 @@ class NewsAggregatorScheduler:
         return {
             "status": "running",
             "jobs": jobs,
+            "event_maintenance_last_run": self._maintenance_last_run_text(),
             "exploration_last_run": self._exploration_last_run,
             "propagandamodel_last_run": self._propaganda_sync_last_run,
             "entity_research_last_run": self._entity_research_last_run,
@@ -843,6 +910,7 @@ class NewsAggregatorScheduler:
 
             maintenance_service = self._get_maintenance_service()
             stats = await maintenance_service.run(correlation_id=correlation_id)
+            self._record_maintenance_run()
             return {"success": True, "correlation_id": correlation_id, **stats.as_dict()}
         except Exception as e:
             logger.error(
@@ -850,6 +918,36 @@ class NewsAggregatorScheduler:
             )
             self._reset_services()
             return {"success": False, "error": str(e), "correlation_id": correlation_id}
+
+    async def merge_split_events_now(
+        self, *, hours: float, limit: int, dry_run: bool, older_than_hours: float = 0
+    ) -> dict:
+        """Merge news items of one Dutch article into the item that has the same news (admin).
+
+        Runs on the poll's own event service, so it shares its vector index and takes its turn
+        with the assignments of a running poll.
+        """
+        correlation_id = str(uuid.uuid4())
+        event_service = self._get_ingest_service().event_service
+        return await event_service.merge_split_events(
+            hours=hours,
+            older_than_hours=older_than_hours,
+            limit=limit,
+            dry_run=dry_run,
+            correlation_id=correlation_id,
+        )
+
+    async def run_catch_up_now(self, *, limit: int, max_age_hours: float) -> dict:
+        """Enrich and assign articles earlier cycles left behind (admin; each poll does 25)."""
+        correlation_id = str(uuid.uuid4())
+        return await self._get_ingest_service().catch_up_orphans(
+            limit=limit, max_age_hours=max_age_hours, correlation_id=correlation_id
+        )
+
+    async def classify_pending_now(self, *, limit: int, max_age_hours: float | None) -> dict:
+        """Ask again the type of enriched Dutch articles whose classification failed (admin)."""
+        enrichment_service = self._get_ingest_service().enrichment_service
+        return await enrichment_service.classify_pending(limit=limit, max_age_hours=max_age_hours)
 
     async def run_insight_backfill_now(self, limit: int | None = None) -> dict:
         """Manually trigger insight backfill (for testing/admin)."""

@@ -6,7 +6,7 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -40,6 +40,16 @@ class EventMaintenanceBundle:
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug or "event"
+
+
+def _news_start(published_at: datetime | None, timestamp: datetime) -> datetime:
+    """When a new event's news started: its article's publication, unless that lies ahead."""
+
+    if published_at is None:
+        return timestamp
+    published = published_at if published_at.tzinfo else published_at.replace(tzinfo=timezone.utc)
+    current = timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=timezone.utc)
+    return min(published, current)
 
 
 # Centroids are stored with 6 decimals instead of 17: half the space, and a cosine score moves at
@@ -228,7 +238,10 @@ class EventRepository:
             centroid_tfidf=dict(centroid_tfidf),
             centroid_entities=centroid_entities,
             event_type=article.event_type,  # Inherit event type from seed article
-            first_seen_at=timestamp,
+            # Not the moment of fetching: a source that catches up (the Volkskrant, Het Parool and
+            # Trouw on 2026-10-07, 282 items of older news) would top the front page, which is sorted
+            # on first_seen_at. Event Maintenance sets the same (the earliest article).
+            first_seen_at=_news_start(article.published_at, timestamp),
             last_updated_at=timestamp,
             article_count=0,
         )

@@ -1005,11 +1005,189 @@ doen?"
     haalt de ingest alleen nieuwe pagina's op. Na die controle en na elk opgeslagen artikel sluit de transactie,
     zodat er tijdens het ophalen geen transactie openstaat. Een andere sessie zag sessies die 13 minuten "idle in
     transaction" bleven, met locks op `articles` (commit 52ed946).
+  - Daarna kwam er van de drie kranten nog steeds niets binnen. In de backend liep elke pagina tegen de 15 s aan,
+    en dan stond de browser nog op de privacypoort van DPG (`myprivacy.dpgmedia.nl`, ±18 KB). Die HTML is geen
+    artikel ("empty_extraction"). Los haalde een script dezelfde pagina's wel op. Twee oorzaken, in
+    `ingestion/playwright_fetch.py`:
+    - Om plaatjes te weren stuurde de browser elk verzoek van een pagina langs Python (`route("**/*")`). Tijdens een
+      ronde heeft de event loop van de backend het druk, en dan wacht elk verzoek. In een proef met een drukke loop
+      duurde een DPG-artikel zo 15 tot 24 s. Wie alleen plaatjes, fonts en video op bestandsnaam weert
+      (`STATIC_FILES`), is in 6 tot 9 s klaar.
+    - Alle Playwright-bronnen laadden tegelijk. De pool had `max_contexts=3`, maar gebruikte dat niet. Nu laden
+      er hoogstens 3 pagina's tegelijk.
+  - De poort stuurt de browser vanzelf terug naar het artikel. Staat de pagina na het laden nog op de poort, dan
+    wacht de fetch tot dat gebeurt. Lukt dat niet, dan telt het als mislukte fetch: dan de RSS-samenvatting, of de
+    volgende ronde.
+  - Resultaat in de backend: ±10 s per artikel in plaats van ±45 s, zonder time-outs. Tussen 22:40 en 23:35 kwamen
+    er 100 artikelen van de Volkskrant, 129 van Het Parool en 83 van Trouw binnen, gemiddeld 4.500 tot 5.200
+    tekens. De korte zijn video-, podcast- en cartoonpagina's. AD, NU.nl en De Telegraaf slaan weer de
+    artikeltekst op. Sinds 30 september was 93 tot 100% van hun artikelen korter dan 400 tekens, de
+    RSS-samenvatting. Bij De Telegraaf is het de tekst vóór de betaalmuur, ±1.600 tekens.
+  - **Gevolgen van de inhaalronde**. De RSS van de drie kranten bevat ook ouder werk: 200 van de 312 artikelen
+    waren ouder dan een dag, terug tot juni (achtergronden, cartoons, recepten).
+    - Elk artikel vroeg om een classificatie en vaak een nieuw nieuwsitem met een analyse. Rond 23:30 zat het
+      Claude Code-abonnement aan zijn sessielimiet, tot 00:50. In die tijd mislukten 393 classificaties (dan
+      `other`) en 373 analyses. De backfill haalt de analyses in, de classificaties niet.
+    - Een nieuw nieuwsitem kreeg als `first_seen_at` het moment van ophalen. Pagina 1 van de voorpagina bestond
+      daardoor uit 120 nieuwsitems van de inhaalronde, met nieuws van juni tot vandaag, en niets geanalyseerd.
+      Hersteld: van de 370 nieuwsitems van na 20:00 is `first_seen_at` nu de eerste publicatie van hun artikelen.
+      Dat is de regel die Event Maintenance al gebruikte (een dag later). Pagina 1 is weer nieuws van 7 en 8
+      oktober, en 73 van de 120 items zijn geanalyseerd. Een nieuw nieuwsitem begint nu bij de publicatie van zijn
+      artikel (`_news_start` in `repositories/event_repo.py`), met een test voor een bron die achterloopt.
+      `last_updated_at` blijft het moment van koppelen.
+    - De backfill zocht nieuwsitems zonder analyse op `last_updated_at`. Dan kwamen de ±280 items met ouder
+      nieuws eerst, ±10 uur Sonnet, vóór de items zonder analyse op pagina 1. Daarom sorteert hij ze nu op
+      `first_seen_at`, zoals de voorpagina (`services/insight_service.py`, opgepakt door de sessie die daar aan
+      werkte).
+  - NieuwRechts (een Angular-app) gaf ook via de browser geen tekst aan trafilatura. Opgelost op 8 oktober, zie
+    hieronder.
   - Een Blik op de NOS levert sinds 24 december 2025 niets. De X-API weigert de sleutel (403, "keys and tokens from
-    a developer App that is attached to a Project"). Herstel vraagt een X-ontwikkelaarsaccount van de eigenaar.
+    a developer App that is attached to a Project"). Sinds 8 oktober komt de bron van YouTube, zie hieronder.
 - **Gevonden door een andere sessie**: hetzelfde verhaal staat vaak los in twee nieuwsitems, bijvoorbeeld 8079 "Messi
   eert Maradona" (NU.nl) en 7973 "Messi neemt afscheid" (2 bronnen). Van de 120 items op pagina 1 hebben er maar 7
-  twee of meer Nederlandse bronnen. Dat ligt aan de clustering en is nog open.
+  twee of meer Nederlandse bronnen. Dat lag aan de clustering, zie hieronder.
+
+### Losse items, bronnen zonder tekst en wat geen nieuws is (2026-10-08)
+Eigenaar, over de open punten van 14.19: "fix dit allemaal".
+- **Een Blik op de NOS komt van YouTube**:
+  - Het account heeft geen website, xcancel is opgeheven en Nitter werkt niet meer. Het X-account vraagt een
+    betaald API-abonnement om berichten te lezen.
+  - Het YouTube-kanaal "Een blik op de NOS" heeft een open feed. Elke video is een fragment van de NOS met de kritiek
+    in de beschrijving; de laatste is van 2 oktober.
+  - `feeds/eenblikopdenos.py` leest die feed. Titel plus beschrijving zijn de tekst (`parser: rss_only`: de
+    videopagina wordt nooit opgehaald). Zoals bij elke bron alleen nieuws van de laatste 24 uur (zie "Alleen
+    actueel nieuws" hieronder); eerst 14 dagen, anders haalt de oude kritiek gearchiveerd nieuws terug.
+  - De koppeling met NOS-nieuws (`source_affinity`, de aparte prompt) is dezelfde als bij de tweets.
+- **NieuwRechts geeft weer tekst**: `playwright-stealth` breekt hun Angular-app; zonder stealth toont de pagina het
+  artikel (2.492 tot 23.664 tekens in een proef). Stealth is nu per bron instelbaar (`stealth: false` in
+  `source_profiles.yaml`).
+- **Wat geen nieuws is, gaat er vóór het ophalen uit**:
+  - Per bron patronen op URL en kop (`skip_urls`, `skip_titles` in `source_profiles.yaml`), getoetst op alle
+    opgeslagen artikelen. Het gaat om:
+    - cartoons, strips en puzzels: Trouw, Het Parool;
+    - recepten: Trouw;
+    - "Zoek de verschillen": Het Parool;
+    - horoscopen, "Praat mee" en stellingen: De Telegraaf;
+    - quizzen, winacties en "Praat mee": AD;
+    - oproepen aan lezers: NU.nl;
+    - quizzen: de Volkskrant;
+    - StamCafé, VrijMiBo en lijstjes: GeenStijl;
+    - advertenties voor crypto-mining: NineForNews;
+    - de aankondiging van een nieuwe uitgave: De Andere Krant. Die regel stond eerst los in de code.
+  - Recensies, columns, opinie en roddels blijven erin: dat is journalistiek met een standpunt.
+  - 26 nieuwsitems die alleen uit zulke items bestonden, zijn gearchiveerd. Twee zulke items hangen in een echt
+    nieuwsitem (StamCafé bij Gaza, een stelling bij de warmtepomp) en zijn gebleven.
+- **Event Maintenance draait weer dagelijks**:
+  - Een interval van 24 uur telt vanaf de start van de backend, en die herstart vaker dan dagelijks. Tussen 2 en 8
+    oktober liep het daarom nooit.
+  - Een vaste tijd werkt ook niet: 's nachts slaapt de Mac (geen rondes tussen ±01:00 en ±10:00).
+  - Nu kijkt de job elk uur, de eerste keer 5 minuten na de start, of de laatste geslaagde ronde 24 uur oud is. Dat
+    moment staat in `data/scheduler_state.json` en overleeft een herstart. Ook een handmatige ronde telt.
+    `/admin/scheduler/status` toont `event_maintenance_last_run`.
+  - De eerste ronde (8 oktober 09:51): 2.634 nieuwsitems doorgerekend, 0 gearchiveerd. Het oudste actieve item is
+    van 2 oktober, en archiveren gebeurt na 14 dagen. Daarna schreef de verkenning 49.186 verbanden opnieuw.
+- **357 artikelen kwamen nooit op de site**:
+  - Nederlandse artikelen van drie dagen stonden opgeslagen, maar waren nooit verrijkt. Daardoor zaten ze in
+    geen nieuwsitem: 93 van RTL Nieuws, 54 van AD, 52 van De Telegraaf en 49 van de NOS.
+  - Het waren rondes die werden afgebroken (herstarts, time-outs) tussen opslaan en verrijken. De verrijking sloeg
+    alles pas aan het eind van een batch op. De inhaalronde (25 per ronde, oudste eerst, 240 s) liep 29 van de 32
+    keer tegen zijn time-out, verloor dan alles en begon weer bij dezelfde 25.
+  - Nu slaat de verrijking per 5 artikelen op (`ENRICH_CHUNK_SIZE`), zonder open transactie tijdens de
+    LLM-aanroepen. De inhaalronde koppelt eerst wat al verrijkt is, en verrijkt daarna de nieuwste eerst; eerst
+    at de verrijking zijn 240 s op en kwamen verrijkte artikelen nooit aan een nieuwsitem. Sinds die avond neemt
+    hij alleen Nederlands nieuws van de laatste 24 uur (zie "Alleen actueel nieuws" hieronder).
+    `POST /admin/trigger/catch-up?limit=100` doet hetzelfde met een grotere batch.
+- **Losse items**: 2 tot 8% van de nieuwsitems had twee of meer Nederlandse bronnen, ook na de sessielimiet. Van de
+  ±85 artikelen tussen 06:00 en 10:00 op 8 oktober kwam er geen bij een bestaand item. Oorzaken, gemeten op 230
+  paren artikelen van verschillende kranten in verschillende items (30 uur):
+  - De LLM kreeg alleen kandidaten vanaf score 0,55, en koppelen vroeg daarna nog 0,60. Kranten noemen andere
+    mensen en plaatsen, en de strafpunten voor weinig gedeelde namen drukten het zelfde nieuws naar 0,14 tot 0,78.
+    Zelfs een "EVENT_1" van de LLM werd overruled (RTL en De Telegraaf over ABN Amro: 0,58).
+  - Een mislukte classificatie gaf `other`, en een ander type dan het item vroeg 0,70. Tijdens de sessielimiet kwam
+    daardoor bijna niets bij elkaar.
+  - De lezers lopen naast elkaar. Twee kranten met hetzelfde nieuws, beoordeeld op hetzelfde moment, zagen elkaars
+    nieuwe item niet.
+  - Vaste tekst van een krant ("Luister ook naar onze podcast", een cookiemelding) drukt de woordovereenkomst. Haiku
+    zet soms uitleg achter zijn oordeel, en de code las dan "EVENT 1" uit die uitleg.
+- **Nu, in `services/event_service.py`**:
+  - De LLM beoordeelt elke kandidaat die hetzelfde nieuws kan zijn (`LLM_ASK_*`), ongeacht het type: embedding ≥ 0,70
+    en woordovereenkomst (tf-idf) ≥ 0,20. Of dezelfde mensen en plaatsen met wat gedeelde woorden. Of twee gedeelde
+    woorden in de kop ("BAM koopt bouwbedrijf ..." en "Bouwbedrijf BAM koopt ..."). Gemeten: het zelfde nieuws deelt
+    minstens ±0,2 aan woorden, teksten die alleen op elkaar lijken minder dan 0,15.
+  - Het oordeel van de LLM beslist, zonder drempel achteraf. Het eerste oordeel in zijn antwoord telt.
+  - Artikelen worden één voor één gekoppeld (`_assignment_lock`). Een artikel dat al in een item zit, blijft daar.
+  - Kan de LLM niet oordelen terwijl het moest, dan wacht het artikel als wees op de volgende ronde in plaats van
+    een eigen item te beginnen, zolang zijn nieuws jonger is dan 20 uur (eerst: 24 uur na ophalen).
+  - Een mislukte classificatie laat het type leeg (`None`), en de inhaalronde vraagt het opnieuw (10 per ronde,
+    `classify_pending`). Het nieuwsitem krijgt dan dat type als het er nog geen had.
+- **Herstel van de data**:
+  - 275 artikelen die tijdens de sessielimiet `other` kregen, en 254 nieuwsitems met dat type, hebben weer een leeg
+    type en worden opnieuw geclassificeerd (`POST /admin/trigger/classify-pending`).
+  - `POST /admin/trigger/merge-split-events` beoordeelt elk nieuwsitem met één Nederlands artikel van de laatste 72
+    uur opnieuw, zonder zichzelf als kandidaat. Zegt de LLM dat het artikel bij een ander item hoort, dan verhuist
+    het en wordt het lege item gearchiveerd. De nieuwste gaan eerst, zodat een artikel naar het item gaat dat er al
+    was. Items waar lezers iets in zochten of deelden, blijven staan, en een proef (`dry_run`) toont alleen wat er
+    zou verhuizen.
+  - Proef op 80 losse items: 31 verhuizingen, waarvan 30 terecht (Jigal Krant, Jetten en AI, het stikstofslot van
+    de Rotterdamse haven, Depay bij Corinthians, BAM, de WWF-index). Eén was fout: RTL over de familievakantie van
+    André en Roxeanne Hazes kwam bij een ander verhaal over André Hazes.
+  - Echte run op de nieuwste 148 losse items (8 oktober 10:10–10:32, tot ±7 oktober 12:00): 41 samengevoegd, 98
+    bleven los, 9 overgeslagen. Twee samenvoegingen waren fout: Hazes, en "Demonstranten onderbreken
+    Trump-bijeenkomst in Texas" bij de rechtszaak over Trumps reclamespots. Beide zijn met de hand teruggezet.
+    Reken op ±5% fouten bij deze stap. De run stopte toen het Claude Code-abonnement om ±10:30 weer aan zijn
+    sessielimiet zat. Een tweede run nam de items van 22 tot 72 uur oud (`older_than_hours`).
+  - Tijdens die sessielimiet (10:30–10:50) wachtten 15 artikelen als wees, in plaats van een eigen nieuwsitem te
+    beginnen. De inhaalronde van 10:54 verrijkte eerst en liep toen tegen zijn 240 s aan, zodat ze bleven wachten;
+    daarom koppelt de inhaalronde nu eerst. Om ±11:30 waren alle 15 gekoppeld: 12 bij een bestaand nieuwsitem,
+    3 als eigen item. Zonder wachten waren het 15 losse items geworden.
+  - Tweede run (items van 22 tot 72 uur oud): 40 samengevoegd, 24 bleven los. Eén was fout (AD over André Hazes en
+    zijn moeder kwam bij De slimste mens en Paulien Cornelisse) en is teruggezet. De run is om 11:25 gestopt: met
+    de samenvoegrun en de analyses op beide LLM-plekken (`CLAUDE_CODE_MAX_PARALLEL=2`) liepen de RSS-rondes tegen
+    hun tijdslimiet, en na een time-out slaat de backend de inhaalronde over. Wat over is, kan later
+    (`merge-split-events?hours=72&older_than_hours=…`).
+- Tests: de nieuwe tests voor koppelen, samenvoegen, verrijken, classificeren, de feeds, de profielen en
+  Event Maintenance slagen. Tegen de oude koppelcode falen er 11 van de 12 nieuwe koppeltests. In de hele
+  backend-suite slagen er 764 en falen er 8. Die 8 falen ook op een schone `HEAD`.
+- Live, sinds de nieuwe code (8 oktober 09:53–11:40): 38 artikelen kwamen bij een bestaand nieuwsitem (27 op het
+  oordeel van de LLM), 45 begonnen een nieuw item. Tussen 06:00 en 10:00 die ochtend was dat 0 tegen ±85. Het
+  aandeel actieve nieuwsitems met twee of meer Nederlandse bronnen: 6 oktober van 8 naar 12,5%, 7 oktober van 3
+  naar 7,5% (veel oud nieuws uit de inhaalronde, zonder tegenhanger), 8 oktober van 2 naar 15,4%.
+- **Alleen actueel nieuws, Nederlandse bronnen eerst** (eigenaar, 8 oktober 's avonds: "gebruik de nederlandse
+  bronnen als hoofdbronnen niet de buitenlandse.. en doe maar het huidige nieuws ophalen en geen oud nieuws van
+  gisteren of daarvoor"):
+  - De hoofdbronnen waren al de acht Nederlandse (`news_sources.is_main_source`); geen buitenlandse bron heeft die
+    vlag. Het lek zat in de inhaalronde. Die verrijkte ook de buitenlandse artikelen van Google News, en omdat die
+    het nieuwst zijn, kwamen ze steeds eerst: 274 in 12 uur, elk met een Haiku-aanroep voor het type. Intussen
+    wachtten 10 Nederlandse artikelen van die dag (5 van De Telegraaf sinds 17:11, 5 van NieuwRechts sinds 07:04).
+    Buitenlandse artikelen worden niet meer verrijkt: Google News geeft alleen de kop, en de internationale
+    verrijking hangt ze zelf aan het nieuws.
+  - "Huidig" is de laatste 24 uur sinds publicatie. Een grens om middernacht zou een artikel van 23:50 laten vallen
+    dat om 00:05 binnenkomt.
+  - Feeditems die langer geleden verschenen, worden voor geen enkele bron meer opgehaald (`CURRENT_NEWS_HOURS` in
+    `services/ingest_service.py`; vervangt de 14 dagen van Een Blik op de NOS). Ze worden nooit opgeslagen, dus elke
+    ronde ziet ze opnieuw: één logregel per feed (`skipping_old_items`).
+  - De inhaalronde (verrijken, koppelen, opnieuw classificeren) neemt alleen Nederlandse artikelen waarvan het
+    nieuws hoogstens 24 uur oud is, geteld vanaf publicatie in plaats van ophalen. Van de 69 onverwerkte artikelen
+    die in de laatste 24 uur binnenkwamen, waren er 59 nieuws van 6 en 7 oktober (de Volkskrant, Het Parool en
+    Trouw, opgehaald op 7 oktober om ±23:00). Met de 284 die eerder binnenkwamen zijn dat de 343 Nederlandse
+    artikelen van 6 en 7 oktober; die blijven liggen, net als de 863 buitenlandse.
+  - Een artikel wacht op de LLM zolang zijn nieuws jonger is dan 20 uur (`DEFER_MAX_AGE`). Daarna beslist de
+    inhaalronde op de scores, voordat het artikel uit zijn venster van 24 uur valt; anders kreeg het nooit een
+    nieuwsitem.
+  - De admin-knoppen `catch-up` en `classify-pending` nemen standaard ook 24 uur. `POST /admin/trigger/enrich`
+    verrijkt alle Nederlandse artikelen, ook oudere, en nooit buitenlandse.
+- **De nieuwsstappen gaan voor bij de LLM-plekken** (eigenaar: "Als we huidig nieuws ophalen loopt alles dan wel vlot
+  zonder opstopping?"). Gemeten tussen 21:15 en 23:00 op 8 oktober:
+  - 4 van de 8 rondes liepen tegen hun limiet van 300 s, en 3 inhaalrondes tegen hun 240 s.
+  - Op de twee plekken van Claude Code (`CLAUDE_CODE_MAX_PARALLEL=2`) draaiden 368 Sonnet-aanroepen (66 minuten,
+    tot 126 s per aanroep) en 209 Haiku-aanroepen (32 minuten, mediaan 7 s).
+  - 201 van die Sonnet-aanroepen kwamen uit de ronde zelf. Elke koppeling of nieuw item start op de achtergrond een
+    (nieuwe) analyse. De rest kwam van de insight-backfill, die tegelijk met de ronde start.
+  - De korte aanroepen van de ronde (type, koppelen) stonden daardoor achter analyses in de rij.
+  - Nu krijgt een wachtende aanroep van de nieuwsstappen de eerstvolgende vrije plek
+    (`NEWS_PIPELINE_PRIORITY` in `llm/claude_code.py`; classificatie en koppelen). De analyses en de digests van
+    buitenlandse artikelen komen daarna. Een lopende aanroep wordt niet onderbroken, dus een nieuwsaanroep wacht
+    hoogstens tot er één klaar is. Het aantal plekken en de modellen blijven gelijk.
 
 ## Story 14.20: Namen onder een bevinding openen hun ballon
 

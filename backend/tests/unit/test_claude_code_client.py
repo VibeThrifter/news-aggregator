@@ -6,6 +6,7 @@ json` and reports what it was started with (arguments, API key in the environmen
 
 from __future__ import annotations
 
+import asyncio
 import json
 import stat
 import sys
@@ -15,7 +16,14 @@ import pytest
 from pydantic import BaseModel
 
 from backend.app.core.config import get_settings
-from backend.app.llm.claude_code import ClaudeCodeClient, is_claude_code, provider_model
+from backend.app.llm.claude_code import (
+    DEFAULT_PRIORITY,
+    NEWS_PIPELINE_PRIORITY,
+    ClaudeCodeClient,
+    _Slots,
+    is_claude_code,
+    provider_model,
+)
 from backend.app.llm.client import LLMQuotaExhaustedError, LLMTimeoutError
 from backend.app.llm.providers import build_llm_client
 
@@ -88,6 +96,8 @@ async def test_structured_answer_without_tools_context_or_api_key(fake_claude):
     assert args[:3] == ["-p", "--output-format", "json"]
     assert args[args.index("--tools") + 1] == ""
     assert args[args.index("--model") + 1] == "haiku"
+    # Owner 2026-10-09: medium effort on every step (the CLI default may be high)
+    assert args[args.index("--effort") + 1] == "medium"
     assert json.loads(args[args.index("--json-schema") + 1])["required"] == ["category", "reason"]
     assert "--strict-mcp-config" in args and "--no-session-persistence" in args
     # The subscription login, never an API key; an empty working directory (no CLAUDE.md)
@@ -118,3 +128,86 @@ async def test_a_call_that_takes_too_long_times_out(fake_claude, monkeypatch):
     quick = settings.model_copy(update={"claude_code_timeout_seconds": 1})
     with pytest.raises(LLMTimeoutError):
         await ClaudeCodeClient(settings=quick).generate_text("x")
+
+
+async def test_a_waiting_news_call_gets_the_next_slot_before_earlier_analyses():
+    """The analyses every link starts (Sonnet, up to two minutes a call) held both slots while
+    the poll's short calls queued behind them: half the polls of 2026-10-08 evening timed out."""
+    slots = _Slots(1)
+    order: list[str] = []
+    release = asyncio.Event()
+
+    async def call(name: str, priority: int) -> None:
+        async with slots.hold(priority):
+            order.append(name)
+            if name == "analysis 1":
+                await release.wait()
+
+    first = asyncio.create_task(call("analysis 1", DEFAULT_PRIORITY))
+    await asyncio.sleep(0)
+    waiting = [
+        asyncio.create_task(call("analysis 2", DEFAULT_PRIORITY)),
+        asyncio.create_task(call("classification", NEWS_PIPELINE_PRIORITY)),
+        asyncio.create_task(call("analysis 3", DEFAULT_PRIORITY)),
+        asyncio.create_task(call("event assignment", NEWS_PIPELINE_PRIORITY)),
+    ]
+    await asyncio.sleep(0)
+    release.set()
+    await asyncio.gather(first, *waiting)
+
+    assert order == ["analysis 1", "classification", "event assignment", "analysis 2", "analysis 3"]
+
+
+async def test_never_more_calls_at_once_than_there_are_slots():
+    slots = _Slots(2)
+    running = most = 0
+
+    async def call(priority: int) -> None:
+        nonlocal running, most
+        async with slots.hold(priority):
+            running += 1
+            most = max(most, running)
+            await asyncio.sleep(0.01)
+            running -= 1
+
+    await asyncio.gather(*(call(index % 2) for index in range(7)))
+
+    assert most == 2
+
+
+async def test_a_cancelled_waiter_does_not_keep_a_slot():
+    """A poll that times out cancels its waiting calls; their slot must not get lost."""
+    slots = _Slots(1)
+    release = asyncio.Event()
+
+    async def holder() -> None:
+        async with slots.hold():
+            await release.wait()
+
+    async def waiter() -> None:
+        async with slots.hold(NEWS_PIPELINE_PRIORITY):
+            pass
+
+    held = asyncio.create_task(holder())
+    await asyncio.sleep(0)
+    cancelled = asyncio.create_task(waiter())
+    await asyncio.sleep(0)
+    cancelled.cancel()
+    release.set()
+    await held
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled
+
+    await asyncio.wait_for(waiter(), timeout=1)
+
+
+def test_the_news_steps_ask_for_their_slot_first():
+    client = build_llm_client("claude-code:haiku", get_settings(), priority=NEWS_PIPELINE_PRIORITY)
+    assert client.priority == NEWS_PIPELINE_PRIORITY
+    assert build_llm_client("claude-code:sonnet", get_settings()).priority == DEFAULT_PRIORITY
+
+
+async def test_without_an_effort_the_cli_picks_its_own(fake_claude):
+    settings, seen = fake_claude
+    await ClaudeCodeClient(settings=settings.model_copy(update={"claude_code_effort": None})).generate_text("x")
+    assert "--effort" not in seen()["args"]

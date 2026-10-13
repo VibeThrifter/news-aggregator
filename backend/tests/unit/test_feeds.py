@@ -7,7 +7,7 @@ according to Story 1.1 acceptance criteria.
 
 import asyncio
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
 
@@ -279,6 +279,63 @@ class TestNuRssReader:
             assert "tweede-kamer-debatteert" in first_item.url
             assert "Tweede Kamer" in first_item.title
             assert first_item.source_metadata["name"] == "NU.nl"
+
+
+YOUTUBE_FEED = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/"
+      xmlns="http://www.w3.org/2005/Atom">
+ <title>Een blik op de NOS</title>
+ <entry>
+  <id>yt:video:MRWPnZVOtCc</id>
+  <yt:videoId>MRWPnZVOtCc</yt:videoId>
+  <yt:channelId>UCpsU4OfNLGVyTmKs4Ir28LQ</yt:channelId>
+  <title>"vliegramp" = 9/11-achtige terreuraanslag</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=MRWPnZVOtCc"/>
+  <published>2026-10-02T19:18:49+00:00</published>
+  <media:group>
+   <media:title>"vliegramp" = 9/11-achtige terreuraanslag</media:title>
+   <media:thumbnail url="https://i2.ytimg.com/vi/MRWPnZVOtCc/hqdefault.jpg" width="480" height="360"/>
+   <media:description>Bij monde van Winfried Baijens zegt de NOS dat de piloot een "vliegramp" heeft voorkomen.</media:description>
+  </media:group>
+ </entry>
+</feed>
+"""
+
+
+class TestEenBlikOpDeNosReader:
+    """Een Blik op de NOS comes from its YouTube channel since X answers 403 (2025-12)."""
+
+    @pytest.mark.asyncio
+    async def test_videos_become_items_with_the_description_as_text(self):
+        from contextlib import asynccontextmanager
+
+        from backend.app.feeds.eenblikopdenos import DEFAULT_FEED_URL, EenBlikOpDeNosReader
+
+        response = MagicMock()
+        response.content = YOUTUBE_FEED
+        response.raise_for_status = MagicMock()
+        client = AsyncMock()
+        client.get = AsyncMock(return_value=response)
+
+        @asynccontextmanager
+        async def mock_http_client(*args, **kwargs):
+            yield client
+
+        reader = EenBlikOpDeNosReader(DEFAULT_FEED_URL)
+        with patch("backend.app.feeds.eenblikopdenos.http_client", mock_http_client):
+            items = await reader.fetch()
+
+        client.get.assert_called_once_with(DEFAULT_FEED_URL)
+        assert reader.id == "eenblikopdenos_rss"
+        [item] = items
+        assert item.guid == "youtube-MRWPnZVOtCc"
+        assert item.url == "https://www.youtube.com/watch?v=MRWPnZVOtCc"
+        assert item.title == '"vliegramp" = 9/11-achtige terreuraanslag'
+        assert item.published_at == datetime(2026, 10, 2, 19, 18, 49, tzinfo=timezone.utc)
+        assert item.image_url == "https://i2.ytimg.com/vi/MRWPnZVOtCc/hqdefault.jpg"
+        assert item.source_metadata["name"] == "Een Blik op de NOS"
+        text = item.source_metadata["full_text_from_feed"]
+        assert text.startswith('"vliegramp"') and "Winfried Baijens" in text
 
 
 class TestIngestService:

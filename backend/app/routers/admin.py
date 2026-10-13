@@ -168,7 +168,7 @@ async def trigger_maintenance():
 
 @router.post("/trigger/enrich")
 async def trigger_enrich():
-    """Manually trigger article enrichment."""
+    """Enrich every Dutch article not processed yet, also older news (foreign articles never)."""
     enrichment_service = ArticleEnrichmentService()
     result = await enrichment_service.enrich_pending(limit=None)
     return result
@@ -180,6 +180,36 @@ async def trigger_assign_events(limit: int = 200, max_age_hours: float | None = 
     event_service = EventService()
     result = await event_service.assign_orphaned_articles(limit=limit, max_age_hours=max_age_hours)
     return result
+
+
+@router.post("/trigger/catch-up")
+async def trigger_catch_up(limit: int = 25, max_age_hours: float = 24):
+    """Enrich and assign Dutch articles that earlier cycles left behind (newest first), as every
+    poll does for 25 of them, and ask again the type of those whose classification failed.
+    Like the poll, only news published in the last `max_age_hours`."""
+    scheduler = get_scheduler()
+    return await scheduler.run_catch_up_now(limit=limit, max_age_hours=max_age_hours)
+
+
+@router.post("/trigger/merge-split-events")
+async def trigger_merge_split_events(
+    hours: float = 72, limit: int = 100, dry_run: bool = True, older_than_hours: float = 0
+):
+    """Merge news items of one Dutch article (published in the last `hours`, but not in the last
+    `older_than_hours`) into the item that has the same news, on the LLM's verdict; dry_run
+    (default) only lists the moves."""
+    scheduler = get_scheduler()
+    return await scheduler.merge_split_events_now(
+        hours=hours, limit=limit, dry_run=dry_run, older_than_hours=older_than_hours
+    )
+
+
+@router.post("/trigger/classify-pending")
+async def trigger_classify_pending(limit: int = 50, max_age_hours: float | None = 24):
+    """Ask again the type of enriched Dutch articles whose classification failed (newest first;
+    published in the last `max_age_hours`, leave it empty for all)."""
+    scheduler = get_scheduler()
+    return await scheduler.classify_pending_now(limit=limit, max_age_hours=max_age_hours)
 
 
 @router.get("/scheduler/status")

@@ -12,6 +12,9 @@ sources:
     parser: trafilatura
     requires_js: true
     cookie_ttl_minutes: 0
+    # No news: quizzes, giveaways ("Maak kans op ..."), reader discussions
+    skip_urls: ['/quiz/']
+    skip_titles: ['^Maak kans op', '^Praat mee:']
   nunl_rss:
     feed_url: https://www.nu.nl/rss/Algemeen
     fetch_strategy: playwright
@@ -19,6 +22,8 @@ sources:
     parser: trafilatura
     requires_js: true
     cookie_ttl_minutes: 0
+    # No news: calls for readers' stories
+    skip_titles: ['^Oproep \s*\|']
   rtl_rss:
     feed_url: https://www.rtl.nl/rss.xml
     fetch_strategy: simple
@@ -32,6 +37,8 @@ sources:
     parser: trafilatura
     requires_js: true
     cookie_ttl_minutes: 0
+    # No news: horoscopes, reader discussions and polls
+    skip_titles: ['^(dag|week|maand|jaar)horoscoop', '^Praat mee:', '^Stelling:']
   volkskrant_rss:
     feed_url: https://www.volkskrant.nl/voorpagina/rss.xml
     fetch_strategy: playwright
@@ -39,6 +46,8 @@ sources:
     parser: trafilatura
     requires_js: true
     cookie_ttl_minutes: 0
+    # No news: quizzes
+    skip_titles: ['quiz\b']
   parool_rss:
     feed_url: https://www.parool.nl/voorpagina/rss.xml
     fetch_strategy: playwright
@@ -46,12 +55,17 @@ sources:
     parser: trafilatura
     requires_js: true
     cookie_ttl_minutes: 0
+    # No news: cartoons, comics and puzzles, "Zoek de verschillen"
+    skip_urls: ['/cartoons/', '/strips-en-puzzels/']
+    skip_titles: ['^Zoek de verschillen']
   anderekrant_rss:
     feed_url: https://deanderekrant.nl/feed/
     fetch_strategy: simple
     user_agent: News360Fetcher/1.0 (+https://github.com/news-aggregator)
     parser: trafilatura
     cookie_ttl_minutes: 0
+    # No news: the announcement of a new edition ("2025 – Uitgave 48")
+    skip_titles: ['^\d{4}\s*[–-]\s*Uitgave\b']
   trouw_rss:
     feed_url: https://www.trouw.nl/voorpagina/rss.xml
     fetch_strategy: playwright
@@ -59,12 +73,16 @@ sources:
     parser: trafilatura
     requires_js: true
     cookie_ttl_minutes: 0
+    # No news: cartoons and recipes
+    skip_urls: ['/cartoons/', '/recepten/']
   geenstijl_atom:
     feed_url: https://www.geenstijl.nl/feeds/recent.atom
     fetch_strategy: simple
     user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
     parser: trafilatura
     cookie_ttl_minutes: 0
+    # No news: open threads (StamCafé, VrijMiBo), lists and puzzles
+    skip_titles: ['stamcaf[eé]', 'vrijmibo', 'kliktoppers', 'reaguurder van het jaar', 'puzzel']
     # Note: GeenStijl's Atom feed provides full article content in <content> tag
     # No Playwright needed - full text is extracted directly from feed
   ninefornews_rss:
@@ -74,6 +92,8 @@ sources:
     parser: trafilatura
     requires_js: true
     cookie_ttl_minutes: 0
+    # No news: paid posts for crypto "mining" platforms
+    skip_titles: ['mining\b', 'cryptoeasily', '(bitcoin|btc|xrp|ethereum|solana|crypto\w*).*\$\s?[\d.,]+']
     # Note: Cloudflare protection requires Playwright for article fetch
   nieuwrechts_rss:
     feed_url: https://nieuwrechts.nl/rss
@@ -81,18 +101,16 @@ sources:
     user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
     parser: trafilatura
     requires_js: true
+    # playwright-stealth breaks the Angular app: the page then never shows the article
+    stealth: false
     cookie_ttl_minutes: 0
     # Note: NieuwRechts is an Angular SPA - requires Playwright for full article content
   eenblikopdenos_rss:
-    feed_url: https://xcancel.com/eenblikopdenos/rss
-    fetch_strategy: simple  # No JS rendering needed for RSS
+    # The YouTube channel of Een Blik op de NOS: X answers 403 since 2025-12 (reading posts needs a
+    # paid API plan) and the account has no website. The title and description are the content
+    feed_url: https://www.youtube.com/feeds/videos.xml?channel_id=UCpsU4OfNLGVyTmKs4Ir28LQ
+    fetch_strategy: simple
     user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
-    parser: rss_only  # Tweet content is in RSS, no article fetch needed
+    parser: rss_only  # Never fetch the video page
     requires_js: false
     cookie_ttl_minutes: 0
-    # Note: Uses xcancel.com as primary (requires whitelisting), with Nitter fallbacks
-    # Tweet content is extracted directly from RSS feed - no need for separate page fetch
-    fallback_instances:
-      - nitter.privacydev.net
-      - nitter.poast.org
-      - nitter.1d4.us

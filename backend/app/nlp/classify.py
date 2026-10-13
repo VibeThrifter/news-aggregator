@@ -63,7 +63,7 @@ async def classify_event_type_llm(
     title: str,
     content: str,
     llm_client: "BaseLLMClient",
-) -> str:
+) -> str | None:
     """
     Classify article into event type using LLM semantic analysis.
 
@@ -73,7 +73,10 @@ async def classify_event_type_llm(
         llm_client: LLM client (provider from llm_config)
 
     Returns:
-        Event type string from VALID_EVENT_TYPES (defaults to "other" on error)
+        Event type string from VALID_EVENT_TYPES ("other" when the answer fits none), or None when
+        the call failed: then the type is unknown and is asked again later. Read as "other", a
+        failure kept the article out of every event of another type (on 2026-10-07 393 articles
+        during the Claude Code session limit)
     """
     # Truncate content to avoid excessive token usage
     content_excerpt = content[:600] if content else ""
@@ -113,9 +116,9 @@ async def classify_event_type_llm(
             "llm_classification_failed",
             error=str(e),
             title=title[:100],
-            note="Falling back to 'other'",
+            note="Type unknown, asked again later",
         )
-        return "other"
+        return None
 
 
 __all__ = ["classify_event_type_llm", "VALID_EVENT_TYPES"]

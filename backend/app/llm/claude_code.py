@@ -11,15 +11,22 @@ subscription): ``ANTHROPIC_API_KEY`` is removed from its environment.
   ``structured_output`` is used, else the text answer is parsed like the other providers do.
 - Selectable in ``llm_config`` per step: ``claude-code`` (the model of the CLI or
   ``CLAUDE_CODE_MODEL``) or ``claude-code:<model>`` (``haiku``, ``sonnet``, ``opus`` or a full id).
+- Every call runs with ``CLAUDE_CODE_EFFORT`` (default medium; the CLI's own default may be high).
 - At most ``CLAUDE_CODE_MAX_PARALLEL`` calls run at once; each has ``CLAUDE_CODE_TIMEOUT_SECONDS``.
+  A waiting call of the news pipeline (classification, event assignment) gets the next free slot
+  before the others (``NEWS_PIPELINE_PRIORITY``).
 """
 
 from __future__ import annotations
 
 import asyncio
+import heapq
+import itertools
 import json
 import os
 import tempfile
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -52,8 +59,56 @@ JSON_ONLY = "\n\nAntwoord uitsluitend met één JSON-object, zonder uitleg en zo
 # Errors in the answer that mean the subscription limit is reached for now
 LIMIT_WORDS = ("usage limit", "rate limit", "limit reached", "too many requests", "overloaded")
 
-# One semaphore per process: at most N claude processes at the same time
-_SLOTS: asyncio.Semaphore | None = None
+# Who waits for a slot first: the news pipeline's short calls (Haiku, ±7 s) go before the
+# analyses that every link starts and the backfill (Sonnet, up to two minutes a call). Those used
+# to hold both slots while the poll queued behind them: on 2026-10-08 evening half of the polls ran
+# into their 300 s limit
+NEWS_PIPELINE_PRIORITY = 0
+DEFAULT_PRIORITY = 1
+
+
+class _Slots:
+    """At most ``size`` holders at once; waiting callers get a slot in order of priority (lower
+    first), then in order of arrival."""
+
+    def __init__(self, size: int) -> None:
+        self._free = max(1, size)
+        self._waiting: list[tuple[int, int, asyncio.Future[None]]] = []
+        self._arrivals = itertools.count()
+
+    @asynccontextmanager
+    async def hold(self, priority: int = DEFAULT_PRIORITY) -> AsyncIterator[None]:
+        await self._acquire(priority)
+        try:
+            yield
+        finally:
+            self._release()
+
+    async def _acquire(self, priority: int) -> None:
+        if self._free > 0 and not self._waiting:
+            self._free -= 1
+            return
+        waiter: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        heapq.heappush(self._waiting, (priority, next(self._arrivals), waiter))
+        try:
+            await waiter
+        except asyncio.CancelledError:
+            if waiter.done() and not waiter.cancelled():  # handed a slot just before: pass it on
+                self._release()
+            raise
+
+    def _release(self) -> None:
+        # A slot goes straight to the first live waiter (a cancelled waiter is done already)
+        while self._waiting:
+            _, _, waiter = heapq.heappop(self._waiting)
+            if not waiter.done():
+                waiter.set_result(None)
+                return
+        self._free += 1
+
+
+# One set of slots per process: at most N claude processes at the same time
+_SLOTS: _Slots | None = None
 _SLOTS_SIZE = 0
 
 
@@ -73,10 +128,10 @@ def is_claude_code(provider: str | None) -> bool:
     )
 
 
-def _slots(size: int) -> asyncio.Semaphore:
+def _slots(size: int) -> _Slots:
     global _SLOTS, _SLOTS_SIZE
     if _SLOTS is None or _SLOTS_SIZE != size:
-        _SLOTS, _SLOTS_SIZE = asyncio.Semaphore(max(1, size)), size
+        _SLOTS, _SLOTS_SIZE = _Slots(size), size
     return _SLOTS
 
 
@@ -93,9 +148,16 @@ class ClaudeCodeClient(BaseLLMClient):
 
     provider = PROVIDER
 
-    def __init__(self, *, settings: Settings | None = None, model: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        settings: Settings | None = None,
+        model: str | None = None,
+        priority: int = DEFAULT_PRIORITY,
+    ) -> None:
         self.settings = settings or get_settings()
         self.model = model or self.settings.claude_code_model or None
+        self.priority = priority
 
     @property
     def model_name(self) -> str:
@@ -118,6 +180,8 @@ class ClaudeCodeClient(BaseLLMClient):
         ]
         if self.model:
             command += ["--model", self.model]
+        if self.settings.claude_code_effort:
+            command += ["--effort", self.settings.claude_code_effort]
         if schema is not None:
             command += ["--json-schema", json.dumps(schema, ensure_ascii=False)]
         return command
@@ -129,7 +193,7 @@ class ClaudeCodeClient(BaseLLMClient):
 
         env = {key: value for key, value in os.environ.items() if key != "ANTHROPIC_API_KEY"}
         timeout = self.settings.claude_code_timeout_seconds
-        async with _slots(self.settings.claude_code_max_parallel):
+        async with _slots(self.settings.claude_code_max_parallel).hold(self.priority):
             try:
                 process = await asyncio.create_subprocess_exec(
                     *self._command(schema),
@@ -276,4 +340,10 @@ class ClaudeCodeClient(BaseLLMClient):
         )
 
 
-__all__ = ["ClaudeCodeClient", "is_claude_code", "provider_model"]
+__all__ = [
+    "DEFAULT_PRIORITY",
+    "NEWS_PIPELINE_PRIORITY",
+    "ClaudeCodeClient",
+    "is_claude_code",
+    "provider_model",
+]

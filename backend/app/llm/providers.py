@@ -13,7 +13,13 @@ from typing import TypeVar
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
-from backend.app.llm.claude_code import ClaudeCodeClient, is_claude_code, provider_model
+from backend.app.llm.claude_code import (
+    DEFAULT_PRIORITY,
+    NEWS_PIPELINE_PRIORITY,
+    ClaudeCodeClient,
+    is_claude_code,
+    provider_model,
+)
 from backend.app.llm.client import (
     BaseLLMClient,
     DeepSeekClient,
@@ -29,15 +35,18 @@ logger = get_logger(__name__).bind(component="LLMProviders")
 T = TypeVar("T")
 
 
-def build_llm_client(provider: str | None, settings: Settings) -> BaseLLMClient:
+def build_llm_client(
+    provider: str | None, settings: Settings, *, priority: int = DEFAULT_PRIORITY
+) -> BaseLLMClient:
     """The client for a provider name from llm_config.
 
     mistral, deepseek, deepseek-r1, gemini, or claude-code[:model] (the local Claude Code CLI).
+    ``priority`` orders the calls waiting for a Claude Code slot (``NEWS_PIPELINE_PRIORITY`` first).
     """
 
     name = (provider or "mistral").strip().lower()
     if is_claude_code(name):
-        return ClaudeCodeClient(settings=settings, model=provider_model(name))
+        return ClaudeCodeClient(settings=settings, model=provider_model(name), priority=priority)
     if name == "deepseek":
         return DeepSeekClient(settings=settings, use_reasoner=False)
     if name == "deepseek-r1":
@@ -73,10 +82,12 @@ class StepLLMClient(BaseLLMClient):
         fallback_keys: Sequence[str] = ("provider_factual",),
         settings: Settings | None = None,
         default: str | None = None,
+        priority: int = DEFAULT_PRIORITY,
     ) -> None:
         self.settings = settings or get_settings()
         self.keys = (key, *fallback_keys)
         self.default = default or self.settings.llm_provider
+        self.priority = priority
         self._clients: dict[str, BaseLLMClient] = {}
 
     @property
@@ -86,7 +97,7 @@ class StepLLMClient(BaseLLMClient):
     async def client(self) -> BaseLLMClient:
         name = (await resolve_provider(self.keys, default=self.default) or "mistral").lower()
         if name not in self._clients:
-            self._clients[name] = build_llm_client(name, self.settings)
+            self._clients[name] = build_llm_client(name, self.settings, priority=self.priority)
         return self._clients[name]
 
     async def generate(self, prompt: str, *, correlation_id: str | None = None) -> LLMResult:
@@ -116,4 +127,9 @@ class StepLLMClient(BaseLLMClient):
         )
 
 
-__all__ = ["StepLLMClient", "build_llm_client", "resolve_provider"]
+__all__ = [
+    "NEWS_PIPELINE_PRIORITY",
+    "StepLLMClient",
+    "build_llm_client",
+    "resolve_provider",
+]

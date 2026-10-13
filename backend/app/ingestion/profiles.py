@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import yaml
-from pydantic import BaseModel, Field, HttpUrl, ValidationError
+from pydantic import BaseModel, Field, HttpUrl, ValidationError, field_validator
 
 PROFILE_FILE = Path(__file__).resolve().parents[3] / "source_profiles.yaml"
 
@@ -33,11 +34,40 @@ class SourceProfile(BaseModel):
     headers: Dict[str, str] = Field(default_factory=dict)
     parser: str = Field(default="trafilatura")
     requires_js: bool = False
+    # Playwright: playwright-stealth hides the headless browser, but it breaks some sites
+    # (NieuwRechts' Angular app then never renders the article)
+    stealth: bool = True
     cookie_ttl_minutes: Optional[int] = 180
     consent: Optional[ConsentConfig] = None
+    # Items that are no news (cartoons, recipes, horoscopes, quizzes, ...): regular expressions,
+    # case-insensitive, searched in the item's URL and title. They are skipped before their page is
+    # fetched; otherwise each became a news item of its own and cost an analysis
+    skip_urls: List[str] = Field(default_factory=list)
+    skip_titles: List[str] = Field(default_factory=list)
+
+    @field_validator("skip_urls", "skip_titles")
+    @classmethod
+    def _patterns_compile(cls, patterns: List[str]) -> List[str]:
+        for pattern in patterns:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(f"Invalid skip pattern {pattern!r}: {exc}") from exc
+        return patterns
 
     def has_consent_flow(self) -> bool:
         return self.fetch_strategy == "consent_cookie" and self.consent is not None
+
+    def skip_rule(self, *, url: Optional[str], title: Optional[str]) -> Optional[str]:
+        """The pattern that marks this item as no news, or None."""
+
+        for pattern in self.skip_urls:
+            if url and re.search(pattern, url, re.IGNORECASE):
+                return pattern
+        for pattern in self.skip_titles:
+            if title and re.search(pattern, title.strip(), re.IGNORECASE):
+                return pattern
+        return None
 
 
 class SourceProfiles(BaseModel):

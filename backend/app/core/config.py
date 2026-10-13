@@ -79,11 +79,12 @@ class Settings(BaseSettings):
         description="RSS feed URL for NineForNews"
     )
     rss_eenblikopdenos_url: str = Field(
-        default="https://xcancel.com/eenblikopdenos/rss",
-        description="RSS feed URL for @eenblikopdenos via xcancel.com (fallback, requires whitelisting)"
+        default="https://www.youtube.com/feeds/videos.xml?channel_id=UCpsU4OfNLGVyTmKs4Ir28LQ",
+        description="YouTube channel feed of Een Blik op de NOS (X answers 403 since 2025-12)"
     )
 
-    # Twitter API Configuration (for @eenblikopdenos)
+    # Twitter API Configuration (for @eenblikopdenos). Not read since 2026-10-08: Een Blik op de NOS
+    # comes from its YouTube channel. Kept so a .env that still sets them stays valid
     twitter_api_key: str | None = Field(
         default=None,
         description="Twitter API Key (Consumer Key)"
@@ -237,6 +238,14 @@ class Settings(BaseSettings):
         ge=1,
         le=8,
         description="Claude Code calls that may run at the same time"
+    )
+    claude_code_effort: Optional[str] = Field(
+        default="medium",
+        pattern="^(low|medium|high|xhigh|max)$",
+        description=(
+            "Effort of every Claude Code call (owner 2026-10-09: medium on all steps); empty = the "
+            "model's default, which may be high for Haiku"
+        ),
     )
 
     # Database Configuration

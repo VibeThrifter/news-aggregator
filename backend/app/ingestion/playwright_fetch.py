@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 
@@ -31,6 +32,16 @@ def _get_stealth():
     return _stealth_module
 
 
+PRIVACY_GATE_HOST = "myprivacy.dpgmedia.nl"
+
+# Images, fonts and media, recognised by file name. A route on every request ("**/*") makes each
+# request of the page wait for this process's event loop, which is busy during a poll: a DPG article
+# took 15-24 s instead of 6-9 s, and in the backend ~45 s
+STATIC_FILES = re.compile(
+    r"\.(png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|otf|mp4|webm|m3u8)(\?|$)", re.IGNORECASE
+)
+
+
 class PlaywrightFetchError(Exception):
     """Raised when Playwright fails to fetch article content."""
 
@@ -43,6 +54,9 @@ class PlaywrightBrowserPool:
         self._playwright = None
         self._lock = asyncio.Lock()
         self._max_contexts = max_contexts
+        # A poll fetches from every Playwright source at once; with all those pages loading side by
+        # side they missed their timeout and DPG served its privacy gate instead of the article
+        self._slots = asyncio.Semaphore(max_contexts)
         self._logger = get_logger(__name__)
 
     async def _ensure_browser(self) -> None:
@@ -66,19 +80,20 @@ class PlaywrightBrowserPool:
 
     @asynccontextmanager
     async def get_context(self) -> AsyncIterator:
-        """Get a browser context for fetching pages."""
-        await self._ensure_browser()
+        """Get a browser context for fetching pages; at most `max_contexts` are open at a time."""
+        async with self._slots:
+            await self._ensure_browser()
 
-        context = await self._browser.new_context(
-            viewport={"width": 1280, "height": 800},
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            java_script_enabled=True,
-        )
+            context = await self._browser.new_context(
+                viewport={"width": 1280, "height": 800},
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                java_script_enabled=True,
+            )
 
-        try:
-            yield context
-        finally:
-            await context.close()
+            try:
+                yield context
+            finally:
+                await context.close()
 
     async def close(self) -> None:
         """Close browser and cleanup resources."""
@@ -137,6 +152,7 @@ async def fetch_with_playwright(
     *,
     timeout_ms: int = 30000,
     wait_for_selector: Optional[str] = None,
+    stealth: bool = True,
     logger: Optional[BoundLogger] = None,
 ) -> str:
     """
@@ -146,6 +162,7 @@ async def fetch_with_playwright(
         url: The article URL to fetch
         timeout_ms: Page load timeout in milliseconds (default 30s)
         wait_for_selector: Optional CSS selector to wait for before extracting content
+        stealth: Hide the headless browser with playwright-stealth (off where it breaks the site)
         logger: Optional structured logger
 
     Returns:
@@ -162,18 +179,12 @@ async def fetch_with_playwright(
             page = await context.new_page()
 
             # Apply stealth to reduce bot detection
-            stealth_async = _get_stealth()
-            await stealth_async(page)
+            if stealth:
+                stealth_async = _get_stealth()
+                await stealth_async(page)
 
-            # Block unnecessary resources for faster loading (but keep stylesheets for consent forms)
-            await page.route(
-                "**/*",
-                lambda route: (
-                    route.abort()
-                    if route.request.resource_type in ["image", "media", "font"]
-                    else route.continue_()
-                ),
-            )
+            # Block images, fonts and media for faster loading (keep stylesheets for consent forms)
+            await page.route(STATIC_FILES, lambda route: route.abort())
 
             # For DPG Media sites, accept cookies on homepage first
             # This avoids the privacy gate redirect that can return wrong articles
@@ -206,6 +217,18 @@ async def fetch_with_playwright(
             except Exception as nav_error:
                 log.warning("playwright_navigation_timeout", error=str(nav_error))
                 # Try to continue anyway, page might have partially loaded
+
+            # DPG's privacy gate sends the browser back to the article by itself; on a busy machine
+            # the page can still be on the gate, and then its HTML is the gate's, not the article's
+            if PRIVACY_GATE_HOST in page.url:
+                try:
+                    await page.wait_for_url(
+                        lambda current: PRIVACY_GATE_HOST not in current, timeout=timeout_ms
+                    )
+                except Exception as gate_error:
+                    raise PlaywrightFetchError(
+                        f"Still on the DPG privacy gate: {gate_error}"
+                    ) from gate_error
 
             # Wait a moment for any remaining JS to render
             await asyncio.sleep(1)

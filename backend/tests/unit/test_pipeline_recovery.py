@@ -163,7 +163,12 @@ async def test_orphaned_dutch_articles_are_assigned(tmp_path: Path) -> None:
         )
 
         def article(
-            guid: str, *, international: bool = False, enriched: bool = True, age_hours: float = 1
+            guid: str,
+            *,
+            international: bool = False,
+            enriched: bool = True,
+            age_hours: float = 1,
+            published_hours: float | None = None,
         ) -> Article:
             return Article(
                 guid=guid,
@@ -175,7 +180,7 @@ async def test_orphaned_dutch_articles_are_assigned(tmp_path: Path) -> None:
                 embedding=_embedding([1.0, 0.0, 0.0]),
                 tfidf_vector={"sierra": 0.7, "leone": 0.7},
                 entities=[{"text": "Sierra Leone", "label": "GPE"}],
-                published_at=now - timedelta(hours=age_hours),
+                published_at=now - timedelta(hours=published_hours or age_hours),
                 fetched_at=now - timedelta(hours=age_hours),
                 enriched_at=now if enriched else None,
                 is_international=international,
@@ -185,7 +190,9 @@ async def test_orphaned_dutch_articles_are_assigned(tmp_path: Path) -> None:
         foreign = article("foreign", international=True)
         unenriched = article("raw", enriched=False)
         old = article("old", age_hours=200)
-        session.add_all([event, orphan, foreign, unenriched, old])
+        # Fetched an hour ago, but news of yesterday: only the current news is assigned
+        old_news = article("old-news", published_hours=30)
+        session.add_all([event, orphan, foreign, unenriched, old, old_news])
         await session.commit()
         event_id, orphan_id = event.id, orphan.id
 
@@ -201,7 +208,7 @@ async def test_orphaned_dutch_articles_are_assigned(tmp_path: Path) -> None:
         llm_client=Answer(),
     )
 
-    stats = await service.assign_orphaned_articles(max_age_hours=72)
+    stats = await service.assign_orphaned_articles(max_age_hours=24)
 
     assert stats["orphans"] == 1
     assert stats["events_linked"] == 1

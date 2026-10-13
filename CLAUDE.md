@@ -140,6 +140,12 @@ make clean             # Clean up generated files
 - **ML Features**: Fully operational - PyTorch embeddings, vector search (hnswlib), spaCy NER
 - **LLM Classification**: Mistral-based semantic event type classification (replaced keyword matching)
 - **Clustering Performance**: 32.0% clustering rate (2.16x improvement from 14.78% baseline)
+- **Event assignment** (2026-10-08): the LLM judges every candidate that may be the same news (embedding ≥ 0.70 and
+  tf-idf ≥ 0.20, or the same people and places, or two shared title words), not only high scores, and its verdict
+  decides. Articles are assigned one at a time. When the LLM cannot judge (session limit), the article waits as an
+  orphan (while its news is younger than 20 h) instead of starting an event. A failed classification leaves the type
+  unknown (asked again in the catch-up), never "other". `backend/app/services/event_service.py` (`LLM_ASK_*`,
+  `merge_split_events`)
 - **LLM Insights**: Auto-generation working with Mistral API, narrative summaries, frames, coverage gaps
 - **REST API**: Backend endpoints for admin/trigger functions
 - **Event Detail**: Epic 14 "Eén beeld": "Wie zegt wat?" as one picture (outlets, the speakers they quote, missing voices, numbered findings) with tabs Klopt het? / Wie praat? / Wat ontbreekt? / Hoe gebracht? / Tijdlijn, plus "Wie zit erachter?" (propagandamodel). Readers can add their own answers (doubt, fallacy, contradiction, error, speaker, source, missing voice, question, remark, moment; `lib/explore/own.ts`, marked "jij", numbered after the analysis, stored on this device). They can share them with other readers and take over what others shared ("Van anderen", `lib/shared.ts`, migration 012). Nothing of others is in your picture until you take it over, and there is no AI: extra AI is admin only. No game mechanics. Spec: `docs/stories/active/epic-14-een-beeld.md`
@@ -148,7 +154,7 @@ make clean             # Clean up generated files
   It only shows news with an article of a main source ("Hoofdbron" in Beheer; since 2026-10-07 NOS, RTL Nieuws,
   NU.nl, AD, De Telegraaf, Het Parool, de Volkskrant and Trouw), 120 per page sorted on `first_seen_at`; "Meer nieuws"
   loads the next page (`FEED_PAGE_SIZE`). Never sort the feed on `last_updated_at`: maintenance and re-analyses move it
-- **LLM provider per step**: `llm_config` keys `provider_<step>` (event assignment, classification, factual, critical, digest, voice search, bias) via `backend/app/llm/providers.py`; never hard-wire a provider. Values: mistral, deepseek, deepseek-r1, gemini or `claude-code[:haiku|sonnet|opus]`, which runs the local Claude Code CLI (`claude -p`, the owner's subscription, no API key; `backend/app/llm/claude_code.py`, `CLAUDE_CODE_*`). Selectable on /admin/llm-config. Since 2026-10-04 every step runs on Claude Code (DeepSeek credit ran out): analyses and voice search on Sonnet, the per-article steps on Haiku
+- **LLM provider per step**: `llm_config` keys `provider_<step>` (event assignment, classification, factual, critical, digest, voice search, bias) via `backend/app/llm/providers.py`; never hard-wire a provider. Values: mistral, deepseek, deepseek-r1, gemini or `claude-code[:haiku|sonnet|opus]`, which runs the local Claude Code CLI (`claude -p`, the owner's subscription, no API key; `backend/app/llm/claude_code.py`, `CLAUDE_CODE_*`). Selectable on /admin/llm-config. Since 2026-10-04 every step runs on Claude Code (DeepSeek credit ran out): analyses and voice search on Sonnet, the per-article steps on Haiku. At most `CLAUDE_CODE_MAX_PARALLEL` (2) calls run at once; a waiting call of the news pipeline (classification, event assignment) gets the next free slot before analyses, digests and the rest (`NEWS_PIPELINE_PRIORITY`): the analyses that every link starts held both slots while the poll waited (2026-10-08). Every call runs with `--effort medium` (`CLAUDE_CODE_EFFORT`, owner 2026-10-09; without it Sonnet ran on medium and Haiku probably on high)
 - **Besluitvorming (Epic 15)**: the propaganda model holds decision-making in the same network (owner decision
   2026-10-07): five categories next to the filters (formele_macht, belangen, kennis_advies, polder, werving; after
   Domhoff), relation types ambt/zeggenschap/controle/geschenk, `bestuurslaag` on organisations and the office as the
@@ -172,7 +178,10 @@ make clean             # Clean up generated files
     influence still needs two clusters.
   - Relations carry their origin (`origin`/`added_at`, sync format 9, migration 017).
   - The pm's own voice states what happened. An evaluation only appears as an attributed quote.
-- **RSS Polling**: Automated every 15 minutes via APScheduler (backend)
+- **RSS Polling**: Automated every 15 minutes via APScheduler (backend). Only current news (owner 2026-10-08):
+  feed items published more than 24 h ago are not fetched, and the catch-up of every poll takes only Dutch articles
+  whose news is at most 24 h old (counted from publication; foreign articles are never enriched).
+  `CURRENT_NEWS_HOURS` in `backend/app/services/ingest_service.py`
 - **Insight Backfill**: Scheduled job every 30 minutes catches up on missing LLM insights
 
 ### Scheduled Jobs (APScheduler)
@@ -182,7 +191,7 @@ make clean             # Clean up generated files
 | RSS Feed Polling | 15 min | Polls all RSS feeds for new articles |
 | Insight Backfill | 15 min | Generates LLM insights for events missing them, then redoes (≥ 30 min after the last one) analyses that leave out a Dutch outlet that joined later |
 | International Enrichment | 2 hours | Adds international perspectives via Google News (Epic 9) |
-| Event Maintenance | 24 hours | Refreshes centroids, archives stale events, then clears working data of archived news (storage rule, see Rules) |
+| Event Maintenance | daily | Refreshes centroids, archives stale events, then clears working data of archived news (storage rule, see Rules). Every hour (first 5 min after the start) it checks whether the last run is 24 h ago; that moment is kept in `data/scheduler_state.json`, so restarts and a sleeping Mac do not reset it (a 24 h interval never ran from 2026-10-02 to 10-08) |
 | Bias Analysis | 6 hours | Per-sentence bias detection (Epic 10, disabled by default) |
 | Exploration Refresh | 24 hours (na Event Maintenance) | Event Maintenance → daarna Exploration refresh (entiteiten + gerelateerde events, Epic 11) |
 | Entity Research | 15 min | Wie is dit? (Epic 12): triage van namen in het nieuws (rol + belang), onderzoeksdoelen naar het propagandamodel en resultaten ophalen. De rondes van de pm-agent `nieuws-scout` plant het propagandamodel zelf (launchd, elke 2 uur, max 6/dag, 08–22); de nieuws-app start ze niet (sinds 2026-10-09 is die code weg) en toont in de status alleen wat de pm-runs melden. `ENTITY_RESEARCH_ENABLED`, `ENTITY_RESEARCH_*`; vereist migratie 006 + draaiende pm-server |
@@ -265,8 +274,19 @@ print(resp.json()['value'])
 # Trigger RSS polling manually
 curl -X POST "http://localhost:8000/admin/trigger/poll-feeds"
 
-# Assign enriched Dutch articles that are in no event (also runs, recent-only, in every poll cycle)
+# Assign enriched Dutch articles that are in no event (also runs, last 24 h only, in every poll cycle)
 curl -X POST "http://localhost:8000/admin/trigger/assign-events?limit=200&max_age_hours=72"
+
+# Catch-up as every poll does it (25 Dutch articles of the last 24 h), with a bigger batch: enrich + assign
+# left-behind articles, newest first, then ask again the type of articles whose classification failed
+curl -X POST "http://localhost:8000/admin/trigger/catch-up?limit=100"
+
+# Merge news items of one Dutch article into the item with the same news (LLM verdict; dry_run=true only lists moves;
+# older_than_hours=N skips the newest N hours, e.g. what an earlier run decided)
+curl -X POST "http://localhost:8000/admin/trigger/merge-split-events?hours=72&limit=100&dry_run=true"
+
+# Ask again the type of enriched Dutch articles whose classification failed (newest first)
+curl -X POST "http://localhost:8000/admin/trigger/classify-pending?limit=50"
 
 # Trigger insight backfill (default 10 events)
 curl -X POST "http://localhost:8000/admin/trigger/backfill-insights"

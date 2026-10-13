@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -50,7 +50,7 @@ def sample_feed_item() -> FeedItem:
         url="https://example.com/artikel/1",
         title="Demonstranten verzamelen zich",
         summary="Kort overzicht van de demonstratie",
-        published_at=datetime(2025, 9, 28, 13, 0, 0),
+        published_at=datetime.now(timezone.utc) - timedelta(hours=2),
         source_metadata={"name": "Testbron", "spectrum": "center"},
     )
 
@@ -142,7 +142,7 @@ async def test_fetch_failure_without_summary_counts_as_failure(monkeypatch, inge
         url="https://example.com/artikel/no-summary",
         title="Article Without Summary",
         summary=None,  # No summary
-        published_at=datetime(2025, 9, 28, 13, 0, 0),
+        published_at=datetime.now(timezone.utc) - timedelta(hours=2),
         source_metadata={"name": "Testbron", "spectrum": 4},
     )
 
@@ -207,3 +207,138 @@ async def test_stored_items_are_not_fetched_again(monkeypatch, ingest_service, s
     assert again["duplicates"] == 1
     assert again["ingested"] == 0
     assert calls == [sample_feed_item.url]
+
+
+@pytest.mark.asyncio
+async def test_items_that_are_no_news_are_never_fetched(monkeypatch, ingest_service, session_factory):
+    """A cartoon (source_profiles.yaml) is skipped before its page is fetched, and never stored."""
+    fetched: list[str] = []
+
+    async def fake_fetch(url: str, **_: object) -> str:
+        fetched.append(url)
+        return "<html></html>"
+
+    monkeypatch.setattr("backend.app.services.ingest_service.fetch_article_html", fake_fetch)
+    cartoon = FeedItem(
+        guid="trouw-vonk",
+        url="https://www.trouw.nl/cartoons/vonk~b60348c7/",
+        title="Vonk",
+        summary="Cartoon",
+        published_at=datetime.now(timezone.utc) - timedelta(hours=2),
+        source_metadata={"name": "Trouw"},
+    )
+
+    stats = await ingest_service.process_feed_items(
+        reader_id="trouw_rss",
+        items=[cartoon],
+        profile=ingest_service.reader_profiles.get("trouw_rss"),
+    )
+
+    assert stats["ingested"] == 0
+    assert fetched == []
+    async with session_factory() as session:
+        assert (await session.execute(select(Article))).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_items_published_more_than_a_day_ago_are_never_fetched(
+    monkeypatch, ingest_service, sample_html, session_factory
+):
+    """Only current news (owner 2026-10-08): of a feed that still lists yesterday's items, or
+    YouTube's videos back to July, only the news of the last 24 hours is fetched and stored."""
+    fetched: list[str] = []
+
+    async def fake_fetch(url: str, **_: object) -> str:
+        fetched.append(url)
+        return sample_html
+
+    monkeypatch.setattr("backend.app.services.ingest_service.fetch_article_html", fake_fetch)
+    now = datetime.now(timezone.utc)
+
+    def item(guid: str, published_at: datetime) -> FeedItem:
+        return FeedItem(
+            guid=guid,
+            url=f"https://nos.nl/artikel/{guid}",
+            title="Kabinet presenteert plannen",
+            summary="Samenvatting",
+            published_at=published_at,
+            source_metadata={"name": "NOS"},
+        )
+
+    # A date without zone counts as UTC
+    yesterday = item("gisteren", (now - timedelta(hours=25)).replace(tzinfo=None))
+    today = item("vandaag", now - timedelta(hours=23))
+
+    stats = await ingest_service.process_feed_items(
+        reader_id="nos_rss", items=[yesterday, today], profile=ingest_service.reader_profiles.get("nos_rss")
+    )
+
+    assert stats["ingested"] == 1
+    assert fetched == [today.url]
+    async with session_factory() as session:
+        stored = (await session.execute(select(Article))).scalars().one()
+    assert stored.guid == "vandaag"
+
+
+@pytest.mark.asyncio
+async def test_a_feed_only_source_never_fetches_the_page(monkeypatch, ingest_service, session_factory):
+    """Een Blik op de NOS comes from YouTube: the title and description are the text, the video
+    page is never fetched, also when the text is short."""
+    fetched: list[str] = []
+
+    async def fake_fetch(url: str, **_: object) -> str:
+        fetched.append(url)
+        return "<html></html>"
+
+    monkeypatch.setattr("backend.app.services.ingest_service.fetch_article_html", fake_fetch)
+    video = FeedItem(
+        guid="youtube-MRWPnZVOtCc",
+        url="https://www.youtube.com/watch?v=MRWPnZVOtCc",
+        title="NOS: 'Turkije wordt bedreigd door Israël'",
+        summary="Een vergaande bewering.",
+        published_at=datetime.now(timezone.utc) - timedelta(hours=2),
+        source_metadata={
+            "name": "Een Blik op de NOS",
+            "full_text_from_feed": "NOS: 'Turkije wordt bedreigd door Israël'\n\nEen vergaande bewering.",
+        },
+    )
+
+    stats = await ingest_service.process_feed_items(
+        reader_id="eenblikopdenos_rss",
+        items=[video],
+        profile=ingest_service.reader_profiles.get("eenblikopdenos_rss"),
+    )
+
+    assert stats["ingested"] == 1
+    assert fetched == []
+    async with session_factory() as session:
+        stored = (await session.execute(select(Article))).scalars().one()
+    assert "vergaande bewering" in stored.content
+
+
+@pytest.mark.asyncio
+async def test_the_catch_up_assigns_ready_articles_before_enriching_more(monkeypatch, ingest_service):
+    """Enrichment can use up the catch-up's time budget; articles enriched before must still get an
+    event, so the catch-up assigns first."""
+    calls: list[str] = []
+
+    async def assign(**_: object) -> dict:
+        calls.append("assign")
+        return {"orphans": 0, "events_created": 0, "events_linked": 0, "events_skipped": 0, "failed": 0}
+
+    async def enrich(**_: object) -> dict:
+        calls.append("enrich")
+        return {"processed": 2, "skipped": 0}
+
+    async def classify(**_: object) -> dict:
+        calls.append("classify")
+        return {"unclassified": 1, "classified": 1}
+
+    monkeypatch.setattr(ingest_service.event_service, "assign_orphaned_articles", assign)
+    monkeypatch.setattr(ingest_service.enrichment_service, "enrich_pending", enrich)
+    monkeypatch.setattr(ingest_service.enrichment_service, "classify_pending", classify)
+
+    stats = await ingest_service.catch_up_orphans()
+
+    assert calls == ["assign", "enrich", "classify"]
+    assert stats["enriched"] == 2 and stats["reclassified"] == 1

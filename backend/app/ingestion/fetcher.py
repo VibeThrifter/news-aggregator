@@ -252,6 +252,7 @@ async def fetch_article_html(
             return await fetch_with_playwright(
                 url,
                 timeout_ms=int(timeout * 1000),
+                stealth=resolved_profile.stealth,
                 logger=log,
             )
         except PlaywrightFetchError as exc:

@@ -299,3 +299,37 @@ async def test_trigger_batch_bias_analysis_limit_too_high():
 
     assert exc_info.value.status_code == 400
     assert "limit must be between 1 and 50" in str(exc_info.value.detail)
+
+
+
+@pytest.mark.asyncio
+async def test_repair_triggers_run_on_the_schedulers_services(monkeypatch):
+    """Catch-up, merging and reclassifying run inside the backend: its vector index and its
+    assignment turn stay the same as the polls'."""
+    calls: list[tuple[str, dict]] = []
+
+    class _Scheduler:
+        async def run_catch_up_now(self, **kwargs):
+            calls.append(("catch-up", kwargs))
+            return {"enriched": 3}
+
+        async def merge_split_events_now(self, **kwargs):
+            calls.append(("merge", kwargs))
+            return {"merged": 1}
+
+        async def classify_pending_now(self, **kwargs):
+            calls.append(("classify", kwargs))
+            return {"classified": 2}
+
+    monkeypatch.setattr(admin, "get_scheduler", lambda: _Scheduler())
+
+    assert await admin.trigger_catch_up(limit=100) == {"enriched": 3}
+    assert await admin.trigger_merge_split_events() == {"merged": 1}
+    assert await admin.trigger_classify_pending(limit=300) == {"classified": 2}
+    assert calls == [
+        # Like every poll: only the news of the last 24 hours
+        ("catch-up", {"limit": 100, "max_age_hours": 24}),
+        # A merge only reports what it would move unless asked otherwise
+        ("merge", {"hours": 72, "limit": 100, "dry_run": True, "older_than_hours": 0}),
+        ("classify", {"limit": 300, "max_age_hours": 24}),
+    ]

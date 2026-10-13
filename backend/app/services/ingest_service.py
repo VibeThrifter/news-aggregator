@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import structlog
@@ -59,9 +60,25 @@ async def _get_enabled_source_ids(session_factory) -> set[str]:
         return {s.source_id for s in sources}
 
 
-# Each poll cycle also retries this many left-behind articles of the last few days
+# Only current news (owner 2026-10-08): feed items published longer ago are not fetched, and the
+# catch-up leaves alone articles whose news is older. The backlog of earlier days cost LLM calls
+# while the news of the day waited
+CURRENT_NEWS_HOURS = 24
+# Each poll cycle also retries this many left-behind articles of the current news
 ORPHAN_CATCH_UP_LIMIT = 25
-ORPHAN_CATCH_UP_MAX_AGE_HOURS = 72
+ORPHAN_CATCH_UP_MAX_AGE_HOURS = CURRENT_NEWS_HOURS
+# Articles whose classification failed (type unknown) that a cycle asks again
+RECLASSIFY_LIMIT = 10
+
+
+def _published_before(published_at: Optional[datetime], cutoff: datetime) -> bool:
+    """Whether a feed item appeared before the cutoff (a date without zone counts as UTC)."""
+
+    if published_at is None:
+        return False
+    if published_at.tzinfo is None:
+        published_at = published_at.replace(tzinfo=timezone.utc)
+    return published_at < cutoff
 
 
 class IngestService:
@@ -449,17 +466,29 @@ class IngestService:
         max_age_hours: float = ORPHAN_CATCH_UP_MAX_AGE_HOURS,
         correlation_id: Optional[str] = None,
     ) -> Dict[str, int]:
-        """Enrich and assign recent Dutch articles a previous cycle left behind.
+        """Enrich and assign Dutch articles of the current news a previous cycle left behind, and
+        ask again the type of those whose classification failed. ``max_age_hours`` counts from
+        publication: an article fetched today with news of yesterday is left alone.
 
         A poll cycle that times out between storing and assigning (or a feed reader that failed
-        halfway) leaves articles without an event; re-polls see them as duplicates.
+        halfway) leaves articles without an event; re-polls see them as duplicates. An article the
+        LLM had to judge while it was unavailable waits here too.
         """
 
-        enriched = await self.enrichment_service.enrich_pending(limit=limit, max_age_hours=max_age_hours)
+        # Articles that are enriched already come first: while enrichment used up the time budget
+        # (240 s), they never got an event and stayed off the site
         assigned = await self.event_service.assign_orphaned_articles(
             limit=limit, max_age_hours=max_age_hours, correlation_id=correlation_id
         )
-        return {"enriched": enriched.get("processed", 0), **assigned}
+        enriched = await self.enrichment_service.enrich_pending(limit=limit, max_age_hours=max_age_hours)
+        reclassified = await self.enrichment_service.classify_pending(
+            limit=RECLASSIFY_LIMIT, max_age_hours=max_age_hours
+        )
+        return {
+            "enriched": enriched.get("processed", 0),
+            **assigned,
+            "reclassified": reclassified.get("classified", 0),
+        }
 
     async def _assign_events(
         self,
@@ -497,6 +526,8 @@ class IngestService:
         # no transaction stays open while pages are fetched ("idle in transaction" for minutes)
         known = await repo.known_items(items)
         await session.commit()
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=CURRENT_NEWS_HOURS)
+        too_old = 0
         headers = {"User-Agent": (profile.user_agent if profile and profile.user_agent else "News360Ingest/0.1")}
         if profile and profile.headers:
             headers.update(profile.headers)
@@ -511,18 +542,27 @@ class IngestService:
                     yield {"status": "duplicates", "article_id": None}
                     continue
 
-                # Skip De Andere Krant edition promo pages (not real articles)
-                if item.title and "Uitgave" in item.title and item.title.strip().startswith("20"):
-                    logger_ctx.debug(
-                        "skipping_edition_promo",
+                # Only current news: a feed can list days or months of items (YouTube back to July)
+                if _published_before(item.published_at, cutoff):
+                    too_old += 1
+                    continue
+
+                # No news (cartoons, recipes, edition promos, ...): source_profiles.yaml
+                skip_rule = profile.skip_rule(url=item.url, title=item.title) if profile else None
+                if skip_rule:
+                    logger_ctx.info(
+                        "skipping_non_news_item",
+                        rule=skip_rule,
                         title=item.title,
                         url=item.url,
                     )
                     continue
 
-                # Check if feed already provides full content (e.g., GeenStijl Atom feed)
+                # Check if feed already provides full content (e.g., GeenStijl Atom feed);
+                # a feed whose pages hold no text (YouTube) never has its page fetched
                 full_text_from_feed = item.source_metadata.get("full_text_from_feed")
-                if full_text_from_feed and len(full_text_from_feed.strip()) > 100:
+                feed_only = bool(profile and profile.parser == "rss_only")
+                if full_text_from_feed and (feed_only or len(full_text_from_feed.strip()) > 100):
                     logger_ctx.info(
                         "using_full_text_from_feed",
                         url=item.url,
@@ -614,6 +654,10 @@ class IngestService:
                     yield {"status": "ingested", "article_id": persistence.article.id, "article": persistence.article}
                 else:
                     yield {"status": "duplicates", "article_id": persistence.article.id, "article": None}
+
+        # They are never stored, so every poll sees them again: one line per feed, not per item
+        if too_old:
+            logger_ctx.info("skipping_old_items", count=too_old, max_age_hours=CURRENT_NEWS_HOURS)
 
     def get_reader_info(self) -> Dict[str, Any]:
         """Get information about registered feed readers."""
