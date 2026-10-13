@@ -8,9 +8,10 @@ One cycle (scheduler job, every 15 minutes):
    coverage in the propaganda model -> ``entity_research`` (private persons are never researched)
 3. **enqueue** - the most important thin/missing names go to ``POST /api/nieuws/doelen`` within a
    daily budget (automatic names and tapped names have separate budgets)
-4. **round**   - when targets are open, start a round of the propaganda-model agent
-   ``nieuws-scout``; afterwards the propaganda model's auto-approval runs, the status is pulled
-   again and the pm sync copies the approved graph to Supabase.
+
+The rounds of the propaganda-model agent ``nieuws-scout`` and its auto-approval are scheduled by
+the propaganda model itself (since 2026-10-07); when the status shows newly approved results, the
+pm sync copies the approved graph to Supabase.
 
 The research, every proposal and the approval gates live in the propaganda model; this service
 only decides WHO and shows the outcome.
@@ -62,11 +63,7 @@ from backend.app.services.entity_research.roles import (
     infer_kind,
     is_non_actor,
 )
-from backend.app.services.entity_research.runner import (
-    NieuwsScoutRunner,
-    RoundState,
-    RunnerConfig,
-)
+from backend.app.services.entity_research.runner import PmAgentConfig, PmAgentRuns
 
 logger = get_logger(__name__).bind(component="EntityResearchService")
 
@@ -343,7 +340,7 @@ class EntityResearchService:
         read_session_factory: SessionFactory | None = None,
         write_session_factory: SessionFactory | None = None,
         pm_client: PmClient | None = None,
-        runner: NieuwsScoutRunner | None = None,
+        runner: PmAgentRuns | None = None,
         coverage_loader: Callable[[Path], PmCoverageIndex] | None = None,
         pm_sync: Callable[[], Any] | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now().astimezone(),
@@ -354,19 +351,12 @@ class EntityResearchService:
         self.pm_client = pm_client or PmClient(
             self.settings.pm_api_base_url, self.settings.pm_agent_token_file
         )
-        self.runner = runner or NieuwsScoutRunner(
-            RunnerConfig(
+        self.runner = runner or PmAgentRuns(
+            PmAgentConfig(
                 project_dir=self.settings.propaganda_project_dir,
                 python=self.settings.nieuws_scout_python,
-                claude_bin=self.settings.nieuws_scout_claude_bin,
-                model=self.settings.nieuws_scout_model,
-                effort=self.settings.nieuws_scout_effort,
-                timeout_seconds=self.settings.nieuws_scout_timeout_seconds,
-                max_rounds_per_day=self.settings.nieuws_scout_max_rounds_per_day,
-                min_minutes_between_rounds=self.settings.nieuws_scout_min_minutes_between_rounds,
                 active_start_hour=self.settings.nieuws_scout_active_start_hour,
                 active_end_hour=self.settings.nieuws_scout_active_end_hour,
-                autokeur_enabled=self.settings.pm_autokeur_enabled,
             )
         )
         self._coverage_loader = coverage_loader or PmCoverageIndex.load
@@ -375,7 +365,7 @@ class EntityResearchService:
         self._coverage: PmCoverageIndex | None = None
         self._watermark: datetime | None = None
         self._lock = asyncio.Lock()
-        self.last_runs: dict[str, dict[str, Any] | None] = {"cycle": None, "after_round": None}
+        self.last_runs: dict[str, dict[str, Any] | None] = {"cycle": None}
 
     # ------------------------------------------------------------------ helpers
     @property
@@ -404,7 +394,7 @@ class EntityResearchService:
 
     # ------------------------------------------------------------------ cycle
     async def run_cycle(self, correlation_id: str | None = None) -> dict[str, Any]:
-        """status -> triage -> enqueue -> round. Never raises for a missing propaganda model."""
+        """status -> triage -> enqueue. Never raises for a missing propaganda model."""
 
         if not self.enabled:
             return {"skipped": True, "reason": "disabled"}
@@ -413,14 +403,7 @@ class EntityResearchService:
             status = await self.sync_status()
             triage = await self.triage()
             enqueue = await self.enqueue()
-        round_started = await self.maybe_start_round()
-        outcome = {
-            "skipped": False,
-            "status": status,
-            "triage": triage,
-            "enqueue": enqueue,
-            "round_started": round_started,
-        }
+        outcome = {"skipped": False, "status": status, "triage": triage, "enqueue": enqueue}
         self.last_runs["cycle"] = {
             "started_at": started_at.isoformat(),
             "duration_seconds": round(time.monotonic() - started, 3),
@@ -917,30 +900,6 @@ class EntityResearchService:
         except Exception as exc:  # the hourly sync job catches up
             logger.warning("entity_research_pm_sync_failed", error=str(exc))
 
-    # ------------------------------------------------------------------ rounds
-    async def maybe_start_round(self) -> bool:
-        if not self.settings.nieuws_scout_enabled:
-            return False
-        async with self._write() as session:
-            waiting = await EntityResearchRepository(session).by_status(("wachtrij",), limit=1)
-        if not waiting:
-            return False
-        return self.runner.start_round(on_finished=self._after_round)
-
-    async def _after_round(self, state: RoundState) -> None:
-        started_at = datetime.now(timezone.utc)
-        async with self._lock:
-            status = await self.sync_status()
-        if (state.autokeur or {}).get("goedgekeurd"):
-            await self._trigger_pm_sync()
-        self.last_runs["after_round"] = {
-            "finished_at": started_at.isoformat(),
-            "returncode": state.returncode,
-            "timed_out": state.timed_out,
-            "autokeur": state.autokeur,
-            "status": status,
-        }
-
     # ------------------------------------------------------------------ admin
     async def research_key(self, key: str, correlation_id: str | None = None) -> dict[str, Any]:
         """Admin: assess one name now and queue it (bypasses budgets and cooldown)."""
@@ -985,7 +944,6 @@ class EntityResearchService:
                 if blocked
                 else await self.enqueue(key, force=True)
             )
-        round_started = await self.maybe_start_round()
         async with self._write() as session:
             row = (await EntityResearchRepository(session).get_many([key])).get(key)
         logger.info("entity_research_key", correlation_id=correlation_id, key=key)
@@ -998,7 +956,6 @@ class EntityResearchService:
             "priority": row.priority if row else None,
             "triage": triage,
             "enqueue": enqueue,
-            "round_started": round_started,
         }
 
     async def status(self) -> dict[str, Any]:

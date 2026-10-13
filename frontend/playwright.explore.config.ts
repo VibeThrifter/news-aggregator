@@ -24,7 +24,7 @@ export default defineConfig({
     url: `http://localhost:${PORT}/event/demo`,
     reuseExistingServer: true,
     timeout: 180_000,
-    env: { NEXT_PUBLIC_ENABLE_DEMO: "true", NEXT_PUBLIC_EXPLORE_UI: "0", NEXT_DIST_DIR: ".next-test" },
+    env: { NEXT_PUBLIC_ENABLE_DEMO: "true", NEXT_DIST_DIR: ".next-test" },
   },
   projects: [
     { name: "desktop-chrome", use: { ...devices["Desktop Chrome"] } },

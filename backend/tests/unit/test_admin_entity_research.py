@@ -29,7 +29,6 @@ class _StubService:
             "status": {"updated": 1},
             "triage": {"assessed": 3},
             "enqueue": {"queued": 2, "skipped": {}},
-            "round_started": True,
         }
 
     async def research_key(self, key: str, correlation_id: str | None = None):
@@ -44,7 +43,6 @@ class _StubService:
             "status": "wachtrij",
             "role_category": "politicus",
             "priority": 78.6,
-            "round_started": True,
         }
 
     async def status(self):
@@ -56,7 +54,7 @@ class _StubService:
             "pm_token_present": True,
             "counts": {"wachtrij": 2},
             "budget": {"auto_today": 2, "auto_max": 12, "requests_today": 0, "requests_max": 30},
-            "runner": {"running": False},
+            "runner": {"scheduled_by": "propagandamodel"},
             "linkedin": None,
             "last_runs": {"cycle": None},
             "watermark": None,
@@ -72,7 +70,7 @@ def stub(monkeypatch) -> _StubService:
 
 async def test_trigger_cycle(stub) -> None:
     response = await admin.trigger_entity_research()
-    assert response.skipped is False and response.round_started is True
+    assert response.skipped is False and response.triage == {"assessed": 3}
     assert response.enqueue == {"queued": 2, "skipped": {}} and stub.cycles == 1
 
 
@@ -144,7 +142,7 @@ async def test_scheduler_job_success(monkeypatch) -> None:
     module, scheduler = _scheduler(monkeypatch, stub)
     await scheduler._entity_research_job()
     run = scheduler._entity_research_last_run
-    assert run["success"] is True and run["result"]["round_started"] is True and stub.cycles == 1
+    assert run["success"] is True and run["result"]["enqueue"]["queued"] == 2 and stub.cycles == 1
     assert scheduler.get_job_status()["entity_research_last_run"] == run
 
 

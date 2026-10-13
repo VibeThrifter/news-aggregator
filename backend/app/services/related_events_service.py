@@ -254,10 +254,6 @@ class EventVectorCache:
             }
             self._weights_dirty = False
 
-    def idf(self, key: str) -> float:
-        self._ensure_derived()
-        return self._idf.get(key, 0.0)
-
     def weight(self, key: str) -> float:
         """Entity weight = kind weight x idf."""
 

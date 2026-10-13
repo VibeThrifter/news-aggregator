@@ -78,10 +78,6 @@ class Decision:
     def auto(self) -> bool:
         return self.decision == RESEARCH
 
-    @property
-    def allowed_on_request(self) -> bool:
-        return self.decision in (RESEARCH, ON_REQUEST)
-
 
 def coverage_factor(pm_degree: int | None, min_relations: int) -> float:
     """1.0 unknown in the model, 0.8 too few relations, 0.0 enough relations."""

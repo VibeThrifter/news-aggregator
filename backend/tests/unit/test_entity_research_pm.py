@@ -1,9 +1,8 @@
 # ruff: noqa: S101
-"""Propaganda-model coverage, REST client and research runner (Epic 12, Stories 12.6/12.7)."""
+"""Propaganda-model coverage, REST client and research agent runs (Epic 12, Stories 12.6/12.7)."""
 
 from __future__ import annotations
 
-import asyncio
 import json
 import sqlite3
 from datetime import datetime
@@ -26,10 +25,9 @@ from backend.app.services.entity_research.pm_coverage import (
     research_outcome,
 )
 from backend.app.services.entity_research.runner import (
-    NieuwsScoutRunner,
+    PmAgentConfig,
+    PmAgentRuns,
     ProcessResult,
-    RunnerConfig,
-    in_active_hours,
     read_run_records,
     run_process,
 )
@@ -231,16 +229,9 @@ def test_research_outcome(tmp_path: Path) -> None:
         name="Anouk Verbeek",
         kind="person",
     )
-    assert (
-        outcome.entities,
-        outcome.relations,
-        outcome.auto_approved,
-        outcome.pending,
-        outcome.rejected,
-    ) == (
+    assert (outcome.entities, outcome.relations, outcome.auto_approved, outcome.pending) == (
         1,
         3,
-        1,
         1,
         1,
     )
@@ -340,14 +331,11 @@ def test_non_json_response_body() -> None:
     assert _json(httpx.Response(200, json=[1, 2])) == {}
 
 
-# ------------------------------------------------------------------ runner
+# ------------------------------------------------------------------ agent runs
 def pm_project(tmp_path: Path, records: list[dict] | None = None) -> Path:
     project = tmp_path / "pm"
-    (project / "scripts").mkdir(parents=True)
-    (project / "data").mkdir()
+    (project / "data").mkdir(parents=True)
     (project / "tools" / "linkedin").mkdir(parents=True)
-    for script in ("agent_runner.py", "nieuws_autokeur_service.py"):
-        (project / "scripts" / script).write_text("# stub\n")
     (project / "tools" / "linkedin" / "snelheidsrem.py").write_text("# stub\n")
     lines = [json.dumps(record) for record in records or []]
     lines.insert(0, "geen json")
@@ -356,15 +344,12 @@ def pm_project(tmp_path: Path, records: list[dict] | None = None) -> Path:
 
 
 class FakeSpawn:
-    def __init__(self, outputs: dict[str, ProcessResult] | None = None, delay: float = 0.0) -> None:
+    def __init__(self, outputs: dict[str, ProcessResult] | None = None) -> None:
         self.calls: list[list[str]] = []
         self.outputs = outputs or {}
-        self.delay = delay
 
     async def __call__(self, command, cwd, timeout):
         self.calls.append(list(command))
-        if self.delay:
-            await asyncio.sleep(self.delay)
         joined = " ".join(command)
         for marker, result in self.outputs.items():
             if marker in joined:
@@ -375,18 +360,12 @@ class FakeSpawn:
 NOON = datetime(2026, 9, 30, 12, 0).astimezone()
 
 
-def runner(tmp_path: Path, spawn: FakeSpawn, records=None, **config) -> NieuwsScoutRunner:
-    return NieuwsScoutRunner(
-        RunnerConfig(project_dir=pm_project(tmp_path, records), **config),
+def runner(tmp_path: Path, spawn: FakeSpawn, records=None, **config) -> PmAgentRuns:
+    return PmAgentRuns(
+        PmAgentConfig(project_dir=pm_project(tmp_path, records), **config),
         spawn=spawn,
         clock=lambda: NOON,
     )
-
-
-def test_in_active_hours() -> None:
-    assert in_active_hours(NOON, 8, 22)
-    assert not in_active_hours(NOON.replace(hour=7), 8, 22)
-    assert not in_active_hours(NOON.replace(hour=22), 8, 22)
 
 
 def test_read_run_records(tmp_path: Path) -> None:
@@ -401,116 +380,6 @@ def test_read_run_records(tmp_path: Path) -> None:
         {"label": "nieuws-scout", "datum": "2026-09-30"}
     ]
     assert read_run_records(tmp_path / "missing.jsonl") == []
-
-
-def test_round_command(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("sys.platform", "linux")
-    command = runner(tmp_path, FakeSpawn()).round_command()
-    assert command[1:8] == [
-        "scripts/agent_runner.py",
-        "--agent",
-        "nieuws-scout",
-        "--label",
-        "nieuws-scout",
-        "--brief",
-        "missies/nieuws_scout_brief.md",
-    ]
-    assert "--skip-permissions" in command and "--alleen-bij-open-doelen" in command
-    assert command[command.index("--max-rondes-per-dag") + 1] == "4"
-    assert command[command.index("--actieve-uren") + 1] == "8-22"
-    assert command[command.index("--model") + 1] == "opus"
-    assert command[command.index("--effort") + 1] == "high"
-
-
-def test_round_command_uses_caffeinate_on_macos(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("sys.platform", "darwin")
-    monkeypatch.setattr(
-        "backend.app.services.entity_research.runner.shutil.which",
-        lambda name: "/usr/bin/caffeinate" if name == "caffeinate" else None,
-    )
-    command = runner(tmp_path, FakeSpawn(), model="", effort="").round_command()
-    assert command[:2] == ["/usr/bin/caffeinate", "-i"]
-    assert "--model" not in command and "--effort" not in command
-
-
-def test_can_start_budget_and_hours(tmp_path: Path) -> None:
-    today = NOON.date().isoformat()
-    records = [{"label": "nieuws-scout", "datum": today}] * 4
-    assert runner(tmp_path / "a", FakeSpawn(), records).can_start() == (
-        False,
-        "dagbudget aan rondes bereikt",
-    )
-    assert runner(tmp_path / "b", FakeSpawn(), records, max_rounds_per_day=5).can_start() == (
-        True,
-        None,
-    )
-    evening = runner(tmp_path / "c", FakeSpawn())
-    assert evening.can_start(NOON.replace(hour=23)) == (False, "buiten de actieve uren")
-    missing = NieuwsScoutRunner(RunnerConfig(project_dir=tmp_path / "nergens"), clock=lambda: NOON)
-    assert missing.can_start() == (False, "propagandamodel-project niet gevonden")
-
-
-async def test_start_round_runs_autokeur_and_callback(tmp_path: Path) -> None:
-    autokeur = ProcessResult(
-        0, ["Auto-keur…", json.dumps({"goedgekeurd": {"entities": [40], "relations": [120]}})]
-    )
-    spawn = FakeSpawn(
-        {"nieuws_autokeur_service.py": autokeur, "agent_runner.py": ProcessResult(0, ["klaar"])}
-    )
-    scout = runner(tmp_path, spawn)
-    finished = []
-
-    async def on_finished(state):
-        finished.append(state)
-
-    assert scout.start_round(on_finished) is True
-    assert scout.running and scout.state.running
-    # a second start while running is refused
-    assert scout.start_round() is False
-    await scout.wait()
-    assert not scout.running and scout.state.returncode == 0 and scout.state.finished_at
-    assert scout.state.autokeur == {"goedgekeurd": {"entities": [40], "relations": [120]}}
-    assert "scripts/agent_runner.py" in spawn.calls[0]
-    assert "scripts/nieuws_autokeur_service.py" in spawn.calls[1] and len(spawn.calls) == 2
-    assert finished and finished[0] is scout.state
-    # minimum gap between rounds
-    assert scout.can_start() == (False, "te kort na de vorige ronde")
-
-
-async def test_round_without_autokeur_and_failures(tmp_path: Path) -> None:
-    spawn = FakeSpawn({"agent_runner.py": ProcessResult(1, ["fout"], timed_out=True)})
-    scout = runner(tmp_path, spawn, autokeur_enabled=False)
-
-    async def broken(state):
-        raise RuntimeError("callback kapot")
-
-    assert scout.start_round(broken) is True
-    await scout.wait()  # the callback error is logged, not raised
-    assert scout.state.timed_out and scout.state.returncode == 1 and scout.state.autokeur is None
-    assert len(spawn.calls) == 1
-
-
-async def test_round_spawn_error_is_contained(tmp_path: Path) -> None:
-    async def exploding(command, cwd, timeout):
-        raise OSError("geen python")
-
-    scout = NieuwsScoutRunner(
-        RunnerConfig(project_dir=pm_project(tmp_path)), spawn=exploding, clock=lambda: NOON
-    )
-    assert scout.start_round() is True
-    await scout.wait()
-    assert not scout.running and "fout: geen python" in scout.state.output_tail[-1]
-
-
-async def test_run_autokeur_parsing(tmp_path: Path) -> None:
-    bad = runner(tmp_path / "a", FakeSpawn({"autokeur": ProcessResult(2, ["{kapot", "tekst"])}))
-    assert await bad.run_autokeur() is None
-    project = pm_project(tmp_path / "b")
-    (project / "scripts" / "nieuws_autokeur_service.py").unlink()
-    none = NieuwsScoutRunner(
-        RunnerConfig(project_dir=project), spawn=FakeSpawn(), clock=lambda: NOON
-    )
-    assert await none.run_autokeur() is None
 
 
 async def test_linkedin_status(tmp_path: Path) -> None:
@@ -536,10 +405,10 @@ def test_status(tmp_path: Path) -> None:
         [{"label": "nieuws-scout", "datum": today, "linkedin_verlopen": True}],
     )
     status = scout.status()
-    assert status["rounds_today"] == 1 and status["max_rounds_per_day"] == 4
-    assert status["active_hours"] == "08-22"
+    assert status["rounds_today"] == 1 and status["label"] == "nieuws-scout"
+    assert status["active_hours"] == "08-22" and status["scheduled_by"] == "propagandamodel"
     assert status["linkedin_session_expired"] is True
-    assert status["can_start"] is True and status["running"] is False
+    assert "max_rounds_per_day" not in status and "can_start" not in status
 
 
 async def test_run_process_real_subprocess(tmp_path: Path, monkeypatch) -> None:

@@ -49,10 +49,9 @@ ARTICLE_DIGEST_TIMEOUT_SECONDS = 900
 VOICE_SEARCH_TIMEOUT_SECONDS = 900
 # Maximum time allowed for the propaganda-model sync (Story 11.17)
 PROPAGANDA_SYNC_TIMEOUT_SECONDS = 600
-# Maximum time allowed for one entity research cycle (Epic 12; research rounds run in the
-# background and are not part of this timeout)
+# Maximum time allowed for one entity research cycle (Epic 12)
 ENTITY_RESEARCH_TIMEOUT_SECONDS = 600
-# One evidence research cycle (Story 14.13; the rounds of the pm agent run in the background)
+# One evidence research cycle (Story 14.13)
 EVIDENCE_RESEARCH_TIMEOUT_SECONDS = 300
 
 logger = structlog.get_logger()
@@ -250,8 +249,8 @@ class NewsAggregatorScheduler:
                 "Propaganda-model sync job disabled (set PROPAGANDA_SYNC_ENABLED=true to enable)"
             )
 
-        # Wie is dit? (Epic 12) - triage names, queue research in the propaganda model, start
-        # rounds of its nieuws-scout agent and pull the results
+        # Wie is dit? (Epic 12) - triage names, queue research in the propaganda model and pull
+        # the results (the propaganda model schedules the rounds of its nieuws-scout agent)
         if self.settings.entity_research_enabled:
             self.scheduler.add_job(
                 func=self._entity_research_job,
@@ -264,13 +263,12 @@ class NewsAggregatorScheduler:
             logger.info(
                 "Entity research job enabled",
                 interval_minutes=self.settings.entity_research_interval_minutes,
-                rounds_enabled=self.settings.nieuws_scout_enabled,
             )
         else:
             logger.info("Entity research job disabled (set ENTITY_RESEARCH_ENABLED=true to enable)")
 
         # Dun bewijs (Story 14.13) - queue thin links readers saw for evidence research in the
-        # propaganda model, start rounds of its nieuws-bewijs agent (when switched on), pull results
+        # propaganda model and pull the results (it schedules its nieuws-bewijs agent itself)
         if self.settings.evidence_research_enabled:
             self.scheduler.add_job(
                 func=self._evidence_research_job,
@@ -283,7 +281,6 @@ class NewsAggregatorScheduler:
             logger.info(
                 "Evidence research job enabled",
                 interval_minutes=self.settings.evidence_research_interval_minutes,
-                rounds_enabled=self.settings.nieuws_bewijs_enabled,
             )
         else:
             logger.info(
@@ -884,141 +881,6 @@ class NewsAggregatorScheduler:
             )
             self._reset_services()
             return {"success": False, "error": str(e), "correlation_id": correlation_id}
-
-    async def run_international_enrichment_now(self, limit: int | None = None) -> dict:
-        """Manually trigger international enrichment (for testing/admin)."""
-        correlation_id = str(uuid.uuid4())
-        batch_size = limit or self.settings.international_enrichment_batch_size
-        logger.info(
-            "Manual international enrichment triggered",
-            correlation_id=correlation_id,
-            limit=batch_size,
-        )
-
-        try:
-            # Ensure database connection is healthy before proceeding
-            if not await ensure_healthy_connection():
-                self._reset_services()
-                return {
-                    "success": False,
-                    "error": "Database connection unhealthy after reset attempt",
-                    "correlation_id": correlation_id,
-                }
-
-            # Get events that need international enrichment
-            session_factory = get_sessionmaker()
-            async with session_factory() as session:
-                event_repo = EventRepository(session)
-                events = await event_repo.get_events_without_international(limit=batch_size)
-
-            if not events:
-                return {
-                    "success": True,
-                    "correlation_id": correlation_id,
-                    "events_processed": 0,
-                    "total_articles_added": 0,
-                    "message": "No events need international enrichment",
-                }
-
-            enrichment_service = self._get_international_enrichment_service()
-            total_added = 0
-            successful = 0
-            failed = 0
-            results = []
-
-            for event in events:
-                try:
-                    result = await enrichment_service.enrich_event(
-                        event_id=event.id,
-                        max_articles_per_country=self.settings.international_enrichment_max_per_country,
-                        correlation_id=correlation_id,
-                    )
-                    total_added += result.articles_added
-                    successful += 1
-                    results.append(
-                        {
-                            "event_id": event.id,
-                            "articles_added": result.articles_added,
-                            "countries_fetched": result.countries_fetched,
-                        }
-                    )
-                except Exception as e:
-                    failed += 1
-                    results.append(
-                        {
-                            "event_id": event.id,
-                            "error": str(e),
-                        }
-                    )
-
-                # Rate limiting between events
-                await asyncio.sleep(2)
-
-            return {
-                "success": failed == 0,
-                "correlation_id": correlation_id,
-                "events_processed": successful,
-                "events_failed": failed,
-                "total_articles_added": total_added,
-                "results": results,
-            }
-
-        except Exception as e:
-            logger.error(
-                "Manual international enrichment failed",
-                error=str(e),
-                correlation_id=correlation_id,
-            )
-            self._reset_services()
-            return {
-                "success": False,
-                "error": str(e),
-                "correlation_id": correlation_id,
-            }
-
-    async def run_bias_analysis_now(self, limit: int | None = None) -> dict:
-        """Manually trigger bias analysis (for testing/admin)."""
-        correlation_id = str(uuid.uuid4())
-        batch_size = limit or self.settings.bias_analysis_batch_size
-        logger.info(
-            "Manual bias analysis triggered",
-            correlation_id=correlation_id,
-            limit=batch_size,
-        )
-
-        try:
-            # Ensure database connection is healthy before proceeding
-            if not await ensure_healthy_connection():
-                self._reset_services()
-                return {
-                    "success": False,
-                    "error": "Database connection unhealthy after reset attempt",
-                    "correlation_id": correlation_id,
-                }
-
-            bias_service = self._get_bias_detection_service()
-            stats = await bias_service.analyze_batch(
-                limit=batch_size,
-                correlation_id=correlation_id,
-            )
-            return {
-                "success": stats["articles_failed"] == 0,
-                "correlation_id": correlation_id,
-                **stats,
-            }
-
-        except Exception as e:
-            logger.error(
-                "Manual bias analysis failed",
-                error=str(e),
-                correlation_id=correlation_id,
-            )
-            self._reset_services()
-            return {
-                "success": False,
-                "error": str(e),
-                "correlation_id": correlation_id,
-            }
 
 
 # Global scheduler instance

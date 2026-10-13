@@ -94,19 +94,9 @@ export const CATEGORIES: CategoryConfig[] = [
 /**
  * Lookup map for quick category retrieval by slug.
  */
-export const CATEGORY_BY_SLUG: Record<string, CategoryConfig> = Object.fromEntries(
+const CATEGORY_BY_SLUG: Record<string, CategoryConfig> = Object.fromEntries(
   CATEGORIES.map((cat) => [cat.slug, cat]),
 );
-
-/**
- * Get category config by slug, with fallback to "other".
- */
-export function getCategoryBySlug(slug: string | null | undefined): CategoryConfig {
-  if (!slug || slug === "all") {
-    return CATEGORY_BY_SLUG["all"];
-  }
-  return CATEGORY_BY_SLUG[slug] ?? CATEGORY_BY_SLUG["other"];
-}
 
 /**
  * Legacy event types that map to other categories.
@@ -132,20 +122,6 @@ export function getCategoryForEventType(eventType: string | null | undefined): C
 export function getCategoryLabel(eventType: string | null | undefined): string {
   return getCategoryForEventType(eventType).label;
 }
-
-/**
- * Get Tailwind classes for a category badge.
- */
-export function getCategoryBadgeClasses(eventType: string | null | undefined): string {
-  const cat = getCategoryForEventType(eventType);
-  return `${cat.color} ${cat.bgColor} ${cat.borderColor}`;
-}
-
-/**
- * Filter categories that should be shown in navigation.
- * Excludes "all" from the filter list (it's handled separately).
- */
-export const FILTERABLE_CATEGORIES = CATEGORIES.filter((cat) => cat.slug !== "all");
 
 /**
  * Default category (shows all events).

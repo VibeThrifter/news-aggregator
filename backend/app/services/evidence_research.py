@@ -15,13 +15,13 @@ one cycle of this service (scheduler job, every 15 minutes) then does:
    changes the order): the propaganda model's automatic review checks the sources of what
    readers see first (bronchecker) and its source finder (bronzoeker) looks for a source where
    there is none (owner decision 2026-10-06: agents do everything in the propaganda model)
-4. **round**   - when targets are open and rounds are switched on (``NIEUWS_BEWIJS_ENABLED``),
-   start a round of the propaganda-model agent ``nieuws-bewijs``. It looks for evidence for AND
-   against; everything lands ``voorgesteld``. Right after the round the propaganda model's
-   automatic review decides (owner decision 2026-10-06: nobody reviews by hand): the
-   bronchecker re-reads every source (A1), the prosecutor attacks influence claims (A2), the
-   immune gate merges what holds and the rest is cleaned up. The pm sync then brings the
-   merged evidence to the app.
+
+The rounds of the propaganda-model agent ``nieuws-bewijs`` are scheduled by the propaganda model
+itself (since 2026-10-07). It looks for evidence for AND against; everything lands
+``voorgesteld``. Then the propaganda model's automatic review decides (owner decision
+2026-10-06: nobody reviews by hand): the bronchecker re-reads every source (A1), the prosecutor
+attacks influence claims (A2), the immune gate merges what holds and the rest is cleaned up. The
+hourly pm sync then brings the merged evidence to the app.
 
 Nothing a reader sends reaches the research agent: the request carries relation ids and an event
 slug; the research target is built from the propaganda model and the app's own events only.
@@ -60,13 +60,9 @@ from backend.app.services.entity_research.pm_client import (
 )
 from backend.app.services.entity_research.pm_coverage import read_doelen
 from backend.app.services.entity_research.runner import (
-    AUTOMATIC_REVIEW_SCRIPT,
-    EVIDENCE_ACCOUNT,
-    EVIDENCE_BRIEF,
     EVIDENCE_LABEL,
-    NieuwsScoutRunner,
-    RoundState,
-    RunnerConfig,
+    PmAgentConfig,
+    PmAgentRuns,
 )
 from backend.app.services.propaganda_model_sync import connect_read_only
 
@@ -517,44 +513,28 @@ class EvidenceResearchService:
         write_session_factory: SessionFactory | None = None,
         read_session_factory: SessionFactory | None = None,
         pm_client: PmClient | None = None,
-        runner: NieuwsScoutRunner | None = None,
-        pm_sync: Callable[[], Any] | None = None,
+        runner: PmAgentRuns | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now().astimezone(),
     ) -> None:
         self.settings = settings or get_settings()
-        self._pm_sync = pm_sync
         self._write = write_session_factory or _default_write_factory
         self._read = read_session_factory or _default_read_factory
         self.pm_client = pm_client or PmClient(
             self.settings.pm_api_base_url, self.settings.pm_agent_token_file
         )
-        self.runner = runner or NieuwsScoutRunner(
-            RunnerConfig(
+        self.runner = runner or PmAgentRuns(
+            PmAgentConfig(
                 project_dir=self.settings.propaganda_project_dir,
                 python=self.settings.nieuws_scout_python,
-                claude_bin=self.settings.nieuws_scout_claude_bin,
-                model=self.settings.nieuws_bewijs_model,
-                effort=self.settings.nieuws_bewijs_effort,
-                timeout_seconds=self.settings.nieuws_bewijs_timeout_seconds,
-                max_rounds_per_day=self.settings.nieuws_bewijs_max_rounds_per_day,
-                min_minutes_between_rounds=self.settings.nieuws_bewijs_min_minutes_between_rounds,
                 active_start_hour=self.settings.nieuws_scout_active_start_hour,
                 active_end_hour=self.settings.nieuws_scout_active_end_hour,
-                # After a round: the automatic review of the propaganda model (its A2 step may
-                # run one prosecutor round, hence the long timeout)
-                autokeur_enabled=True,
-                autokeur_script=AUTOMATIC_REVIEW_SCRIPT,
-                autokeur_timeout_seconds=self.settings.nieuws_bewijs_timeout_seconds + 1800,
                 label=EVIDENCE_LABEL,
-                account=EVIDENCE_ACCOUNT,
-                brief=EVIDENCE_BRIEF,
-                extra_args=("--doel-soort", "relatie"),
             )
         )
         self._clock = clock
         self._lock = asyncio.Lock()
         self._prioritised_at: datetime | None = None
-        self.last_runs: dict[str, dict[str, Any] | None] = {"cycle": None, "after_round": None}
+        self.last_runs: dict[str, dict[str, Any] | None] = {"cycle": None}
 
     @property
     def enabled(self) -> bool:
@@ -573,7 +553,7 @@ class EvidenceResearchService:
 
     # ------------------------------------------------------------------ cycle
     async def run_cycle(self, correlation_id: str | None = None) -> dict[str, Any]:
-        """status -> enqueue -> round. Never raises for a missing propaganda model."""
+        """status -> enqueue -> priority. Never raises for a missing propaganda model."""
 
         if not self.enabled:
             return {"skipped": True, "reason": "disabled"}
@@ -582,13 +562,11 @@ class EvidenceResearchService:
             status = await self.sync_status()
             enqueue = await self.enqueue()
             prioritised = await self.prioritise()
-        round_started = await self.maybe_start_round()
         outcome = {
             "skipped": False,
             "status": status,
             "enqueue": enqueue,
             "prioritised": prioritised,
-            "round_started": round_started,
         }
         self.last_runs["cycle"] = {
             "started_at": started_at.isoformat(),
@@ -766,47 +744,6 @@ class EvidenceResearchService:
             await session.commit()
         return {"updated": updated}
 
-    # ------------------------------------------------------------------ rounds
-    async def maybe_start_round(self) -> bool:
-        if not self.settings.nieuws_bewijs_enabled:
-            return False
-        async with self._write() as session:
-            waiting = await RelationResearchRepository(session).by_status(("wachtrij",), limit=1)
-        if not waiting:
-            return False
-        return self.runner.start_round(on_finished=self._after_round)
-
-    async def _after_round(self, state: RoundState) -> None:
-        started_at = datetime.now(timezone.utc)
-        async with self._lock:
-            status = await self.sync_status()
-        review = state.autokeur or {}
-        approved = review.get("goedgekeurd") or {}
-        if review.get("gemerged") or approved.get("entities") or approved.get("relations"):
-            await self._trigger_pm_sync()
-        self.last_runs["after_round"] = {
-            "finished_at": started_at.isoformat(),
-            "returncode": state.returncode,
-            "timed_out": state.timed_out,
-            "review": review,
-            "status": status,
-        }
-
-    async def _trigger_pm_sync(self) -> None:
-        """Bring newly merged evidence to Supabase right away (the hourly sync catches up)."""
-
-        try:
-            if self._pm_sync is not None:
-                result = self._pm_sync()
-            else:
-                from backend.app.services.propaganda_model_sync import get_propaganda_sync_service
-
-                result = get_propaganda_sync_service().sync(correlation_id="evidence-research")
-            if asyncio.iscoroutine(result):
-                await result
-        except Exception as exc:  # the hourly sync job catches up
-            logger.warning("evidence_research_pm_sync_failed", error=str(exc))
-
     # ------------------------------------------------------------------ admin
     async def research_relation(
         self, relation_id: int, correlation_id: str | None = None
@@ -834,7 +771,6 @@ class EvidenceResearchService:
                 )
                 await session.commit()
             enqueue = await self.enqueue(relation_id, force=True)
-        round_started = await self.maybe_start_round()
         async with self._write() as session:
             row = (await RelationResearchRepository(session).get_many([relation_id])).get(
                 relation_id
@@ -848,7 +784,6 @@ class EvidenceResearchService:
             "missing": evidence[relation_id].missing(),
             "status": row.status if row else None,
             "enqueue": enqueue,
-            "round_started": round_started,
         }
 
     async def status(self) -> dict[str, Any]:
@@ -858,7 +793,6 @@ class EvidenceResearchService:
             queued_today = await repo.count_queued_since(self._start_of_day(self._now()))
         return {
             "enabled": self.enabled,
-            "rounds_enabled": bool(self.settings.nieuws_bewijs_enabled),
             "pm_db": str(self.db_path),
             "pm_db_exists": self.db_path.exists(),
             "pm_server": await self.pm_client.health(),

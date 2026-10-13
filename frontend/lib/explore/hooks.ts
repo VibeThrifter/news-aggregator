@@ -48,7 +48,6 @@ export function useMediaQuery(query: string): boolean {
 
 export const useIsDesktop = () => useMediaQuery("(min-width: 1024px)");
 export const useFinePointer = () => useMediaQuery("(hover: hover) and (pointer: fine)");
-export const useReducedMotion = () => useMediaQuery("(prefers-reduced-motion: reduce)");
 
 const PANEL_STATE_KEY = "__explorePanel";
 

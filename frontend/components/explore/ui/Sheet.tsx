@@ -9,8 +9,6 @@ import { useIsDesktop } from "@/lib/explore/hooks";
 
 import { PortalRootContext } from "./portal-root";
 
-export { usePortalRoot } from "./portal-root";
-
 export interface SheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;

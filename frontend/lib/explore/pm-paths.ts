@@ -264,11 +264,6 @@ export function findPaths(
   };
 }
 
-/** Relation ids of a route, resolved (missing ones skipped). */
-export function routeRelations(route: Pick<PmPathRoute, "relations">, relations: ReadonlyMap<number, PmRelation>): PmRelation[] {
-  return route.relations.map((id) => relations.get(id)).filter((relation): relation is PmRelation => Boolean(relation));
-}
-
 /** One undirected edge per unordered pair: routes a→b and b→a with the same nodes count once. */
 export function uniqueRoutes(routes: readonly PmPathRoute[]): PmPathRoute[] {
   const seen = new Set<string>();
@@ -302,29 +297,4 @@ export function pickRoutes(paths: PmPaths, max: number): PmPaths {
     entities: paths.entities.filter((entity) => nodes.has(entity.id)),
     relations: paths.relations.filter((relation) => relations.has(relation.id)),
   };
-}
-
-/** One step of a route, read from the route's start: "NU.nl ← is eigenaar van — DPG Media". */
-export interface RouteStep {
-  from: PmEntity | undefined;
-  to: PmEntity | undefined;
-  relation: PmRelation;
-  /** The relation points along the route (from → to); otherwise it points back */
-  forward: boolean;
-}
-
-/** The steps of a route with the entities and relations it needs (missing relations are skipped). */
-export function routeSteps(
-  route: Pick<PmPathRoute, "nodes" | "relations">,
-  entities: ReadonlyMap<number, PmEntity>,
-  relations: ReadonlyMap<number, PmRelation>,
-): RouteStep[] {
-  const steps: RouteStep[] = [];
-  route.relations.forEach((id, index) => {
-    const relation = relations.get(id);
-    if (!relation) return;
-    const fromId = route.nodes[index];
-    steps.push({ from: entities.get(fromId), to: entities.get(route.nodes[index + 1]), relation, forward: relation.source_id === fromId });
-  });
-  return steps;
 }

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, func, select, tuple_, update
+from sqlalchemy import delete, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,18 +50,6 @@ class EntityIndexRow:
     kind: str
     name: str
     computed_at: datetime | None
-
-
-@dataclass(slots=True)
-class DisplayFields:
-    """Denormalised display fields of an event (LLM title only)."""
-
-    slug: str | None
-    title: str
-    event_type: str | None
-    article_count: int | None
-    first_seen_at: datetime | None
-    last_updated_at: datetime | None
 
 
 def _chunks(items: Sequence[Any], size: int = _CHUNK_SIZE) -> Iterable[Sequence[Any]]:
@@ -243,37 +231,6 @@ class ExplorationRepository:
             deleted += result.rowcount or 0
         return deleted
 
-    async def refresh_display_fields(self, event_id: int, display: DisplayFields) -> int:
-        """Refresh denormalised fields that describe ``event_id`` in both exploration tables.
-
-        Updates ``event_relations`` rows pointing at the event and the event's own
-        ``event_entities`` rows. Never touches the ``events`` table.
-        """
-
-        relations = await self.session.execute(
-            update(EventRelation)
-            .where(EventRelation.related_event_id == event_id)
-            .values(
-                related_slug=display.slug,
-                related_title=display.title,
-                related_event_type=display.event_type,
-                related_article_count=display.article_count,
-                related_first_seen_at=display.first_seen_at,
-                related_last_updated_at=display.last_updated_at,
-            )
-        )
-        entities = await self.session.execute(
-            update(EventEntity)
-            .where(EventEntity.event_id == event_id)
-            .values(
-                event_slug=display.slug,
-                event_title=display.title,
-                event_type=display.event_type,
-                event_last_updated_at=display.last_updated_at,
-            )
-        )
-        return (relations.rowcount or 0) + (entities.rowcount or 0)
-
     # ------------------------------------------------------------------ stats
     async def counts(self) -> dict[str, Any]:
         """Row counts and last computation timestamps for the status endpoint."""
@@ -307,7 +264,6 @@ class ExplorationRepository:
 
 
 __all__ = [
-    "DisplayFields",
     "EntityIndexRow",
     "ExplorationRepository",
     "RELATION_UPDATE_COLUMNS",

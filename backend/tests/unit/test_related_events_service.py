@@ -63,9 +63,6 @@ def test_idf_weighting_prefers_rare_shared_entities() -> None:
         4: {"entities": {**common, "org:e": "E"}},
     }
     cache = _cache_with(events)
-    assert cache.idf("country:nl") == pytest.approx(math.log(5 / 5))
-    assert cache.idf("person:mark-rutte") == pytest.approx(math.log(5 / 3))
-    assert cache.idf("person:unknown") == 0.0
     rare = cache.entity_overlap(1, 2)
     common_only = cache.entity_overlap(1, 3)
     assert rare > 0.08

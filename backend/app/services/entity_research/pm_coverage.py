@@ -340,7 +340,6 @@ class ResearchOutcome:
     relations: int
     auto_approved: int
     pending: int
-    rejected: int
     main_entity_id: int | None
 
     def as_found(self) -> dict[str, int]:
@@ -365,7 +364,7 @@ def research_outcome(
     entity_ids = [int(i) for i in result.get("entity_ids") or [] if str(i).isdigit()]
     relation_ids = [int(i) for i in result.get("relation_ids") or [] if str(i).isdigit()]
     if not entity_ids and not relation_ids:
-        return ResearchOutcome(0, 0, 0, 0, 0, None)
+        return ResearchOutcome(0, 0, 0, 0, None)
     connection = connect_read_only(Path(path))
     try:
         auto = _auto_approvals(connection)
@@ -401,7 +400,6 @@ def research_outcome(
         relations=len(relation_ids),
         auto_approved=sum(1 for rid in approved if rid in auto_relations),
         pending=sum(1 for status in statuses.values() if status == "voorgesteld"),
-        rejected=sum(1 for status in statuses.values() if status == "afgewezen"),
         main_entity_id=main,
     )
 

@@ -604,10 +604,6 @@ class RoleAssessment:
     organisations: list[str] = field(default_factory=list)
     cues: list[RoleCue] = field(default_factory=list)
 
-    @property
-    def is_public(self) -> bool:
-        return self.category in PUBLIC_CATEGORIES
-
 
 def classify_word(word: str) -> str | None:
     """Category of a (possibly compound) title word: "VVD-Kamerlid", "oud-minister"."""

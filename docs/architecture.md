@@ -407,21 +407,11 @@ sequenceDiagram
 │   ├── app/
 │   │   ├── layout.tsx
 │   │   ├── page.tsx                # Event feed overview
-│   │   └── event/[id]/page.tsx     # Event detail page
+│   │   └── event/[id]/page.tsx     # Event detail page (ExploreScreen, Epic 11/14)
 │   ├── components/
-│   │   ├── EventCard.tsx
-│   │   ├── EventFeed.tsx
-│   │   ├── ClusterGrid.tsx
-│   │   ├── ClusterCard.tsx
-│   │   ├── Timeline.tsx
-│   │   ├── ArticleList.tsx
-│   │   ├── ContradictionList.tsx
-│   │   ├── ContradictionCard.tsx
-│   │   ├── FallacyList.tsx
-│   │   ├── FallacyCard.tsx
-│   │   ├── InsightsFallback.tsx
-│   │   ├── SourceTag.tsx
-│   │   └── StatusBanner.tsx
+│   │   ├── EventFeed.tsx           # Front page feed
+│   │   ├── front/                  # Front page ("Wie zegt wat?", story cards)
+│   │   └── explore/                # Event page: one picture, tabs, network
 │   ├── lib/
 │   │   ├── api.ts                  # Backend client utilities
 │   │   ├── types.ts                # TypeScript type definitions

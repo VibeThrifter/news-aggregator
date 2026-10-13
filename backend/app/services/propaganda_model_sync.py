@@ -283,13 +283,6 @@ FILTERS: tuple[str, ...] = (
 UNFILTERED = "overig"
 # The six media filters (Herman & Chomsky + tegenmacht), the scope of the app before Epic 15.
 MEDIA_FILTERS: frozenset[str] = frozenset(FILTERS[:6])
-# Uitbreiding C of the propaganda model (2026-10-07): decision-making categories and relation
-# types. Until PROPAGANDA_SYNC_BESTUUR is on, relations that only belong to these (and entities
-# that only have such relations) stay out of the pm_* tables, so the live app is unchanged.
-BESTUUR_CATEGORIES: frozenset[str] = frozenset(
-    {"formele_macht", "belangen", "kennis_advies", "polder", "werving"}
-)
-BESTUUR_RELATION_TYPES: frozenset[str] = frozenset({"ambt", "zeggenschap", "controle", "geschenk"})
 # Version of the pm_* row format (pm_meta.format). A sync is never skipped as "unchanged" while
 # the stored format differs, so a new column is filled right after the migration adds it.
 # 4: auto_approved + unreviewed sources (Epic 12); 5: arguments + mechanisms; 6: sources an
@@ -1705,67 +1698,8 @@ class PmSnapshot:
         )
 
 
-def register_only_relations(
-    arguments: Iterable[Mapping[str, Any]],
-    citations: Iterable[Mapping[str, Any]],
-    sources: Mapping[int, Mapping[str, Any]],
-) -> set[int]:
-    """Relations whose every live supporting root argument cites only register sources
-    (cluster_key 'register:…', the propaganda model's register pipeline, Uitbreiding C)."""
-
-    register = {
-        sid
-        for sid, row in sources.items()
-        if str(row.get("cluster_key") or "").startswith("register:")
-    }
-    cited: dict[int, list[int]] = defaultdict(list)
-    for row in citations:
-        cited[row["argument_id"]].append(row["source_id"])
-    roots: dict[int, list[int]] = defaultdict(list)
-    for row in arguments:
-        if (
-            row.get("relation_id")
-            and row.get("parent_argument_id") is None
-            and row.get("stance") == "supporting"
-            and row.get("status") != "verworpen"
-        ):
-            roots[row["relation_id"]].append(row["id"])
-    return {
-        rid
-        for rid, ids in roots.items()
-        if all(cited.get(aid) and all(sid in register for sid in cited[aid]) for aid in ids)
-    }
-
-
-def is_bestuur_only(
-    relation: Mapping[str, Any],
-    mechanisms: Mapping[int, Mapping[str, Any]],
-    mechanism_tags: Mapping[int, Sequence[str]],
-    register_only: frozenset[int] | set[int] = frozenset(),
-) -> bool:
-    """Whether a relation belongs only to the decision-making layer (Uitbreiding C): a new
-    relation type, a relation that rests only on register facts, or a mechanism whose
-    categories include a decision-making one and none of the six media filters."""
-
-    if relation.get("relation_type") in BESTUUR_RELATION_TYPES:
-        return True
-    if relation.get("id") in register_only:
-        return True
-    mechanism = mechanisms.get(relation.get("mechanism_id"))
-    if mechanism is None:
-        return False
-    categories = set(mechanism_tags.get(mechanism["id"], ())) | {mechanism.get("filter")}
-    return bool(categories & BESTUUR_CATEGORIES) and not categories & MEDIA_FILTERS
-
-
-def transform(
-    raw: PmRawData, *, synced_at: datetime | None = None, bestuur: bool = False
-) -> PmSnapshot:
-    """Turn raw pm rows into pm_* rows. Pure: no I/O.
-
-    ``bestuur=False`` (default, PROPAGANDA_SYNC_BESTUUR off) leaves out the decision-making
-    layer: relations for which :func:`is_bestuur_only` holds, and entities whose every approved
-    relation is such a relation."""
+def transform(raw: PmRawData, *, synced_at: datetime | None = None) -> PmSnapshot:
+    """Turn raw pm rows into pm_* rows. Pure: no I/O."""
 
     synced = synced_at or datetime.now(timezone.utc)
     roles = {row["id"]: row for row in raw.roles}
@@ -1787,29 +1721,6 @@ def transform(
 
     entities = [row for row in raw.entities if _is_approved(row)]
     approved_relations = [row for row in raw.relations if _is_approved(row)]
-    if not bestuur:
-        register_only = register_only_relations(arguments, citations, sources)
-        hidden = [
-            row
-            for row in approved_relations
-            if is_bestuur_only(row, mechanisms, mechanism_tags, register_only)
-        ]
-        if hidden:
-            hidden_ids = {row["id"] for row in hidden}
-            approved_relations = [
-                row for row in approved_relations if row["id"] not in hidden_ids
-            ]
-            kept_ends = {row["source_id"] for row in approved_relations} | {
-                row["target_id"] for row in approved_relations
-            }
-            hidden_ends = {row["source_id"] for row in hidden} | {
-                row["target_id"] for row in hidden
-            }
-            entities = [
-                row
-                for row in entities
-                if row["id"] not in hidden_ends or row["id"] in kept_ends
-            ]
     entity_ids = {row["id"] for row in entities}
 
     scores = score_arguments(arguments, citations, sources, raw.maintainers)
@@ -1972,12 +1883,10 @@ def assert_no_excluded_layers(payload: str | PmSnapshot | Mapping[str, Any]) -> 
         )
 
 
-def load_snapshot(
-    path: Path | str, *, synced_at: datetime | None = None, bestuur: bool = False
-) -> PmSnapshot:
+def load_snapshot(path: Path | str, *, synced_at: datetime | None = None) -> PmSnapshot:
     """Read + transform + check (synchronous; run it in a thread from async code)."""
 
-    snapshot = transform(read_pm_database(path), synced_at=synced_at, bestuur=bestuur)
+    snapshot = transform(read_pm_database(path), synced_at=synced_at)
     assert_no_excluded_layers(snapshot)
     return snapshot
 
@@ -2433,9 +2342,7 @@ class PropagandaModelSyncService:
     ) -> None:
         self.settings = settings or get_settings()
         self._write = write_session_factory or _default_write_factory
-        self._load = loader or (
-            lambda path: load_snapshot(path, bestuur=bool(self.settings.propaganda_sync_bestuur))
-        )
+        self._load = loader or load_snapshot
         self._lock = asyncio.Lock()
         self.last_run: dict[str, Any] | None = None
 

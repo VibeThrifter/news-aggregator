@@ -205,7 +205,7 @@ def test_assess_politician_with_evidence() -> None:
         [ctx("Het dorp. Wethouder "), ctx("zei ", after=" (VVD) tegen de krant.")],
         [{"authority": "Anouk Verbeek", "actual_role": "Wethouder van Dijkerhoven"}],
     )
-    assert result.category == POLITICUS and result.is_public
+    assert result.category == POLITICUS
     assert result.label == "politicus (VVD)"
     assert result.is_foreign is False
     assert 1 <= len(result.evidence) <= 3
@@ -221,7 +221,7 @@ def test_public_role_beats_private_cue() -> None:
 
 def test_only_private_cues() -> None:
     result = assess_person([ctx(span="Henk", after=" (61) woont er al lang.")])
-    assert result.category == PRIVE and not result.is_public
+    assert result.category == PRIVE
 
 
 def test_no_cues_is_unknown() -> None:
@@ -305,7 +305,7 @@ def _decide(**kw):
 
 def test_decide_politician_is_researched_automatically() -> None:
     decision = _decide()
-    assert decision.decision == prio.RESEARCH and decision.auto and decision.allowed_on_request
+    assert decision.decision == prio.RESEARCH and decision.auto
     assert decision.priority >= 60
 
 
@@ -331,11 +331,11 @@ def test_decide_single_name_person_is_skipped() -> None:
 
 def test_decide_unknown_role() -> None:
     wait = _decide(category=ONBEKEND, prominence=prio.Prominence(articles=1, outlets=1, events=1))
-    assert wait.decision == prio.WAIT and not wait.allowed_on_request
+    assert wait.decision == prio.WAIT and not wait.auto
     prominent = _decide(
         category=ONBEKEND, prominence=prio.Prominence(articles=6, outlets=3, events=2)
     )
-    assert prominent.decision == prio.ON_REQUEST and prominent.allowed_on_request
+    assert prominent.decision == prio.ON_REQUEST and not prominent.auto
 
 
 def test_decide_other_public_persons_only_on_request() -> None:

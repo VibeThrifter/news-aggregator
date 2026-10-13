@@ -78,51 +78,6 @@ export function Tag({ tone = "neutral", children, className = "" }: { tone?: Chi
   );
 }
 
-/** Circular progress (revealed / total). */
-export function ProgressRing({
-  value,
-  total,
-  size = 36,
-  stroke = 4,
-  color = "#1F75CE",
-  label,
-}: {
-  value: number;
-  total: number;
-  size?: number;
-  stroke?: number;
-  color?: string;
-  label?: string;
-}) {
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const fraction = total > 0 ? Math.min(1, value / total) : 0;
-  const complete = total > 0 && value >= total;
-  return (
-    <span className="relative inline-flex shrink-0 items-center justify-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={label ?? `${value} van ${total} ontdekt`}>
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#eeeeee" strokeWidth={stroke} />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke={complete ? "#10b981" : color}
-          strokeWidth={stroke}
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={circumference * (1 - fraction)}
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          style={{ transition: "stroke-dashoffset 400ms ease" }}
-        />
-      </svg>
-      <span aria-hidden="true" className="absolute text-[10px] font-bold text-ink-700">
-        {complete ? "✓" : total > 0 ? `${value}/${total}` : "–"}
-      </span>
-    </span>
-  );
-}
-
 /** A white pill for navigation and actions ("← Nieuws", "Bewaard", "Netwerk"). */
 export const PILL =
   "inline-flex min-h-[40px] items-center gap-1.5 rounded-full border border-paper-300 bg-paper-50 px-3.5 text-sm font-semibold text-ink-800 transition-colors hover:bg-paper-200";

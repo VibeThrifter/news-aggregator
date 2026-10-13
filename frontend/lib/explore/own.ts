@@ -58,10 +58,6 @@ export const OWN_LIMITS = { text: 300, detail: 1000, quote: 500, title: 200, per
 /** Own findings come after the analysis' in every tab */
 const OWN_ORDER = 100_000;
 
-export function isOwnId(id: string): boolean {
-  return id.startsWith("own:");
-}
-
 export function newOwnId(): string {
   const random =
     typeof crypto !== "undefined" && "randomUUID" in crypto

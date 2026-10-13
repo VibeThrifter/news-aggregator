@@ -457,8 +457,8 @@ def test_transform_cross_filter_mechanisms() -> None:
     assert relations[12]["filters"] == [] and relations[12]["filter"] is None
 
 
-def test_transform_leaves_out_the_decision_making_layer_until_switched_on() -> None:
-    """Uitbreiding C: bestuur-only relations and their bestuur-only entities stay out by default."""
+def test_transform_keeps_the_decision_making_layer() -> None:
+    """Uitbreiding C (Epic 15): decision-making relations and their entities are synced too."""
 
     entity = {"status": "goedgekeurd", "vervangen": 0}
     approved = {"status": "goedgekeurd", "vervangen": 0}
@@ -486,13 +486,13 @@ def test_transform_leaves_out_the_decision_making_layer_until_switched_on() -> N
             # zeggenschap via a formele_macht-only mechanism
             {"id": 11, "source_id": 1, "target_id": 4, "relation_type": "zeggenschap",
              "mechanism_id": 208, **approved},
-            # ministry is a source for the NOS (media filter): stays
+            # ministry is a source for the NOS (media filter)
             {"id": 12, "source_id": 1, "target_id": 3, "relation_type": "bron_van",
              "mechanism_id": 6, **approved},
-            # lobbyt with a belangen-only mechanism: hidden
+            # lobbyt with a belangen-only mechanism
             {"id": 13, "source_id": 3, "target_id": 1, "relation_type": "lobbyt",
              "mechanism_id": 214, **approved},
-            # draaideur with an overlapping mechanism (sourcing + werving): stays
+            # draaideur with an overlapping mechanism (sourcing + werving)
             {"id": 14, "source_id": 2, "target_id": 3, "relation_type": "draaideur",
              "mechanism_id": 18, **approved},
             # party line (sourcing!) towards a local official, resting only on the register
@@ -515,17 +515,14 @@ def test_transform_leaves_out_the_decision_making_layer_until_switched_on() -> N
             {"mechanism_id": 214, "filter": "belangen"},
         ],
     )
-    off = transform(raw, synced_at=SYNCED_AT)
-    assert {relation["id"] for relation in off.relations} == {12, 14}
-    # the Belastingdienst and the register-only mayor are hidden; the CDA has no relation left
-    # but was never touched by a kept relation either, so it goes too; the SG keeps the draaideur
-    assert {entity["id"] for entity in off.entities} == {1, 2, 3}
-    for relation in off.relations:
+    snapshot = transform(raw, synced_at=SYNCED_AT)
+    assert {relation["id"] for relation in snapshot.relations} == {10, 11, 12, 13, 14, 15}
+    assert {entity["id"] for entity in snapshot.entities} == {1, 2, 3, 4, 5, 6}
+    for relation in snapshot.relations:
         assert set(relation["filters"]) <= set(FILTERS)
-
-    on = transform(raw, synced_at=SYNCED_AT, bestuur=True)
-    assert {relation["id"] for relation in on.relations} == {10, 11, 12, 13, 14, 15}
-    assert {entity["id"] for entity in on.entities} == {1, 2, 3, 4, 5, 6}
+    relations = {relation["id"]: relation for relation in snapshot.relations}
+    assert "formele_macht" in relations[11]["filters"]
+    assert "belangen" in relations[13]["filters"]
 
 
 @pytest.mark.parametrize(

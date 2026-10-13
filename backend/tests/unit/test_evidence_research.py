@@ -22,11 +22,9 @@ from backend.app.db.models import (
 )
 from backend.app.services.entity_research.pm_client import PmApiUnavailableError
 from backend.app.services.entity_research.runner import (
-    EVIDENCE_ACCOUNT,
-    EVIDENCE_BRIEF,
     EVIDENCE_LABEL,
-    NieuwsScoutRunner,
-    RunnerConfig,
+    PmAgentConfig,
+    PmAgentRuns,
 )
 from backend.app.services.evidence_research import (
     NOT_IN_MODEL,
@@ -188,23 +186,9 @@ def test_the_research_target_is_built_from_trusted_data_only():
     assert payload["prioriteit"] > 50
 
 
-def test_runner_starts_the_evidence_agent_with_its_own_label_and_queue(tmp_path):
-    runner = NieuwsScoutRunner(
-        RunnerConfig(
-            project_dir=tmp_path,
-            label=EVIDENCE_LABEL,
-            account=EVIDENCE_ACCOUNT,
-            brief=EVIDENCE_BRIEF,
-            extra_args=("--doel-soort", "relatie"),
-            autokeur_enabled=False,
-        )
-    )
-    command = runner.round_command()
-    assert command[command.index("--agent") + 1] == "nieuws-bewijs"
-    assert command[command.index("--label") + 1] == "nieuws-bewijs"
-    assert command[command.index("--brief") + 1] == "missies/nieuws_bewijs_brief.md"
-    assert command[command.index("--doel-soort") + 1] == "relatie"
-    # only rounds of its own label count against its budget
+def test_runs_of_the_evidence_agent_count_by_its_own_label(tmp_path):
+    runner = PmAgentRuns(PmAgentConfig(project_dir=tmp_path, label=EVIDENCE_LABEL))
+    # only rounds of its own label count (the propaganda model schedules them)
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "agent_runs.jsonl").write_text(
         "\n".join(
@@ -260,15 +244,8 @@ class FakePmClient:
 
 
 class FakeRunner:
-    def __init__(self) -> None:
-        self.started = 0
-
-    def start_round(self, on_finished=None):
-        self.started += 1
-        return True
-
     def status(self):
-        return {"running": False, "rounds_today": self.started}
+        return {"scheduled_by": "propagandamodel", "rounds_today": 0}
 
 
 def pm_database(tmp_path: Path) -> Path:
@@ -362,8 +339,6 @@ async def seed(factory) -> None:
 
 
 async def make_service(tmp_path, **settings):
-    # Rounds off unless a test switches them on (the developer's .env may have them on)
-    settings.setdefault("nieuws_bewijs_enabled", False)
     factory, engine = await make_session_factory()
     await seed(factory)
     db = pm_database(tmp_path)
@@ -412,8 +387,8 @@ async def test_queues_requested_thin_links_with_their_news_within_the_budget(tmp
         assert state[999].status == "overgeslagen" and state[999].status_reason == NOT_IN_MODEL
         assert state[101].status == "nieuw"  # waits for tomorrow's budget
         assert state[104].status == "nieuw"  # requested too long ago
-        # rounds are off until the owner switches them on
-        assert outcome["round_started"] is False and runner.started == 0
+        # the propaganda model schedules the rounds of nieuws-bewijs itself
+        assert "round_started" not in outcome
     finally:
         await engine.dispose()
 
@@ -447,13 +422,10 @@ async def test_tells_the_propaganda_model_which_links_readers_see(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_pulls_the_outcome_and_starts_rounds_only_when_switched_on(tmp_path):
-    service, factory, engine, db, client, runner = await make_service(
-        tmp_path, nieuws_bewijs_enabled=True
-    )
+async def test_pulls_the_outcome(tmp_path):
+    service, factory, engine, db, client, runner = await make_service(tmp_path)
     try:
         await service.run_cycle()
-        assert runner.started == 1  # targets are waiting and rounds are on
         connection = sqlite3.connect(db)
         connection.execute(
             "INSERT INTO nieuws_doelen (sleutel, naam, soort, status, verslag, resultaat, "
@@ -503,7 +475,8 @@ async def test_admin_can_queue_one_link_now_and_the_pm_may_be_down(tmp_path):
         outcome = await service.enqueue(110, force=True)
         assert outcome == {"queued": 0, "skipped": {"pm_unavailable": 1}}
         status = await service.status()
-        assert status["rounds_enabled"] is False and status["counts"]["wachtrij"] == 1
+        assert "rounds_enabled" not in status and status["counts"]["wachtrij"] == 1
+        assert status["runner"]["scheduled_by"] == "propagandamodel"
     finally:
         await engine.dispose()
 
@@ -521,7 +494,6 @@ class _StubEvidenceService:
             "skipped": False,
             "status": {"updated": 0},
             "enqueue": {"queued": 1, "skipped": {}},
-            "round_started": False,
         }
 
     async def research_relation(self, relation_id: int, correlation_id: str | None = None):
@@ -535,19 +507,17 @@ class _StubEvidenceService:
             "evidence": "1 argument vóór",
             "missing": ["controle"],
             "status": "wachtrij",
-            "round_started": False,
         }
 
     async def status(self):
         return {
             "enabled": True,
-            "rounds_enabled": False,
             "pm_db": "/pm.db",
             "pm_db_exists": True,
             "pm_server": True,
             "counts": {"wachtrij": 1},
             "budget": {"queued_today": 1, "max_per_day": 6},
-            "runner": {"running": False},
+            "runner": {"scheduled_by": "propagandamodel"},
             "last_runs": {"cycle": None},
         }
 
@@ -561,50 +531,17 @@ async def test_admin_endpoints_for_evidence_research(monkeypatch):
     stub = _StubEvidenceService()
     monkeypatch.setattr(admin, "get_evidence_research_service", lambda: stub)
     cycle = await admin.trigger_evidence_research()
-    assert cycle.enqueue == {"queued": 1, "skipped": {}} and cycle.round_started is False
+    assert cycle.enqueue == {"queued": 1, "skipped": {}} and cycle.skipped is False
     one = await admin.trigger_evidence_research_relation(1564)
     assert one.status == "wachtrij" and one.missing == ["controle"] and stub.ids == [1564]
     with pytest.raises(HTTPException) as missing:
         await admin.trigger_evidence_research_relation(999)
     assert missing.value.status_code == 404
     status = await admin.evidence_research_status()
-    assert status.rounds_enabled is False and status.budget["max_per_day"] == 6
+    assert status.runner == {"scheduled_by": "propagandamodel"}
+    assert status.budget["max_per_day"] == 6
     broken_service = _StubEvidenceService("error")
     monkeypatch.setattr(admin, "get_evidence_research_service", lambda: broken_service)
     with pytest.raises(HTTPException) as broken:
         await admin.trigger_evidence_research()
     assert broken.value.status_code == 500
-
-
-@pytest.mark.asyncio
-async def test_after_a_round_the_automatic_review_decides_and_the_app_syncs(tmp_path):
-    from backend.app.services.entity_research.runner import AUTOMATIC_REVIEW_SCRIPT, RoundState
-
-    factory, engine = await make_session_factory()
-    syncs: list[int] = []
-    try:
-        service = EvidenceResearchService(
-            settings=make_settings(propaganda_db_path=str(pm_database(tmp_path))),
-            write_session_factory=factory,
-            read_session_factory=factory,
-            pm_client=FakePmClient(),
-            pm_sync=lambda: syncs.append(1),
-            clock=lambda: NOW,
-        )
-        # The real runner of the service runs the pm's automatic review after a round
-        config = service.runner.config
-        assert config.autokeur_enabled and config.autokeur_script == AUTOMATIC_REVIEW_SCRIPT
-        command = service.runner.autokeur_command()
-        assert command[1:] == [AUTOMATIC_REVIEW_SCRIPT, "--once", "--json"]
-        assert config.autokeur_timeout_seconds > config.timeout_seconds
-        # nothing merged: no extra sync; merged evidence: sync right away
-        await service._after_round(RoundState(returncode=0, autokeur={"gemerged": 0}))
-        assert syncs == []
-        await service._after_round(RoundState(returncode=0, autokeur={"gemerged": 3}))
-        await service._after_round(
-            RoundState(returncode=0, autokeur={"gemerged": 0, "goedgekeurd": {"relations": 1}})
-        )
-        assert syncs == [1, 1]
-        assert service.last_runs["after_round"]["review"]["goedgekeurd"] == {"relations": 1}
-    finally:
-        await engine.dispose()

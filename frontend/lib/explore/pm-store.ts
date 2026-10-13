@@ -15,7 +15,6 @@ import {
   DEFAULT_HIDDEN_FILTERS,
   bundleKey,
   hoodKey,
-  pmNodeId,
   proposalsOf,
   reasonKey,
   viewScene,

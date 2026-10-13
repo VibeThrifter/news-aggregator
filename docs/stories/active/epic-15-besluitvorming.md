@@ -31,7 +31,8 @@ Deze epic brengt dat naar de nieuws-app, zonder dat er iets grijs "overig" wordt
 ### Volgorde (plan 2026-10-07)
 
 1. **Vlag eerst (klaar 2026-10-07):** `PROPAGANDA_SYNC_BESTUUR` (standaard uit) houdt bestuursverbanden uit de
-   `pm_*`-tabellen; de live app ziet wat hij al zag.
+   `pm_*`-tabellen; de live app ziet wat hij al zag. Sinds 2026-10-09 is de vlag weg: de sync neemt de
+   besluitvorming altijd mee.
 2. **Story 15.1 — basis:** sync format 8, migratie 016, de frontend kent de categorieën en relatietypes. Daarna gaat
    de vlag aan.
 3. **Story 15.2 — tonen:** vragen per categorie en richting in het netwerk, het ambt bij "Wie is dit?", bestuursroutes
@@ -100,6 +101,3 @@ Open:
 - `pm_match` kent de koppeling via het onderzoek nog niet: in "Wie zit erachter?" en het netwerk van een event telt
   een lokale bestuurder pas mee als hij onder zijn naam in het model staat (een uitbreiding van `pm_match` vergt een
   migratie).
-- Epic 12-triage: een lokale bestuurder in het nieuws koppelt aan zijn registerknoop via achternaam, eerste
-  voorletter, rol (burgemeester, wethouder) en plaats.
-- Alles in de stijl van Epic 14: serif kopjes in zinsnotatie, pills, geen uitleg-zinnen.

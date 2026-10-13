@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import select
 
 from backend.app.db.models import EventEntity, EventRelation
-from backend.app.repositories.exploration_repo import DisplayFields, ExplorationRepository
+from backend.app.repositories.exploration_repo import ExplorationRepository
 from backend.tests.unit._exploration_fixtures import (
     BASE_TIME,
     make_session_factory,
@@ -177,34 +177,17 @@ async def test_replace_outgoing_incoming_delete_and_prune() -> None:
 
 
 @pytest.mark.asyncio
-async def test_refresh_display_fields_and_counts() -> None:
+async def test_counts() -> None:
     factory, engine, ids = await _seeded()
     a, b = ids[0], ids[1]
-    display = DisplayFields(
-        slug="nieuwe-slug",
-        title="Bijgewerkte LLM titel",
-        event_type="crime",
-        article_count=9,
-        first_seen_at=BASE_TIME,
-        last_updated_at=BASE_TIME + timedelta(days=1),
-    )
     async with factory() as session:
         repo = ExplorationRepository(session)
         empty = await repo.counts()
         assert empty["event_entities_rows"] == 0 and empty["relations_last_computed_at"] is None
         await repo.upsert_relations([_relation_row(b, a, 0.5)])
         await repo.replace_event_entities([a], [_entity_row(a, "person:x")])
-        updated = await repo.refresh_display_fields(a, display)
         await session.commit()
-        assert updated == 2
-        relation = (await session.execute(select(EventRelation))).scalars().one()
-        entity = (await session.execute(select(EventEntity))).scalars().one()
         counts = await repo.counts()
-    assert relation.related_title == "Bijgewerkte LLM titel"
-    assert relation.related_slug == "nieuwe-slug"
-    assert relation.related_article_count == 9
-    assert entity.event_title == "Bijgewerkte LLM titel"
-    assert entity.event_type == "crime"
     assert counts["event_entities_rows"] == 1
     assert counts["events_with_entities"] == 1
     assert counts["event_relations_rows"] == 1

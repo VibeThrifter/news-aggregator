@@ -96,20 +96,8 @@ class FakePmClient:
 
 
 class FakeRunner:
-    def __init__(self, allow: bool = True) -> None:
-        self.allow = allow
-        self.started = 0
-        self.callback = None
-
-    def start_round(self, on_finished=None):
-        if not self.allow:
-            return False
-        self.started += 1
-        self.callback = on_finished
-        return True
-
     def status(self):
-        return {"running": False, "rounds_today": self.started}
+        return {"scheduled_by": "propagandamodel", "rounds_today": 1}
 
     async def linkedin_status(self):
         return {"automatisch": True}
@@ -746,31 +734,15 @@ async def test_sync_status_without_queue_table(tmp_path: Path) -> None:
     assert await service.sync_status() == {"skipped": True, "reason": "pm_queue_missing"}
 
 
-# ------------------------------------------------------------------ cycle, rounds, admin
-async def test_run_cycle_starts_a_round_when_targets_wait(tmp_path: Path) -> None:
+# ------------------------------------------------------------------ cycle, admin
+async def test_run_cycle_queues_targets(tmp_path: Path) -> None:
     env = await make_env(tmp_path)
-    service, runner = env["service"], env["runner"]
+    service = env["service"]
     outcome = await service.run_cycle(correlation_id="t")
     assert outcome["skipped"] is False and outcome["enqueue"]["queued"] == 2
-    assert outcome["round_started"] is True and runner.started == 1
-    assert service.last_runs["cycle"]["round_started"] is True
-    # after the round: status pulled and pm sync when something was approved
-    await runner.callback(
-        type(
-            "State",
-            (),
-            {"autokeur": {"goedgekeurd": {"relations": [1]}}, "returncode": 0, "timed_out": False},
-        )()
-    )
-    assert env["syncs"] == [1] and service.last_runs["after_round"]["returncode"] == 0
-
-
-async def test_no_round_without_waiting_targets(tmp_path: Path) -> None:
-    env = await make_env(tmp_path)
-    service, runner = env["service"], env["runner"]
-    assert await service.maybe_start_round() is False and runner.started == 0
-    service.settings.nieuws_scout_enabled = False
-    assert await service.maybe_start_round() is False
+    # the propaganda model schedules the rounds of nieuws-scout itself
+    assert "round_started" not in outcome
+    assert service.last_runs["cycle"]["enqueue"]["queued"] == 2
 
 
 async def test_run_cycle_disabled(tmp_path: Path) -> None:
@@ -785,7 +757,7 @@ async def test_research_key_forces_queueing(tmp_path: Path) -> None:
     result = await service.research_key("person:mark-rutte")
     assert result["found"] and result["status"] == "wachtrij"
     assert [doel["sleutel"] for doel, again in client.calls] == ["person:mark-rutte"]
-    assert client.calls[0][1] is True and result["round_started"] is True
+    assert client.calls[0][1] is True and "round_started" not in result
     # private persons are never queued, also not by the admin
     private = await service.research_key("person:henk-de-boer")
     assert private["status"] == "overgeslagen" and private["enqueue"]["queued"] == 0

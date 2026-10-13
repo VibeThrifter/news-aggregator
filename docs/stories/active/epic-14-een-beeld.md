@@ -878,9 +878,9 @@ Eigenaar: "hier staat geen tekst bij telegraaf wolkje" (event 7955, Stockholm: a
 - De backend is om 22:31 herstart (hij draait zonder auto-reload). De andere 29 komen via de backfill, vanaf de ronde
   van 22:46, in porties binnen de time-out van 10 minuten per ronde.
 
-### Open
-- De oude eventpagina (`EventDetailScreen` met `CriticalAnalysis` en dergelijke) heeft nog de oude stijl. Vercel
-  toont hem niet (`NEXT_PUBLIC_EXPLORE_UI=1`); opruimen hoort bij Story 11.15.
+### Opgelost
+- De oude eventpagina (`EventDetailScreen` met `CriticalAnalysis` en dergelijke) is weg, met de vlag
+  `NEXT_PUBLIC_EXPLORE_UI` (Story 11.15, 2026-10-09).
 
 ## Story 14.19: Een voorpagina die bij het beeld past
 
@@ -1044,8 +1044,7 @@ Tests:
 
 ## Story 14.23: Wat ertoe doet — Wie zit erachter? en Hoe hangen ze samen?
 
-**Status**: 🔄 In uitvoering (2026-10-09). Nieuws-app gebouwd en getest; nog niet gecommit. Wacht op een OK voor
-migratie 017. Het deel in het propagandamodel (stemtoets, specificiteit, opruimen) is in een git-worktree in de maak.
+**Status**: ✅ Live (2026-10-09): app-commit 3cbde36 op main, migratie 017 toegepast, pm-commit 54516d9.
 
 Eigenaar (2026-10-08), bij "Geen regenboogvlag op Tweede Kamer na verzet van SGP" (AD, De Telegraaf, RTL Nieuws):
 - "Kamran Ullah voor VVD en Telegraaf staat gemarkeerd als dun bewijs maar in het echt is er heel veel bewijs voor"

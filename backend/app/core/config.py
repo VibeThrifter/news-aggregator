@@ -395,20 +395,6 @@ class Settings(BaseSettings):
         description="Gemini model name (gemini-2.5-flash for free tier)"
     )
 
-    # Per-prompt LLM provider selection (toggle between mistral/deepseek)
-    llm_provider_classification: str = Field(
-        default="mistral",
-        description="LLM provider for event type classification (mistral|deepseek)"
-    )
-    llm_provider_factual: str = Field(
-        default="mistral",
-        description="LLM provider for factual analysis phase (mistral|deepseek)"
-    )
-    llm_provider_critical: str = Field(
-        default="deepseek",
-        description="LLM provider for critical analysis phase (mistral|deepseek)"
-    )
-
     # Logging Configuration
     log_level: str = Field(
         default="INFO",
@@ -620,16 +606,6 @@ class Settings(BaseSettings):
         le=1440,
         description="Interval of the propaganda-model sync job (only syncs when the file changed)",
     )
-    propaganda_sync_bestuur: bool = Field(
-        default=False,
-        description=(
-            "Sync the decision-making layer of the propaganda model (Uitbreiding C, 2026-10-07): "
-            "relations whose mechanism only has the categories formele_macht, belangen, "
-            "kennis_advies, polder or werving, the new relation types (ambt, zeggenschap, "
-            "controle, geschenk) and entities that only have such relations. Off until the "
-            "frontend shows them (Epic 15); force a sync after switching it on."
-        ),
-    )
 
     # Wie is dit? (Epic 12): research of named entities by the propaganda-model agents
     entity_research_enabled: bool = Field(
@@ -703,45 +679,16 @@ class Settings(BaseSettings):
             "<propaganda-model>/data/tokens/nieuws-agent.token"
         ),
     )
-    nieuws_scout_enabled: bool = Field(
-        default=True,
-        description="Start research rounds of the propaganda-model agent nieuws-scout",
-    )
-    nieuws_scout_max_rounds_per_day: int = Field(
-        default=4,
-        ge=0,
-        le=48,
-        description="Maximum research rounds per day (each round is a Claude session)",
-    )
-    nieuws_scout_min_minutes_between_rounds: int = Field(
-        default=30,
-        ge=5,
-        le=1440,
-        description="Minimum minutes between two research rounds",
-    )
+    # The propaganda model schedules the rounds of its agents itself (since 2026-10-07); these
+    # only serve the admin status (LinkedIn brake, active hours)
     nieuws_scout_active_start_hour: int = Field(
-        default=8, ge=0, le=23, description="Research rounds only from this local hour"
+        default=8, ge=0, le=23, description="Pm agent rounds only from this local hour"
     )
     nieuws_scout_active_end_hour: int = Field(
-        default=22, ge=1, le=24, description="Research rounds only until this local hour"
-    )
-    nieuws_scout_model: str = Field(default="opus", description="Model of the research agent")
-    nieuws_scout_effort: str = Field(default="high", description="Effort of the research agent")
-    nieuws_scout_timeout_seconds: int = Field(
-        default=2700, ge=300, le=14400, description="Hard timeout of one research round"
+        default=22, ge=1, le=24, description="Pm agent rounds only until this local hour"
     )
     nieuws_scout_python: str = Field(
         default="python3", description="Python used to run the propaganda-model scripts"
-    )
-    nieuws_scout_claude_bin: str = Field(
-        default="claude", description="Claude CLI used by the propaganda-model agent runner"
-    )
-    pm_autokeur_enabled: bool = Field(
-        default=True,
-        description=(
-            "Run the propaganda-model auto-approval after a research round (owner decision "
-            "2026-09-30; the propaganda model enforces its own gates and kill switch)"
-        ),
     )
 
     # Dun bewijs (Epic 14, Story 14.13): evidence research for thin propaganda-model links
@@ -776,31 +723,6 @@ class Settings(BaseSettings):
         le=365,
         description="Days after which a link that is still thin may be researched again",
     )
-    nieuws_bewijs_enabled: bool = Field(
-        default=False,
-        description=(
-            "Start rounds of the propaganda-model agent nieuws-bewijs (each round is a Claude "
-            "session); off until the owner switches it on"
-        ),
-    )
-    nieuws_bewijs_max_rounds_per_day: int = Field(
-        default=2,
-        ge=0,
-        le=24,
-        description="Maximum evidence research rounds per day (each round is a Claude session)",
-    )
-    nieuws_bewijs_min_minutes_between_rounds: int = Field(
-        default=60,
-        ge=5,
-        le=1440,
-        description="Minimum minutes between two evidence research rounds",
-    )
-    nieuws_bewijs_model: str = Field(default="opus", description="Model of the evidence agent")
-    nieuws_bewijs_effort: str = Field(default="high", description="Effort of the evidence agent")
-    nieuws_bewijs_timeout_seconds: int = Field(
-        default=2700, ge=300, le=14400, description="Hard timeout of one evidence research round"
-    )
-
     @field_validator("propaganda_db_path", mode="before")
     @classmethod
     def _resolve_propaganda_db_path(cls, value: object) -> str:

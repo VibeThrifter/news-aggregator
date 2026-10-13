@@ -186,7 +186,7 @@ export class ArticleIndex {
   private outletByDomain = new Map<string, string>();
   private outletByName = new Map<string, string>();
 
-  constructor(private readonly input: ExploreInput) {
+  constructor(input: ExploreInput) {
     for (const article of input.articles) {
       this.byKey.set(article.urlKey, article);
       this.byId.set(article.id, article);

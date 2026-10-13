@@ -11,7 +11,7 @@ import { exportDossier, useExploreStore, type DossierItem } from "@/lib/explore/
 import { autoPlace, computeSuggestions } from "@/lib/explore/suggestions";
 
 import { ToastProvider, useToast } from "../ui/Toast";
-import { Chip, SubHeading, Tag } from "../ui/primitives";
+import { Chip, SubHeading } from "../ui/primitives";
 import { ScrollRow } from "../ui/ScrollRow";
 
 const BoardCanvas = dynamic(() => import("./BoardCanvas"), {

@@ -6,8 +6,6 @@ import type {
   EntityResearch,
   EntityResearchKind,
   EntityResearchRequest,
-  EventArticle,
-  EventDetail,
   EventEntity,
   EventRelation,
   ArticleRef,
@@ -21,15 +19,11 @@ import type {
   PmNeighborhood,
   PmPaths,
   RelationResearch,
-  EventDetailMeta,
-  EventFeedMeta,
   EventListItem,
   EventSourceBreakdownEntry,
-  SpectrumDistribution,
 } from "@/lib/types";
 import { getSupabase } from "@/lib/supabase";
 import type { RawExploration, RawExploreArticle } from "@/lib/explore/input";
-import { filterNeighborhood } from "@/lib/explore/pm-graph";
 import { stripMarkdown } from "@/lib/explore/summary";
 import { createLocalPm, extendSlice, type PmSlice } from "@/lib/explore/pm-local";
 import {
@@ -93,7 +87,7 @@ export const FEED_PAGE_SIZE = 120;
 
 const FALLBACK_API_BASE_URL = "http://localhost:8000";
 const rawBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
-export const API_BASE_URL = (rawBaseUrl && stripTrailingSlash(rawBaseUrl)) || FALLBACK_API_BASE_URL;
+const API_BASE_URL = (rawBaseUrl && stripTrailingSlash(rawBaseUrl)) || FALLBACK_API_BASE_URL;
 
 if (!rawBaseUrl && typeof console !== "undefined") {
   console.warn(
@@ -114,123 +108,12 @@ function buildUrl(path: string): string {
   return `${API_BASE_URL}/${normalisedPath}`;
 }
 
-export function resolveApiUrl(path: string): string {
-  return buildUrl(path);
-}
-
-async function parseJson(response: Response): Promise<unknown> {
-  const text = await response.text();
-
-  try {
-    return text ? JSON.parse(text) : null;
-  } catch (error) {
-    throw new ApiClientError("Kon JSON-respons niet parsen", response.status, {
-      code: "INVALID_JSON",
-      message: "Response kon niet als JSON worden gelezen",
-      details: { raw: text },
-    });
-  }
-}
-
-function resolveErrorPayload(body: unknown, response: Response): ApiErrorPayload {
-  if (
-    body &&
-    typeof body === "object" &&
-    "error" in body &&
-    body.error &&
-    typeof body.error === "object"
-  ) {
-    const payload = body.error as Partial<ApiErrorPayload>;
-    return {
-      code: payload.code ?? "HTTP_ERROR",
-      message: payload.message ?? response.statusText,
-      details: payload.details,
-    };
-  }
-
-  return {
-    code: "HTTP_ERROR",
-    message: response.statusText || "Onbekende fout",
-    details: body,
-  };
-}
-
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export type ApiFetchOptions = Omit<RequestInit, "method" | "body"> & {
   method?: HttpMethod;
   body?: BodyInit | null;
   next?: Record<string, unknown>;
-};
-
-export async function apiFetch<T>(
-  path: string,
-  options: ApiFetchOptions = {},
-): Promise<ApiResponse<T>> {
-  const { method = "GET", headers, body, ...rest } = options;
-
-  const requestHeaders = new Headers({ Accept: "application/json" });
-
-  if (headers) {
-    const additionalHeaders = headers instanceof Headers ? headers : new Headers(headers);
-    additionalHeaders.forEach((value, key) => {
-      requestHeaders.set(key, value);
-    });
-  }
-
-  if (typeof body === "string" && !requestHeaders.has("Content-Type")) {
-    requestHeaders.set("Content-Type", "application/json");
-  }
-
-  const response = await fetch(buildUrl(path), {
-    ...rest,
-    method,
-    headers: requestHeaders,
-    body,
-  });
-
-  const contentType = response.headers.get("content-type");
-  const expectsJson = contentType?.includes("application/json");
-
-  if (!response.ok) {
-    const parsed = expectsJson ? await parseJson(response).catch(() => null) : null;
-    const payload = resolveErrorPayload(parsed, response);
-
-    throw new ApiClientError(payload.message, response.status, payload);
-  }
-
-  if (!expectsJson) {
-    throw new ApiClientError("API antwoordde niet met JSON", response.status, {
-      code: "UNEXPECTED_CONTENT_TYPE",
-      message: "Er werd JSON verwacht maar content-type week af",
-      details: { contentType },
-    });
-  }
-
-  const bodyJson = await parseJson(response);
-
-  if (!bodyJson || typeof bodyJson !== "object" || !("data" in bodyJson)) {
-    throw new ApiClientError("API-respons bevat geen data-veld", response.status, {
-      code: "INVALID_SCHEMA",
-      message: "Respons volgt niet het JSON:API-lite schema",
-      details: bodyJson,
-    });
-  }
-
-  return bodyJson as ApiResponse<T>;
-}
-
-export const ApiClient = {
-  get<T>(path: string, options?: ApiFetchOptions) {
-    return apiFetch<T>(path, { ...options, method: "GET" });
-  },
-  post<T>(path: string, body?: unknown, options?: ApiFetchOptions) {
-    return apiFetch<T>(path, {
-      ...options,
-      method: "POST",
-      body: body ? JSON.stringify(body) : undefined,
-    });
-  },
 };
 
 const MAX_TITLE_LENGTH = 60;
@@ -483,137 +366,6 @@ export async function listEvents(
   };
 }
 
-function encodeEventIdentifier(id: string | number): string {
-  if (typeof id === "number") {
-    return encodeURIComponent(String(id));
-  }
-  return encodeURIComponent(id);
-}
-
-export async function getEventDetail(eventId: string | number, options?: ApiFetchOptions): Promise<ApiResponse<EventDetail>> {
-  // Fetch event - check if eventId is numeric or a slug
-  const isNumeric = typeof eventId === 'number' || !isNaN(Number(eventId));
-  // Epic 11 Story 11.1: explicit columns only. select('*') also pulled centroid_embedding,
-  // centroid_tfidf and centroid_entities, which the page never uses (Supabase egress).
-  const query = getSupabase()
-    .from('events')
-    .select('id, slug, event_type, article_count, first_seen_at, last_updated_at, spectrum_distribution');
-
-  const { data: event, error: eventError } = await (isNumeric
-    ? query.eq('id', Number(eventId))
-    : query.eq('slug', eventId)
-  ).single();
-
-  if (eventError || !event) {
-    throw new ApiClientError(eventError?.message || 'Event not found', 404, {
-      code: 'NOT_FOUND',
-      message: 'Event not found',
-    });
-  }
-
-  // Fetch articles for this event
-  // INFRA Story 2: Select only needed fields to reduce Supabase egress
-  // Previously used articles (*) which fetched unused fields like content, embedding, tfidf_vector
-  const { data: eventArticles, error: articlesError } = await getSupabase()
-    .from('event_articles')
-    .select(`
-      article_id,
-      similarity_score,
-      articles (
-        id,
-        title,
-        url,
-        source_name,
-        summary,
-        published_at,
-        image_url,
-        source_metadata,
-        is_international,
-        source_country
-      )
-    `)
-    .eq('event_id', event.id);
-
-  if (articlesError) {
-    throw new ApiClientError(articlesError.message, 500, {
-      code: 'SUPABASE_ERROR',
-      message: articlesError.message,
-    });
-  }
-
-  const articles: EventArticle[] = (eventArticles || []).map((ea: any) => ({
-    id: ea.articles.id,
-    title: ea.articles.title,
-    url: ea.articles.url,
-    source: ea.articles.source_name || 'Unknown',
-    spectrum: ea.articles.source_metadata?.spectrum || null,
-    summary: ea.articles.summary,
-    published_at: ea.articles.published_at,
-    image_url: ea.articles.image_url,
-    is_international: ea.articles.is_international || false,
-    source_country: ea.articles.source_country || null,
-  }));
-
-  // Build source_breakdown from articles and find latest article date
-  const sourceBreakdownMap = new Map<string, { source: string; article_count: number; spectrum: string | number | null; is_international: boolean }>();
-  let latestArticleDate: Date | null = null;
-  for (const article of articles) {
-    const isInternational = article.is_international || false;
-    const key = `${article.source}|${article.spectrum || ''}|${isInternational}`;
-    const existing = sourceBreakdownMap.get(key);
-    if (existing) {
-      existing.article_count++;
-    } else {
-      sourceBreakdownMap.set(key, {
-        source: article.source,
-        article_count: 1,
-        spectrum: article.spectrum || null,
-        is_international: isInternational,
-      });
-    }
-    // Track latest article publication date
-    if (article.published_at) {
-      const pubDate = new Date(article.published_at);
-      if (!latestArticleDate || pubDate > latestArticleDate) {
-        latestArticleDate = pubDate;
-      }
-    }
-  }
-  const source_breakdown: EventSourceBreakdownEntry[] = Array.from(sourceBreakdownMap.values());
-  // Use latest article date as last_updated_at, fallback to event's timestamp
-  const computedLastUpdated = latestArticleDate?.toISOString() || event.last_updated_at;
-
-  // Fetch LLM insights to get the generated title (NOT the article title)
-  // Order by id desc to get the latest insight (in case of regeneration)
-  const { data: llmInsightsArr } = await getSupabase()
-    .from('llm_insights')
-    .select('summary')
-    .eq('event_id', event.id)
-    .order('id', { ascending: false })
-    .limit(1);
-  const llmInsights = llmInsightsArr?.[0] ?? null;
-
-  // Don't truncate title on detail page - show full title
-  const { title: llmTitle } = extractTitleFromSummary(llmInsights?.summary, { truncate: false });
-
-  const eventDetail: EventDetail = {
-    id: event.id,
-    slug: event.slug,
-    event_type: event.event_type || null,
-    // ONLY use LLM-generated title - NEVER fall back to event.title (which is article title = copyright)
-    title: llmTitle || `Event #${event.id}`,
-    description: null, // Never use event.description (could be article content)
-    article_count: event.article_count || 0,
-    first_seen_at: event.first_seen_at,
-    last_updated_at: computedLastUpdated,
-    spectrum_distribution: event.spectrum_distribution,
-    source_breakdown,
-    articles,
-  };
-
-  return { data: eventDetail };
-}
-
 /** Columns of llm_insights used by the frontend (no raw_response/prompt_metadata: large and unused). */
 const INSIGHT_COLUMNS = [
   'id',
@@ -636,29 +388,8 @@ const INSIGHT_COLUMNS = [
   'scientific_plurality',
 ].join(', ');
 
-function emptyInsights(): AggregationResponse {
-  return {
-    query: '',
-    generated_at: new Date().toISOString(),
-    summary: null,
-    timeline: [],
-    clusters: [],
-    contradictions: [],
-    fallacies: [],
-    frames: [],
-    coverage_gaps: [],
-    unsubstantiated_claims: [],
-    authority_analysis: [],
-    media_analysis: [],
-    statistical_issues: [],
-    timing_analysis: null,
-    scientific_plurality: null,
-    involved_countries: [],
-  };
-}
-
 /** Map an llm_insights row to the frontend insight shape. */
-export function mapInsightRow(insights: any): AggregationResponse {
+function mapInsightRow(insights: any): AggregationResponse {
   return {
     query: '',
     generated_at: insights.generated_at,
@@ -681,60 +412,6 @@ export function mapInsightRow(insights: any): AggregationResponse {
     scientific_plurality: insights.scientific_plurality || null,
     involved_countries: insights.involved_countries || [],
   };
-}
-
-export async function getEventInsights(eventId: string | number, options?: ApiFetchOptions): Promise<ApiResponse<AggregationResponse>> {
-  // First, get the event to find its numeric ID if a slug was provided
-  const isNumeric = typeof eventId === 'number' || !isNaN(Number(eventId));
-  let numericEventId: number;
-
-  if (isNumeric) {
-    numericEventId = Number(eventId);
-  } else {
-    // Fetch event by slug to get numeric ID
-    const { data: event } = await getSupabase()
-      .from('events')
-      .select('id')
-      .eq('slug', eventId)
-      .single();
-
-    if (!event) {
-      // Event not found, return empty insights
-      return { data: emptyInsights() };
-    }
-    numericEventId = event.id;
-  }
-
-  // Order by id desc to get the latest insight (in case of regeneration)
-  const { data: insightsArr, error } = await getSupabase()
-    .from('llm_insights')
-    .select(INSIGHT_COLUMNS)
-    .eq('event_id', numericEventId)
-    .order('id', { ascending: false })
-    .limit(1);
-  const insights = insightsArr?.[0] ?? null;
-
-  if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-    throw new ApiClientError(error.message, 500, {
-      code: 'SUPABASE_ERROR',
-      message: error.message,
-    });
-  }
-
-  if (!insights) {
-    // No insights generated yet
-    return { data: emptyInsights() };
-  }
-
-  return { data: mapInsightRow(insights) };
-}
-
-export function triggerInsightsRegeneration(eventId: string | number, options?: ApiFetchOptions) {
-  return ApiClient.post(`/admin/trigger/generate-insights/${encodeEventIdentifier(eventId)}`, undefined, options);
-}
-
-export function resolveEventExportUrl(eventId: string | number): string {
-  return resolveApiUrl(`/api/v1/exports/events/${encodeEventIdentifier(eventId)}`);
 }
 
 // Admin API functions
@@ -855,22 +532,6 @@ export async function listLlmConfigs(configType?: string): Promise<LlmConfigList
 }
 
 /**
- * Get a specific LLM config entry by key.
- */
-export async function getLlmConfig(key: string): Promise<LlmConfig> {
-  const response = await fetch(buildUrl(`/admin/llm-config/${encodeURIComponent(key)}`), {
-    method: 'GET',
-    headers: { 'Accept': 'application/json' },
-  });
-
-  if (!response.ok) {
-    throw new ApiClientError('Failed to get LLM config', response.status);
-  }
-
-  return response.json();
-}
-
-/**
  * Update an LLM config entry.
  */
 export async function updateLlmConfig(
@@ -909,22 +570,6 @@ export async function seedLlmConfig(overwrite: boolean = false): Promise<{ messa
   return response.json();
 }
 
-/**
- * Invalidate the LLM config cache.
- */
-export async function invalidateLlmConfigCache(): Promise<{ message: string }> {
-  const response = await fetch(buildUrl('/admin/llm-config/invalidate-cache'), {
-    method: 'POST',
-    headers: { 'Accept': 'application/json' },
-  });
-
-  if (!response.ok) {
-    throw new ApiClientError('Failed to invalidate cache', response.status);
-  }
-
-  return response.json();
-}
-
 // Bias Analysis API functions (Epic 10)
 //
 // Epic 11 Story 11.1: read article_bias_analyses directly from Supabase. The previous
@@ -949,7 +594,7 @@ const BIAS_COLUMNS = [
 ].join(', ');
 
 /** Map an article_bias_analyses row to the shape the backend API used to return. */
-export function mapBiasRow(row: any): ArticleBiasAnalysis {
+function mapBiasRow(row: any): ArticleBiasAnalysis {
   return {
     article_id: row.article_id,
     analyzed_at: row.analyzed_at,
@@ -974,7 +619,7 @@ export function mapBiasRow(row: any): ArticleBiasAnalysis {
  * Fetch the latest bias analyses for multiple articles in one query.
  * Returns a map of articleId -> analysis (null if not available).
  */
-export async function getArticleBiasesForEvent(
+async function getArticleBiasesForEvent(
   articleIds: number[]
 ): Promise<Map<number, ArticleBiasAnalysis | null>> {
   const result = new Map<number, ArticleBiasAnalysis | null>(articleIds.map((id) => [id, null]));
@@ -1002,21 +647,6 @@ export async function getArticleBiasesForEvent(
     }
   }
   return result;
-}
-
-/**
- * Fetch bias analysis for an article.
- * Returns null if no analysis exists.
- */
-export async function getArticleBias(articleId: number): Promise<ArticleBiasAnalysis | null> {
-  try {
-    const analyses = await getArticleBiasesForEvent([articleId]);
-    return analyses.get(articleId) ?? null;
-  } catch (error) {
-    // Missing configuration or network errors - return null to gracefully degrade
-    console.warn(`[api] Failed to fetch bias for article ${articleId}:`, error);
-    return null;
-  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1388,12 +1018,7 @@ export async function pmNeighborhood(
   const args: Record<string, unknown> = { p_entity_id: entityId, p_limit: options.limit ?? 40 };
   if (filters) args.p_filters = filters;
   if (direction) args.p_direction = direction;
-  const { missing, data } = await rpcCall<PmNeighborhood>('pm_neighborhood', args);
-  if (missing && direction) {
-    // Before migration 008: fetch either way and keep the relations that go this way
-    const both = await pmNeighborhood(entityId, { limit: 60, filters });
-    return both ? { ...filterNeighborhood(both, filters ?? [], direction), filters, truncated: both.truncated } : null;
-  }
+  const data = await pmRpc<PmNeighborhood>('pm_neighborhood', args);
   return data && data.center ? data : null;
 }
 
@@ -1520,21 +1145,4 @@ export async function getEntityCooccurrence(
   return Array.isArray(data) ? data : [];
 }
 
-export type {
-  AggregationResponse,
-  ArticleBiasAnalysis,
-  ArticleBiasResponse,
-  Cluster,
-  ClusterSource,
-  Contradiction,
-  EventArticle,
-  EventDetail,
-  EventDetailMeta,
-  EventFeedMeta,
-  EventListItem,
-  EventSourceBreakdownEntry,
-  Fallacy,
-  SentenceBias,
-  SpectrumDistribution,
-  TimelineEvent,
-} from "@/lib/types";
+export type { EventFeedMeta, EventListItem } from "@/lib/types";

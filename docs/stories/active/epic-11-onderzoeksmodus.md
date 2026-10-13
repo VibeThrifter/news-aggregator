@@ -39,7 +39,7 @@ volgt het spoor naar gerelateerd nieuws. Niet alles wordt meteen weggegeven: het
 | Backend/database | Mag uitgebreid worden: `event_entities` en `event_relations` (migratie 004) |
 | Extra's in v1 | Bronvergelijker, Wikipedia-achtergrond, Bias-zinnen verkennen, Tijdlijn-scrubber |
 | Demo | `/event/demo` met volledige voorbeelddata, ook op Vercel, achter `NEXT_PUBLIC_ENABLE_DEMO` |
-| Uitrol | Nieuwe UI achter `NEXT_PUBLIC_EXPLORE_UI` tot Story 11.15; de oude pagina blijft tot dan werken |
+| Uitrol | Nieuwe UI achter `NEXT_PUBLIC_EXPLORE_UI` tot Story 11.15; sinds 11.15 (2026-10-09) de enige eventpagina, de vlag is weg |
 
 ### Randvoorwaarden
 
@@ -175,7 +175,8 @@ De nieuwe eventpagina achter de vlag: kop, teaser en samenvatting, bronnen-sheet
 
 
 ### Implementatiedetails
-- `app/event/[id]/page.tsx`: nieuwe UI bij `NEXT_PUBLIC_EXPLORE_UI=1` of een demo-id (`NEXT_PUBLIC_ENABLE_DEMO=true`).
+- `app/event/[id]/page.tsx`: nieuwe UI bij `NEXT_PUBLIC_EXPLORE_UI=1` of een demo-id (`NEXT_PUBLIC_ENABLE_DEMO=true`);
+  sinds Story 11.15 altijd.
 - `ExploreShell` (data, hydratatie, providers, `PanelHost`), `ExploreScreen`, `ExploreHeader`, `SummaryTeaser`, `SourcesRow`,
   `Dock`, demo-banner; `app/event/[id]/error.tsx`.
 - Data: `getExploration` (1 kernquery + entiteiten/relaties/bias parallel; degradeert zonder migratie 004),
@@ -550,7 +551,7 @@ suggesties voor verbanden over events heen, lijstmodus en export/import.
 
 ## Story 11.15: Overstap & opruimen
 
-**Status**: 🔲 To Do
+**Status**: ✅ Done (2026-10-09)
 **Prioriteit**: Must Have
 **Geschatte complexiteit**: Medium
 **Depends on**: alle voorgaande
@@ -564,6 +565,24 @@ toegankelijkheidsaudit, volledige E2E-set.
 - Nog niet uitgevoerd: wacht tot de nieuwe pagina met echte data (Supabase weer aan) is bekeken.
 - Bundel `/event/[id]`: 229 kB (nulmeting) → 322 kB, waarvan de oude pagina nog deel uitmaakt; React Flow en react-markdown
   zitten niet in de eerste lading van de nieuwe pagina.
+
+### Wrap-up (2026-10-09, eigenaarsbesluit "de oude eventpagina, dode vlaggen en exports weg")
+- `app/event/[id]/page.tsx` toont altijd `ExploreScreen`; `NEXT_PUBLIC_EXPLORE_UI` is weg uit de code,
+  `frontend/.env.example`, `playwright.explore.config.ts` en de docs (een achtergebleven waarde in Vercel of
+  `.env.development.local` doet niets meer).
+- Verwijderd, alleen bereikbaar via de oude pagina (22 bestanden, ~2.360 regels): `EventDetailScreen`, `ArticleCard`,
+  `ArticleList`, `ArticleLookupContext`, `BiasAnalysisModal`, `ClusterCard`, `ClusterGrid`, `ContradictionCard`,
+  `ContradictionList`, `CoverageGapCard`, `CoverageGapsList`, `CriticalAnalysis`, `FallacyCard`, `FallacyList`,
+  `FrameCard`, `FrameList`, `InsightsFallback`, `InternationalSources`, `SourceIconLink`, `SourceTag`, `SpectrumBar`,
+  `Timeline`; daarnaast de nergens geïmporteerde `AnimatedBackground`, `DaysBackFilter` en `StatusBanner`.
+- Helpers van alleen de oude pagina weg: `getEventDetail`, `getEventInsights`, `getArticleBias`,
+  `triggerInsightsRegeneration`, `resolveEventExportUrl`, `apiFetch`/`ApiClient` (`lib/api.ts`), de spectrum- en
+  faviconhelpers in `lib/format.ts`, `eventDetailSwrOptions`/`insightsSwrOptions`/`adminSwrOptions`.
+- Tests van de oude pagina weg: `__tests__/EventDetailComponents.test.tsx`, `tests/event-detail.spec.ts` en
+  `tests/event-feed.spec.ts` (die mockten `/api/v1/events`, dat de frontend niet meer aanroept, en zochten tekst die niet
+  meer bestaat; niets ervan testte de huidige UI).
+- Bundel `/event/[id]` na het opruimen: 113 kB, 366 kB eerste lading. Een aparte toegankelijkheidsaudit en de volledige
+  E2E-set zijn in deze ronde niet opnieuw gedraaid (`npx jest`, typecheck en `next build` groen).
 ---
 
 ## Story 11.17: Propagandamodel-koppeling (backend)
@@ -618,7 +637,7 @@ Ontbrekende actuele eigendomsrelaties (o.a. DPG Media → AD/NU.nl/Volkskrant/Tr
       pagina tot `done` (`POST /admin/trigger/exploration-backfill?limit=100&offset=0&include_archived=true&force=true`)
 - [ ] `database/migrations/005_propagandamodel.sql` (opnieuw) draaien; de volgende sync vult `filters` vanzelf
       (formaatwissel) of direct met `POST /admin/trigger/propagandamodel-sync?force=true`
-- [ ] Vercel: `NEXT_PUBLIC_ENABLE_DEMO=true` (Production + Preview); bij de overstap `NEXT_PUBLIC_EXPLORE_UI=1`
+- [ ] Vercel: `NEXT_PUBLIC_ENABLE_DEMO=true` (Production + Preview)
 - [ ] Eigendomsfeiten in `frontend/lib/explore/media-landscape.ts` controleren en `verified: true` zetten
 - [ ] Telefoon-checklist (iPhone Safari, Android Chrome)
 

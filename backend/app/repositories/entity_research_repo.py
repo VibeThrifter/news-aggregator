@@ -23,21 +23,6 @@ _CHUNK_SIZE = 500
 # Article text read per article for role cues (bylines and most mentions are at the start).
 ARTICLE_PREFIX_CHARS = 6000
 
-TRIAGE_FIELDS: tuple[str, ...] = (
-    "name",
-    "kind",
-    "role_category",
-    "role_label",
-    "is_foreign",
-    "priority",
-    "prominence",
-    "pm_entity_id",
-    "pm_degree",
-    "status",
-    "status_reason",
-    "triaged_at",
-)
-
 
 def _chunks(items: Sequence[Any], size: int = _CHUNK_SIZE) -> Iterable[Sequence[Any]]:
     for start in range(0, len(items), size):
@@ -261,6 +246,5 @@ class TriageInputRepository:
 __all__ = [
     "ARTICLE_PREFIX_CHARS",
     "EntityResearchRepository",
-    "TRIAGE_FIELDS",
     "TriageInputRepository",
 ]

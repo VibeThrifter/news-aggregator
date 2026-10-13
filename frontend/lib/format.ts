@@ -1,28 +1,4 @@
-import type { EventListItem, SpectrumDistribution } from "@/lib/types";
-
-export type SpectrumBadge = {
-  key: string;
-  label: string;
-  count: number;
-};
-
-export const SPECTRUM_LABELS: Record<string, string> = {
-  mainstream: "Mainstream",
-  links: "Links",
-  rechts: "Rechts",
-  alternatief: "Alternatief",
-  overheid: "Overheid",
-  sociale_media: "Sociale media",
-};
-
-export const SPECTRUM_STYLES: Record<string, string> = {
-  mainstream: "border-sky-300 bg-sky-50 text-sky-700",
-  links: "border-blue-300 bg-blue-50 text-blue-700",
-  rechts: "border-red-300 bg-red-50 text-red-700",
-  alternatief: "border-purple-300 bg-purple-50 text-purple-700",
-  overheid: "border-emerald-300 bg-emerald-50 text-emerald-700",
-  sociale_media: "border-gray-300 bg-gray-50 text-gray-600",
-};
+import type { EventListItem } from "@/lib/types";
 
 const dateRangeFormatter = new Intl.DateTimeFormat("nl-NL", { dateStyle: "medium" });
 const dateTimeFormatter = new Intl.DateTimeFormat("nl-NL", {
@@ -68,38 +44,6 @@ export function formatEventTimeframe(firstSeen?: string | null, lastUpdated?: st
   return `${dateRangeFormatter.format(start)} – ${dateRangeFormatter.format(end)} · ${timeFormatter.format(end)}`;
 }
 
-export function resolveSpectrumBadges(distribution?: SpectrumDistribution | null): SpectrumBadge[] {
-  if (!distribution) {
-    return [];
-  }
-
-  if (Array.isArray(distribution)) {
-    return distribution
-      .filter((entry) => entry && typeof entry.count === "number" && entry.count > 0)
-      .map((entry) => ({
-        key: entry.spectrum,
-        label: SPECTRUM_LABELS[entry.spectrum] ?? entry.spectrum,
-        count: entry.count,
-      }))
-      .sort((a, b) => b.count - a.count);
-  }
-
-  return Object.entries(distribution)
-    .map(([key, value]) => {
-      if (typeof value === "number") {
-        return { key, label: SPECTRUM_LABELS[key] ?? key, count: value };
-      }
-
-      if (value && typeof value === "object" && "count" in value && typeof value.count === "number") {
-        return { key, label: SPECTRUM_LABELS[key] ?? key, count: value.count };
-      }
-
-      return null;
-    })
-    .filter((entry): entry is SpectrumBadge => entry !== null && entry.count > 0)
-    .sort((a, b) => b.count - a.count);
-}
-
 /** Who brought the news, as in the head of the event page: "NOS en RTL Nieuws + 4 buitenlandse", "5 Nederlandse bronnen". */
 export function outletsLine(dutch: string[], foreign: number): string {
   const names = dutch.length === 0 ? "" : dutch.length <= 2 ? dutch.join(" en ") : `${dutch.length} Nederlandse bronnen`;
@@ -116,38 +60,6 @@ export function resolveEventSlug(event: Pick<EventListItem, "id" | "slug">): str
   return `/event/${encodeURIComponent(String(event.id))}`;
 }
 
-export function getDomainFromUrl(url: string): string {
-  try {
-    const hostname = new URL(url).hostname;
-    return hostname.replace(/^www\./, "");
-  } catch {
-    return "bron";
-  }
-}
-
-export function getFaviconUrl(url: string): string {
-  const domain = getDomainFromUrl(url);
-  return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
-}
-
-// Spectrum score mapping: 0 = far-left, 5 = center, 10 = far-right
-// Numeric scores are used directly, string values are converted
-export const SPECTRUM_SCORE: Record<string, number> = {
-  // Legacy string mappings for backwards compatibility
-  "center-left": 2,
-  "center": 5,
-  "center-right": 6,
-  "right-leaning": 7,
-  "right-wing": 9,
-};
-
-// Get spectrum score from value (handles both numeric and string)
-export function getSpectrumScore(spectrum: string | number | null | undefined): number {
-  if (spectrum === null || spectrum === undefined) return 5; // default center
-  if (typeof spectrum === "number") return spectrum;
-  return SPECTRUM_SCORE[spectrum] ?? 5;
-}
-
 // Get label for spectrum score
 export function getSpectrumLabel(score: number): string {
   if (score <= 2) return "Links";
@@ -157,16 +69,13 @@ export function getSpectrumLabel(score: number): string {
   return "Rechts";
 }
 
-// For backwards compatibility - maps old string values to 0-10 positions
-export const SPECTRUM_POSITION: Record<string, number> = SPECTRUM_SCORE;
-
 // Alternative sources are shown in a separate row
 export function isAlternativeSource(spectrum?: string | number | null): boolean {
   return spectrum === "alternative";
 }
 
 // Source name to domain mapping for favicon lookup
-export const SOURCE_DOMAINS: Record<string, string> = {
+const SOURCE_DOMAINS: Record<string, string> = {
   "NOS": "nos.nl",
   "NU.nl": "nu.nl",
   "AD": "ad.nl",
@@ -192,7 +101,7 @@ export function getSourceFaviconUrl(sourceName: string): string {
 }
 
 // Country name mapping: ISO 3166-1 alpha-2 to Dutch name
-export const COUNTRY_NAMES: Record<string, string> = {
+const COUNTRY_NAMES: Record<string, string> = {
   AU: "Australië",
   BE: "België",
   BR: "Brazilië",

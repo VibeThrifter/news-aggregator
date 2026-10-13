@@ -856,14 +856,13 @@ async def propagandamodel_status():
 
 # Wie is dit? (Epic 12): research of named entities by the propaganda-model agents
 class EntityResearchCycleResponse(BaseModel):
-    """Outcome of one entity research cycle (status, triage, queue, round)."""
+    """Outcome of one entity research cycle (status, triage, queue)."""
 
     skipped: bool
     reason: str | None = None
     status: dict[str, Any] | None = None
     triage: dict[str, Any] | None = None
     enqueue: dict[str, Any] | None = None
-    round_started: bool = False
 
 
 class EntityResearchKeyResponse(BaseModel):
@@ -878,11 +877,11 @@ class EntityResearchKeyResponse(BaseModel):
     reason: str | None = None
     triage: dict[str, Any] | None = None
     enqueue: dict[str, Any] | None = None
-    round_started: bool = False
 
 
 class EntityResearchStatusResponse(BaseModel):
-    """Queue counts, daily budgets, the research agent, LinkedIn brake and last runs."""
+    """Queue counts, daily budgets, the research agent's rounds (scheduled by the propaganda
+    model), LinkedIn brake and last runs."""
 
     enabled: bool
     pm_db: str
@@ -899,7 +898,7 @@ class EntityResearchStatusResponse(BaseModel):
 
 @router.post("/trigger/entity-research", response_model=EntityResearchCycleResponse)
 async def trigger_entity_research():
-    """Run one cycle now: pull the research status, triage names, queue targets, start a round."""
+    """Run one cycle now: pull the research status, triage names, queue targets."""
 
     try:
         result = await get_entity_research_service().run_cycle()
@@ -928,19 +927,18 @@ async def trigger_entity_research_key(key: str):
 
 @router.get("/entity-research/status", response_model=EntityResearchStatusResponse)
 async def entity_research_status():
-    """Queue counts, budgets, the nieuws-scout runner, LinkedIn brake and the last runs."""
+    """Queue counts, budgets, the nieuws-scout rounds, LinkedIn brake and the last runs."""
 
     return EntityResearchStatusResponse(**await get_entity_research_service().status())
 
 
 class EvidenceResearchCycleResponse(BaseModel):
-    """Outcome of one evidence research cycle (status, queue, round) - Story 14.13."""
+    """Outcome of one evidence research cycle (status, queue) - Story 14.13."""
 
     skipped: bool
     reason: str | None = None
     status: dict[str, Any] | None = None
     enqueue: dict[str, Any] | None = None
-    round_started: bool = False
 
 
 class EvidenceResearchRelationResponse(BaseModel):
@@ -954,14 +952,13 @@ class EvidenceResearchRelationResponse(BaseModel):
     missing: list[str] = []
     status: str | None = None
     enqueue: dict[str, Any] | None = None
-    round_started: bool = False
 
 
 class EvidenceResearchStatusResponse(BaseModel):
-    """Queue counts, daily budget, the nieuws-bewijs runner and the last runs."""
+    """Queue counts, daily budget, the nieuws-bewijs rounds (scheduled by the propaganda model)
+    and the last runs."""
 
     enabled: bool
-    rounds_enabled: bool
     pm_db: str
     pm_db_exists: bool
     pm_server: bool
@@ -973,8 +970,8 @@ class EvidenceResearchStatusResponse(BaseModel):
 
 @router.post("/trigger/evidence-research", response_model=EvidenceResearchCycleResponse)
 async def trigger_evidence_research():
-    """Run one evidence research cycle now: pull the status, queue requested thin links, start a
-    round of the pm agent nieuws-bewijs (only when NIEUWS_BEWIJS_ENABLED)."""
+    """Run one evidence research cycle now: pull the status, queue requested thin links and give
+    them priority in the propaganda model (which schedules the rounds of nieuws-bewijs itself)."""
 
     try:
         result = await get_evidence_research_service().run_cycle()
@@ -988,7 +985,7 @@ async def trigger_evidence_research():
 )
 async def trigger_evidence_research_relation(relation_id: int):
     """Queue one propaganda-model link for evidence research now (ignores the budget and the
-    cooldown); a round starts only when NIEUWS_BEWIJS_ENABLED."""
+    cooldown)."""
 
     try:
         result = await get_evidence_research_service().research_relation(relation_id)
@@ -1001,6 +998,6 @@ async def trigger_evidence_research_relation(relation_id: int):
 
 @router.get("/evidence-research/status", response_model=EvidenceResearchStatusResponse)
 async def evidence_research_status():
-    """Queue counts, budget, the nieuws-bewijs runner and the last runs (Story 14.13)."""
+    """Queue counts, budget, the nieuws-bewijs rounds and the last runs (Story 14.13)."""
 
     return EvidenceResearchStatusResponse(**await get_evidence_research_service().status())
