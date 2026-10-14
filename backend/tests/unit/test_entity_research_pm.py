@@ -143,6 +143,27 @@ def test_coverage_index_lookup_and_degree(tmp_path: Path) -> None:
     assert index.lookup(["Mark Rutte"], "person").id == 23  # names are slugified
 
 
+def test_coverage_index_finds_an_organisation_by_its_abbreviation(tmp_path: Path) -> None:
+    """pm metadata.afkorting (2026-10-14): a news name 'RWS' is Rijkswaterstaat, not a new
+    research target."""
+
+    path = pm_db(tmp_path)
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute(
+            "INSERT INTO entities (id, name, type, metadata, status, vervangen) VALUES "
+            "(70, 'Rijkswaterstaat', 'overheidsinstelling', ?, 'goedgekeurd', 0)",
+            ('{"afkorting": "RWS"}',),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    index = PmCoverageIndex.load(path)
+    found = index.lookup(["RWS"], "org")
+    assert found is not None and found.id == 70
+    assert index.lookup(["RWS"], "person") is None
+
+
 def test_register_officials_need_more_than_the_name(tmp_path: Path) -> None:
     """Epic 15: a local office holder the register names with initials is found by surname plus
     office plus first initial or place; never on the name alone, and a common surname needs the

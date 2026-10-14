@@ -841,6 +841,58 @@ def test_generate_aliases_edge_cases() -> None:
     assert ("clintel", 5) in aliases and ("climate-intelligence", 5) not in aliases
 
 
+def test_generate_aliases_adds_the_abbreviation() -> None:
+    """pm metadata.afkorting (2026-10-14): RWS finds Rijkswaterstaat, same rules as a derived
+    alias."""
+
+    rows = generate_aliases(
+        [
+            {"id": 1, "name": "Rijkswaterstaat", "type": "overheidsinstelling"},
+            {"id": 2, "name": "Openbaar Ministerie", "type": "overheidsinstelling"},
+            {"id": 3, "name": "Raad van State", "type": "overheidsinstelling"},
+            {"id": 4, "name": "RVS", "type": "overheidsinstelling"},
+            {"id": 5, "name": "A.B. Jansen", "type": "persoon"},
+            {"id": 6, "name": "Centraal Planbureau (CPB)", "type": "overheidsinstelling"},
+        ],
+        {1: "RWS", 2: "OM", 3: "RvS", 5: "ABJ", 6: "CPB", 99: "XYZ"},
+    )
+    aliases = {(row["alias"], row["entity_id"]) for row in rows}
+    assert ("rws", 1) in aliases
+    assert not any(entity_id == 2 and alias == "om" for alias, entity_id in aliases)  # < 3
+    assert ("rvs", 3) not in aliases and ("rvs", 4) in aliases  # another entity is called that
+    assert ("abj", 5) not in aliases  # never for persons
+    assert ("cpb", 6) in aliases and len([a for a in aliases if a == ("cpb", 6)]) == 1
+    assert not any(entity_id == 99 for _, entity_id in aliases)  # only exported entities
+    assert generate_aliases([{"id": 1, "name": "Rijkswaterstaat", "type": "x"}]) == [
+        {"alias": "rijkswaterstaat", "entity_id": 1}
+    ]
+
+
+def test_reader_and_transform_turn_metadata_abbreviation_into_an_alias(pm_db: Path) -> None:
+    connection = sqlite3.connect(pm_db)
+    try:
+        connection.execute(
+            "INSERT INTO entities (id, name, type, metadata, status, vervangen) VALUES "
+            "(60, 'Rijkswaterstaat', 'overheidsinstelling', ?, 'goedgekeurd', 0)",
+            ('{"oo_type": "Agentschap", "afkorting": "RWS"}',),
+        )
+        connection.execute(
+            "INSERT INTO entities (id, name, type, metadata, status, vervangen) VALUES "
+            "(61, 'Kapotte Metadata', 'overheidsinstelling', 'geen json', 'goedgekeurd', 0)"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    raw = read_pm_database(pm_db)
+    by_id = _by_id(raw.entities)
+    assert by_id[60]["afkorting"] == "RWS" and by_id[61]["afkorting"] is None
+    snapshot = transform(raw, synced_at=SYNCED_AT)
+    aliases = {(row["alias"], row["entity_id"]) for row in snapshot.aliases}
+    assert ("rws", 60) in aliases and ("rijkswaterstaat", 60) in aliases
+    assert all("afkorting" not in row for row in snapshot.entities)  # no new pm_entities column
+    assert snapshot.meta["format"] == pm.SNAPSHOT_FORMAT
+
+
 # ------------------------------------------------------------------ ordering + migration
 
 

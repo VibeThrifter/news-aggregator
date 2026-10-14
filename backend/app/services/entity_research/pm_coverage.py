@@ -127,6 +127,19 @@ def compatible(info: PmEntityInfo, kind: str | None) -> bool:
     return True
 
 
+def _abbreviations(connection: sqlite3.Connection) -> dict[int, str]:
+    """metadata.afkorting per entity (pm 2026-10-14); older databases or no JSON1: none."""
+
+    try:
+        rows = connection.execute(
+            "SELECT id, json_extract(metadata, '$.afkorting') FROM entities "
+            "WHERE json_valid(metadata) AND json_extract(metadata, '$.afkorting') IS NOT NULL"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    return {row[0]: row[1].strip() for row in rows if isinstance(row[1], str) and row[1].strip()}
+
+
 @dataclass(slots=True)
 class PmCoverageIndex:
     """Approved pm entities by alias, with their approved-relation degree."""
@@ -151,6 +164,7 @@ class PmCoverageIndex:
                     "WHERE status = 'goedgekeurd' AND NOT vervangen ORDER BY id"
                 )
             ]
+            abbreviations = _abbreviations(connection)
             approved = {row["id"] for row in entities}
             degree: dict[int, int] = defaultdict(int)
             for row in connection.execute(
@@ -176,7 +190,7 @@ class PmCoverageIndex:
                 row["id"] in auto.get("entities", set()),
             )
         aliases: dict[str, list[int]] = defaultdict(list)
-        for alias in generate_aliases(entities):
+        for alias in generate_aliases(entities, abbreviations):
             aliases[alias["alias"]].append(alias["entity_id"])
         index.aliases = dict(aliases)
         officials: dict[str, list[RegisterOfficial]] = defaultdict(list)

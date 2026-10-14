@@ -709,12 +709,20 @@ def _read_decision_making_fields(connection: sqlite3.Connection, raw: PmRawData)
         "SELECT entity_id, MIN(waarde) FROM externe_ids WHERE stelsel = 'wikidata' "
         "GROUP BY entity_id"
     )
+    # the abbreviation the register gives an organisation (metadata.afkorting, pm 2026-10-14):
+    # RWS, IND, CJIB ... become aliases (generate_aliases)
+    abbreviation = column(
+        "SELECT id, json_extract(metadata, '$.afkorting') FROM entities "
+        "WHERE json_valid(metadata) AND json_extract(metadata, '$.afkorting') IS NOT NULL"
+    )
     office = column("SELECT id, functie FROM relations WHERE functie IS NOT NULL")
     # Story 14.23: when a relation was added (older databases: unknown)
     added = column("SELECT id, created_at FROM relations WHERE created_at IS NOT NULL")
     for entity in raw.entities:
         entity["bestuurslaag"] = layer.get(entity["id"])
         entity["wikidata"] = wikidata.get(entity["id"])
+        value = abbreviation.get(entity["id"])
+        entity["afkorting"] = value.strip() if isinstance(value, str) and value.strip() else None
     for relation in raw.relations:
         relation["functie"] = office.get(relation["id"])
         relation["created_at"] = added.get(relation["id"])
@@ -1599,7 +1607,10 @@ def _derived_aliases(name: str, entity_type: str | None) -> list[str]:
     return derived
 
 
-def generate_aliases(entities: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def generate_aliases(
+    entities: Sequence[Mapping[str, Any]],
+    abbreviations: Mapping[int, str] | None = None,
+) -> list[dict[str, Any]]:
     """Alias rows (shared ``slugify``) for the exported entities.
 
     - every entity: slug(name)
@@ -1612,6 +1623,9 @@ def generate_aliases(entities: Sequence[Mapping[str, Any]]) -> list[dict[str, An
         (``Attje Kuiken (PvdA)`` must not match the party)
       - derived aliases shorter than 3 characters, or equal to the full-name slug of another
         entity, are dropped
+    - the abbreviation the pm stores in ``metadata.afkorting`` (``abbreviations``: entity id ->
+      ``RWS``), with the same rules as a derived alias (>= 3 characters, never another entity's
+      full name); the pm itself refuses an abbreviation that collides with another entity
     - the curated feed aliases (:data:`CURATED_ALIASES`), guarded by the expected name
     - never surname-only aliases for persons (misattribution risk)
     """
@@ -1626,7 +1640,11 @@ def generate_aliases(entities: Sequence[Mapping[str, Any]]) -> list[dict[str, An
         full = slugify(entity["name"])
         if full:
             pairs.add((full, entity_id))
-        for candidate in _derived_aliases(str(entity["name"]), entity.get("type")):
+        candidates = _derived_aliases(str(entity["name"]), entity.get("type"))
+        abbreviation = (abbreviations or {}).get(entity_id)
+        if abbreviation and entity.get("type") not in PERSON_TYPES:
+            candidates.append(abbreviation)
+        for candidate in candidates:
             alias = slugify(candidate)
             if not alias or len(alias) < MIN_DERIVED_ALIAS_LENGTH:
                 continue
@@ -1857,7 +1875,10 @@ def transform(raw: PmRawData, *, synced_at: datetime | None = None) -> PmSnapsho
         entities=entity_rows,
         relations=relation_rows,
         sources=entity_source_rows + relation_source_rows,
-        aliases=generate_aliases(entity_rows),
+        aliases=generate_aliases(
+            entity_rows,
+            {entity["id"]: entity["afkorting"] for entity in entities if entity.get("afkorting")},
+        ),
         meta=meta,
         synced_at=synced,
         arguments=argument_rows,
