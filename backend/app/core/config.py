@@ -224,8 +224,11 @@ class Settings(BaseSettings):
         description="The Claude Code command (path or name on PATH)"
     )
     claude_code_model: Optional[str] = Field(
-        default=None,
-        description="Model when llm_config says only 'claude-code' (e.g. sonnet, haiku); empty = the CLI default"
+        default="haiku",
+        description=(
+            "Model when llm_config says only 'claude-code' (owner 2026-10-14: haiku, the subscription "
+            "ran out on Sonnet); empty = the CLI default"
+        ),
     )
     claude_code_timeout_seconds: int = Field(
         default=600,
@@ -312,7 +315,7 @@ class Settings(BaseSettings):
         description="Primary LLM provider (mistral, openai)"
     )
     llm_prompt_article_cap: int = Field(
-        default=8,
+        default=16,
         ge=3,
         le=20,
         description="Maximum number of articles included in an LLM prompt",

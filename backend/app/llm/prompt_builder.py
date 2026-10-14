@@ -7,7 +7,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime
 from importlib import resources
-from textwrap import shorten
+from textwrap import indent, shorten
 from typing import List, Mapping, Sequence
 
 from sqlalchemy import select
@@ -27,8 +27,11 @@ LOG = get_logger(__name__).bind(component="PromptBuilder")
 FOREIGN_RESERVE = 2
 SENTENCE_PATTERN = re.compile(r"(?<=[.!?])\s+")
 SPECTRUM_FALLBACK = "onbekend"
-ARTICLE_CAPSULE_SENTENCE_LIMIT = 3
 DEFAULT_SUMMARY_CHAR_LIMIT = 320
+# The analysis reads the article text up to this length (at a sentence end). Until 2026-10-13 it
+# read only the first three sentences, so whatever came later (a quote, the precedent) was
+# "missing" and Zoek met AI looked for what was already in the news (event 8786).
+ARTICLE_TEXT_CHAR_LIMIT = 4000
 
 
 def _load_template(filename: str = "pluriform_prompt.txt") -> str:
@@ -99,7 +102,7 @@ class ArticleCapsule:
     published_at: datetime | None
     fetched_at: datetime
     summary: str
-    key_points: List[str]
+    text: str
     entities: List[str]
     # International perspectives (Epic 9)
     is_international: bool = False
@@ -239,17 +242,20 @@ class PromptBuilder:
         return articles
 
     def _build_capsules(self, articles: Sequence[Article]) -> List[ArticleCapsule]:
+        """One capsule per article with text. A find of Zoek met AI has no text, only its digest;
+        an article without either is left out instead of stopping the analysis of the whole news
+        (event 8786 stayed at 5 of 17 articles from 2026-10-08)."""
+
         capsules: List[ArticleCapsule] = []
         for article in articles:
-            if not article.content or not article.content.strip():
-                raise PromptBuilderError(
-                    "Artikel mist volledige content; voer de verrijkingsstap opnieuw uit voordat je een prompt bouwt"
-                )
+            body = _article_text(article)
+            if not body:
+                LOG.warning("prompt_article_without_text", article_id=article.id)
+                continue
 
             spectrum = _coerce_spectrum(article.source_metadata)
             source_type = _coerce_source_type(article.source_metadata)
-            summary = _derive_summary(article)
-            key_points = _extract_key_points(article)
+            summary = _derive_summary(article, body)
             entities = _extract_entities(article)
 
             capsules.append(
@@ -263,11 +269,15 @@ class PromptBuilder:
                     published_at=article.published_at,
                     fetched_at=article.fetched_at,
                     summary=summary,
-                    key_points=key_points,
+                    text=_clip_text(body),
                     entities=entities,
                     is_international=article.is_international,
                     source_country=article.source_country,
                 )
+            )
+        if articles and not capsules:
+            raise PromptBuilderError(
+                "Geen artikel met tekst; voer de verrijkingsstap opnieuw uit voordat je een prompt bouwt"
             )
         return capsules
 
@@ -366,8 +376,7 @@ class PromptBuilder:
         blocks: List[str] = []
         for idx, capsule in enumerate(capsules, start=1):
             timeframe = capsule.reference_time.isoformat()
-            key_points = capsule.key_points or [capsule.summary]
-            key_block = "\n".join(f"    - {point}" for point in key_points)
+            text_block = indent(capsule.text or capsule.summary, "    ")
             entity_block = ", ".join(capsule.entities[:5]) or "geen expliciete entiteiten"
             # Build source line with optional country for international sources
             source_line = f"   Bron: {capsule.source_name} | Spectrum: {capsule.spectrum} | Type: {capsule.source_type}"
@@ -378,7 +387,7 @@ class PromptBuilder:
                 f"{source_line}\n"
                 f"   Gepubliceerd: {timeframe}\n"
                 f"   Samenvatting: {capsule.summary}\n"
-                f"   Kernpunten:\n{key_block}\n"
+                f"   Tekst:\n{text_block}\n"
                 f"   Entiteiten: {entity_block}\n"
                 f"   URL: {capsule.url}"
             )
@@ -582,34 +591,39 @@ def _coerce_source_type(metadata: Mapping[str, object] | None) -> str:
     return "onbekend"
 
 
-def _derive_summary(article: Article) -> str:
+def _article_text(article: Article) -> str:
+    """The article text; for a find of Zoek met AI (stored without text) its Dutch digest."""
+
+    content = (article.content or "").strip()
+    if content:
+        return content
+    metadata = article.source_metadata if isinstance(article.source_metadata, Mapping) else {}
+    digest = metadata.get("digest")
+    if isinstance(digest, Mapping):
+        return str(digest.get("nl") or "").strip()
+    return ""
+
+
+def _clip_text(text: str, limit: int = ARTICLE_TEXT_CHAR_LIMIT) -> str:
+    """At most ``limit`` characters, ending at a sentence or paragraph end when one is near."""
+
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    end = max(head.rfind(". "), head.rfind("! "), head.rfind("? "), head.rfind("\n"))
+    if end >= limit // 2:
+        head = head[: end + 1]
+    return head.rstrip() + " […]"
+
+
+def _derive_summary(article: Article, body: str) -> str:
     summary = article.summary or ""
     if summary:
         return shorten(summary.strip(), width=DEFAULT_SUMMARY_CHAR_LIMIT, placeholder="...")
-    sentences = _split_sentences(article.content)
+    sentences = _split_sentences(body)
     if not sentences:
-        return shorten(article.content.strip(), width=DEFAULT_SUMMARY_CHAR_LIMIT, placeholder="...")
+        return shorten(body, width=DEFAULT_SUMMARY_CHAR_LIMIT, placeholder="...")
     return shorten(sentences[0], width=DEFAULT_SUMMARY_CHAR_LIMIT, placeholder="...")
-
-
-def _extract_key_points(article: Article) -> List[str]:
-    sentences = _split_sentences(article.content)
-    if not sentences:
-        return []
-    primary = sentences[:ARTICLE_CAPSULE_SENTENCE_LIMIT]
-    # Remove potential duplicates with summary
-    unique: List[str] = []
-    seen = set()
-    for sentence in primary:
-        normalized = sentence.strip()
-        if not normalized:
-            continue
-        key = normalized.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(shorten(normalized, width=DEFAULT_SUMMARY_CHAR_LIMIT, placeholder="..."))
-    return unique
 
 
 def _extract_entities(article: Article) -> List[str]:

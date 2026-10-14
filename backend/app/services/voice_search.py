@@ -154,6 +154,11 @@ class EventContext:
     # From the analysis' coverage gap with the same name (empty for a voice a reader added)
     description: str = ""
     potential_sources: list[str] = field(default_factory=list)
+    # The articles of the news (outlet, headline), and how to recognise a copy of one: its
+    # headline (title_key) or the start of its text (copy_key)
+    titles: list[tuple[str, str]] = field(default_factory=list)
+    title_keys: set[str] = field(default_factory=set)
+    text_keys: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -248,6 +253,33 @@ def copy_key(value: str) -> str:
     """Agency copies (ANP) are the same text at several outlets: compare their start."""
 
     return re.sub(r"\W+", " ", value[:400].lower()).strip()
+
+
+def title_key(title: str | None) -> str:
+    """A headline without the outlet behind it ("… - Headliner.nl"), to recognise a copy; "" for
+    one too short to tell."""
+
+    value = re.sub(r"\s+[-–—|]\s+[^-–—|]{2,40}$", "", (title or "").strip())
+    key = re.sub(r"\W+", " ", value.lower()).strip()
+    return key if len(key.split()) >= 4 else ""
+
+
+def is_copy(context: EventContext, url: str, title: str | None) -> bool:
+    """A find that repeats an article of the news: the same headline, or a link of a site that
+    collects the headlines of others and ends with the outlet and a number
+    (headliner.nl/item/sgp-blokkeert-…-tweede-kamer-nieuwrechts-23375, event 8786)."""
+
+    key = title_key(title)
+    if key and key in context.title_keys:
+        return True
+    parts = urlsplit(url)
+    words = [w for w in re.split(r"[^a-z0-9]+", parts.path.lower()) if w]
+    if len(words) < 3 or not words[-1].isdigit():
+        return False
+    host = outlet_key(parts.netloc.lower().removeprefix("www.").split(".")[0])
+    named = {outlet_key(words[-2]), outlet_key(words[-3] + words[-2])}
+    outlets = {k for k in (outlet_key(o) for o in context.outlets) if len(k) >= 3 and k != host}
+    return bool(named & outlets)
 
 
 def excerpt(text_value: str, terms: Sequence[str]) -> str:
@@ -544,9 +576,11 @@ class VoiceSearchService:
                 await session.execute(
                     text(
                         """
-                        select a.id, a.url, a.source_name, a.published_at, a.is_international
+                        select a.id, a.url, a.title, a.source_name, a.published_at,
+                               a.is_international, left(a.content, 400) as head
                         from event_articles ea join articles a on a.id = ea.article_id
                         where ea.event_id = :id
+                        order by a.is_international, a.published_at nulls last
                         """
                     ),
                     {"id": job.event_id},
@@ -579,6 +613,9 @@ class VoiceSearchService:
             dutch_outlets=sorted({a.source_name for a in dutch if a.source_name}),
             description=str(gap.get("description") or "") if gap else "",
             potential_sources=[str(s) for s in (gap.get("potential_sources") or [])] if gap else [],
+            titles=[(a.source_name or "?", a.title) for a in articles if a.title],
+            title_keys={k for k in (title_key(a.title) for a in articles) if k},
+            text_keys={copy_key(a.head) for a in articles if (a.head or "").strip()},
         )
 
     async def plan(self, context: EventContext, job: VoiceSearchJob) -> SearchPlan:
@@ -703,7 +740,7 @@ class VoiceSearchService:
             found["D"] = [item for _, item in ranked[:D_MAX]]
 
         seen: dict[str, Candidate] = {}
-        copies: set[str] = set()
+        copies: set[str] = set(context.text_keys)
         checked = await self._collect(context, found, seen, copies)
         verdicts: list[dict[str, Any]] = []
         stats["verdicts"] = verdicts
@@ -733,13 +770,14 @@ class VoiceSearchService:
         seen: dict[str, Candidate],
         copies: set[str],
     ) -> list[Candidate]:
-        """New candidates with readable text: one per URL, one per agency copy, none of the event."""
+        """New candidates with readable text: one per URL, one per agency copy, none of the event
+        and no copy of one (``copies`` starts with the texts of the event)."""
 
         new: list[Candidate] = []
         for strategy, items in found.items():
             for item in items:
                 key = norm_url(item["url"])
-                if key in context.urls:
+                if key in context.urls or is_copy(context, item["url"], item["title"]):
                     continue
                 if key in seen:
                     if strategy not in seen[key].strategies:

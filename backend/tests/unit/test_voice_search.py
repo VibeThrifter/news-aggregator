@@ -7,6 +7,7 @@ loop. The SQL of the queue is checked against PostgreSQL by hand (migration 009 
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
@@ -130,6 +131,64 @@ def test_text_helpers():
     assert country_of("https://www.trouw.nl/x") == ("NL", False)
     assert country_of("https://www.vrt.be/x") == ("BE", True)
     assert country_of("https://www.reuters.com/x") == (None, False)
+
+
+def test_recognises_a_copy_of_an_article_in_the_news():
+    headline = "SGP blokkeert komst regenboogvlag op gebouw Tweede Kamer"
+    assert vs.title_key(f"{headline} - Headliner.nl") == vs.title_key(headline) != ""
+    assert vs.title_key("Live - NOS") == ""
+    news = replace(context(), outlets=["NOS", "NieuwRechts"], title_keys={vs.title_key(headline)})
+    copy = "https://www.headliner.nl/item/sgp-blokkeert-komst-regenboogvlag-op-gebouw-tweede-kamer-nieuwrechts-23375"
+    assert vs.is_copy(news, "https://www.headliner.nl/item/x", f"{headline} - Headliner.nl")
+    assert vs.is_copy(news, copy, "Andere kop over de vlag")
+    # The outlet's own site, an article about an outlet, a number at the end: no copy
+    assert not vs.is_copy(news, "https://nieuwrechts.nl/x-y-nieuwrechts-23375", "Andere kop over de vlag")
+    assert not vs.is_copy(news, "https://www.geenstijl.nl/5192449/kritiek-op-nos/", "Kritiek op de NOS")
+    assert not vs.is_copy(news, "https://www.ad.nl/politiek/vlag-debat-2026", "Debat over de vlag")
+
+
+async def test_a_copy_of_an_article_in_the_news_never_reaches_the_check():
+    """Own articles and Google News: the same headline or the same agency text as an article of
+    the news is no candidate (event 8786)."""
+    headline = "Boeren tegen windpark Dijkerhoven in de polder"
+    plan = SearchPlan(kind="generiek", event_terms=["windpark"], event_query="windpark Dijkerhoven")
+    llm = StubLLM(plan, [[hit("a1")]])
+    svc, _ = service(
+        llm,
+        own=[
+            {
+                "outlet": "RTL Nieuws",
+                "title": "Boer over windpark",
+                "url": "https://www.rtl.nl/a",
+                "published_at": None,
+                "text": LONG,
+                "basis": "db",
+            }
+        ],
+        google={
+            "windpark Dijkerhoven": [
+                {**gnews("https://www.headliner.nl/item/boeren", "Headliner.nl"), "title": headline},
+                gnews("https://www.trouw.nl/b", "Trouw"),
+            ]
+        },
+        texts={"https://www.headliner.nl/item/boeren": LONG, "https://www.trouw.nl/b": "ANP: " + LONG},
+    )
+    news = replace(
+        context(),
+        title_keys={vs.title_key(headline)},
+        text_keys={copy_key("ANP: " + LONG)},
+    )
+
+    async def load_context(_job):
+        return news
+
+    svc.load_context = load_context  # type: ignore[method-assign]
+
+    outcome = await svc.search(JOB)
+
+    assert [c["url"] for c in outcome.candidates] == ["https://www.rtl.nl/a"]
+    check = llm.prompts[-1]
+    assert "Headliner" not in check and "Trouw" not in check
 
 
 async def test_keeps_only_the_voice_itself_about_the_same_news():

@@ -145,6 +145,67 @@ async def test_missing_article_content_raises_clear_error(session_factory: async
     assert "verrijkingsstap" in str(exc.value)
 
 
+def _article(guid: str, content: str, **extra) -> Article:
+    moment = datetime(2026, 10, 8, 18, 0, tzinfo=timezone.utc)
+    return Article(
+        guid=guid,
+        url=f"https://example.com/{guid}",
+        title=f"Artikel {guid}",
+        content=content,
+        source_name="Bron",
+        source_metadata=extra.pop("source_metadata", {"spectrum": "rechts"}),
+        published_at=moment,
+        fetched_at=moment,
+        **extra,
+    )
+
+
+def test_the_analysis_reads_the_text_after_the_first_sentences() -> None:
+    """Event 8786: the precedent was in the eleventh sentence, which the analysis never saw."""
+    opening = "Het presidium trok de toestemming in. " * 10
+    builder = PromptBuilder(settings=Settings())
+    article = _article("nr", opening + "Eerder stemde de Kamer over de Oekraiense vlag.")
+
+    block = builder._format_article_capsules(builder._build_capsules([article]))
+
+    assert "Oekraiense vlag" in block
+    assert "Kernpunten" not in block
+
+
+def test_a_long_text_stops_at_a_sentence_end() -> None:
+    from backend.app.llm.prompt_builder import ARTICLE_TEXT_CHAR_LIMIT, _clip_text
+
+    text = "Dit is een zin van het artikel. " * 400
+
+    clipped = _clip_text(text)
+
+    assert len(clipped) <= ARTICLE_TEXT_CHAR_LIMIT + 4
+    assert clipped.endswith("artikel. […]")
+    assert _clip_text("Kort.") == "Kort."
+
+
+def test_a_find_without_text_does_not_stop_the_analysis() -> None:
+    """A find of Zoek met AI counts with its digest; an article without any text is left out
+    (event 8786 stayed at 5 of 17 articles because one find had no text)."""
+    builder = PromptBuilder(settings=Settings())
+    articles = [
+        _article("tekst", "De SGP maakte bezwaar tegen de vlag."),
+        _article(
+            "voice",
+            "",
+            source_metadata={"digest": {"nl": "De griffie legt de regels voor vlaggen uit."}},
+        ),
+        _article("leeg", ""),
+    ]
+
+    capsules = builder._build_capsules(articles)
+
+    assert [c.title for c in capsules] == ["Artikel tekst", "Artikel voice"]
+    assert capsules[1].text == "De griffie legt de regels voor vlaggen uit."
+    with pytest.raises(PromptBuilderError, match="verrijkingsstap"):
+        builder._build_capsules([_article("leeg", "")])
+
+
 def _capsule(
     article_id: int,
     source: str,
@@ -166,7 +227,7 @@ def _capsule(
         published_at=moment,
         fetched_at=moment,
         summary="",
-        key_points=[],
+        text="",
         entities=[],
         is_international=international,
         source_country="US" if international else None,
