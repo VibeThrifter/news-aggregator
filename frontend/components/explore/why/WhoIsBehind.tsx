@@ -50,16 +50,17 @@ const LINES_SHOWN = 2;
 const TOGETHER_SHOWN = 3;
 
 /**
- * "Wie zit erachter?" (Epic 14): the parties and speakers of this news that reach the outlets that
- * brought it in the propaganda model, read from the party ("RIVM is vaste bron voor NOS en de
- * Volkskrant"). Under every line what it rests on in the model (Story 14.12): the claim of its
- * strongest argument and how strong that is ("1 bron: persbericht · niet gecontroleerd"), nuance
- * and arguments against. Story 14.13: a verdict first ("dun bewijs"), a source of the party itself
- * named as such, and thin links are handed to the propaganda model to research (their status
- * shows under the line). Story 14.23: only what is about this news — a link without a source, or one
- * whose evidence does not name the outlet ("PVV valt de pers aan" is no link with the AD), is left
- * out, and people who belong to both the party and the outlet come first. Best supported next;
- * outlets with the same link and support share one line. Loaded once the block scrolls into view.
+ * "Wie zit erachter?" (Epic 14): who the parties and speakers of this news have behind the outlets
+ * that brought it, in the propaganda model, read from the party. Story 14.25: only a place in the
+ * outlet or its money ("VVD had als bestuurder Kamran Ullah, Ullah werkt voor De Telegraaf"), never
+ * contact such as a source, an expert or an attack (behindRoute). Under every line what it rests on
+ * in the model (Story 14.12): the claim of its weakest tie's strongest argument and how strong that
+ * is ("1 bron: persbericht · niet gecontroleerd"), nuance and arguments against. Story 14.13: a
+ * verdict first ("dun bewijs"), a source of the party itself named as such, and thin links are
+ * handed to the propaganda model to research (their status shows under the line). Story 14.23: a
+ * link without a source, or money whose evidence does not name the outlet, is left out; people
+ * first, best supported next; outlets with the same link and support share one line. Loaded once
+ * the block scrolls into view; gone when nothing is left.
  */
 export function WhoIsBehind() {
   const { exploration, eventId } = useExplore();
@@ -83,8 +84,9 @@ export function WhoIsBehind() {
 
   const why = useWhyRoutes(inView && seeds.length > 0);
   const demo = input.event.isDemo;
+  const soleOutlet = useMemo(() => (id: number) => why.soleOutlets.get(id), [why.soleOutlets]);
   // The lines without evidence first: they tell which relations to look up (one call)
-  const draft = useMemo(() => behindParties(why.paths, why.newsOutletIds), [why.paths, why.newsOutletIds]);
+  const draft = useMemo(() => behindParties(why.paths, why.newsOutletIds, undefined, soleOutlet), [why.paths, why.newsOutletIds, soleOutlet]);
   const ids = useMemo(() => lineRelationIds(draft), [draft]);
   const discussion = useSWR(ids.length ? ["pm-relation-arguments", demo, ids.join(",")] : null, () => pmRelationArguments(ids, { demo }), exploreAuxSwrOptions);
   // Null before migration 010 (or when the lookup failed): the lines show the model's description
@@ -100,14 +102,19 @@ export function WhoIsBehind() {
     if (!evidence || !discussion.data) return draft;
     const args = discussion.data;
     const verdict = (id: number) => (evidence.has(id) ? verdictOf(evidence.get(id) as Evidence, certainty.get(id)) : null);
-    const ranked = behindParties(why.paths, why.newsOutletIds, (id) => {
-      const known = verdict(id);
-      return known ? VERDICT_RANK[known] : undefined;
-    });
+    const ranked = behindParties(
+      why.paths,
+      why.newsOutletIds,
+      (id) => {
+        const known = verdict(id);
+        return known ? VERDICT_RANK[known] : undefined;
+      },
+      soleOutlet,
+    );
     return specificParties(ranked, (id) => (ids.includes(id) ? args.get(id) ?? [] : undefined), (id) => entityName(entities, id))
       .map((party) => ({ ...party, lines: party.lines.filter((line) => verdict(line.explain[0]) !== "onbewezen") }))
       .filter((party) => party.lines.length > 0);
-  }, [evidence, discussion.data, certainty, draft, ids, entities, why.paths, why.newsOutletIds]);
+  }, [evidence, discussion.data, certainty, draft, ids, entities, why.paths, why.newsOutletIds, soleOutlet]);
   // Thin links this page shows go to the propaganda model to be researched; their status comes back
   const thin = useMemo(() => {
     if (!evidence) return [];
@@ -123,17 +130,21 @@ export function WhoIsBehind() {
   const togetherEntities = useMemo(() => new Map((between.paths?.entities ?? []).map((entity) => [entity.id, entity])), [between.paths]);
 
   if (seeds.length === 0 || why.unavailable) return null;
+  // Nobody of this news with a place in its outlets or their money: no block (show what is there)
+  if (inView && !loading && !between.loading && parties.length === 0 && together.length === 0) return null;
   const networkHref = `/event/${encodeURIComponent(input.event.slug ?? String(eventId))}/netwerk`;
   const shown = all ? parties : parties.slice(0, PARTIES_SHOWN);
   const total = parties.reduce((sum, party) => sum + party.lines.length, 0);
   const visible = shown.reduce((sum, party) => sum + (all ? party.lines.length : Math.min(party.lines.length, LINES_SHOWN)), 0);
   const hidden = total - visible;
+  // Only how the parties hang together: that is the heading, not an empty "Wie zit erachter?"
+  const onlyTogether = !loading && parties.length === 0 && together.length > 0;
 
   return (
     <section ref={block} aria-labelledby="behind-title" className="space-y-2" aria-busy={loading}>
       <div className="flex items-end justify-between gap-3">
         <h2 id="behind-title" className="font-serif text-xl font-bold text-ink-900">
-          Wie zit erachter?
+          {onlyTogether ? "Hoe hangen ze samen?" : "Wie zit erachter?"}
         </h2>
         <Link
           href={networkHref}
@@ -142,11 +153,7 @@ export function WhoIsBehind() {
           <Network size={15} /> Netwerk
         </Link>
       </div>
-      {!inView || loading ? <div className="h-24 animate-pulse rounded-2xl bg-paper-200" /> : null}
-      {inView && !why.loading && why.noActors ? <p className="text-sm text-ink-600">Geen partij uit dit nieuws in het propagandamodel.</p> : null}
-      {inView && !why.loading && !why.noActors && parties.length === 0 ? (
-        <p className="text-sm text-ink-600">Geen verband binnen twee stappen tussen de bronnen en de partijen van dit nieuws.</p>
-      ) : null}
+      {!inView || loading || (parties.length === 0 && between.loading) ? <div className="h-24 animate-pulse rounded-2xl bg-paper-200" /> : null}
       {parties.length && !loading ? (
         <ol aria-label="Routes tussen de bronnen en de partijen van dit nieuws" className="divide-y divide-paper-200 rounded-2xl border border-paper-300 bg-paper-50">
           {shown.map((party) => (
@@ -170,7 +177,7 @@ export function WhoIsBehind() {
           Nog {hidden} {hidden === 1 ? "verband" : "verbanden"}
         </button>
       ) : null}
-      {together.length && !loading ? <TogetherRoutes routes={together} entities={togetherEntities} /> : null}
+      {together.length && !loading ? <TogetherRoutes routes={together} entities={togetherEntities} heading={!onlyTogether} /> : null}
       {parties.length || together.length ? <PmAttribution /> : null}
     </section>
   );
@@ -179,18 +186,20 @@ export function WhoIsBehind() {
 /**
  * "Hoe hangen ze samen?" (Epic 15): how parties of this news hang together through decision-making
  * (an office, a hierarchy, oversight, a gift, lobby access), one line per pair, read with the
- * influence. Tap for its sources.
+ * influence. Tap for its sources. Without `heading` the section's own heading names it.
  */
-function TogetherRoutes({ routes, entities }: { routes: GovernanceRoute[]; entities: ReadonlyMap<number, PmEntity> }) {
+function TogetherRoutes({ routes, entities, heading = true }: { routes: GovernanceRoute[]; entities: ReadonlyMap<number, PmEntity>; heading?: boolean }) {
   const { panel } = useExplore();
   const [all, setAll] = useState(false);
   const shown = all ? routes : routes.slice(0, TOGETHER_SHOWN);
   return (
-    <div className="space-y-2 pt-2">
-      <h3 id="together-title" className="font-serif text-lg font-bold text-ink-900">
-        Hoe hangen ze samen?
-      </h3>
-      <ol aria-labelledby="together-title" className="divide-y divide-paper-200 rounded-2xl border border-paper-300 bg-paper-50">
+    <div className={`space-y-2 ${heading ? "pt-2" : ""}`}>
+      {heading ? (
+        <h3 id="together-title" className="font-serif text-lg font-bold text-ink-900">
+          Hoe hangen ze samen?
+        </h3>
+      ) : null}
+      <ol aria-labelledby={heading ? "together-title" : "behind-title"} className="divide-y divide-paper-200 rounded-2xl border border-paper-300 bg-paper-50">
         {shown.map((route) => {
           const telling = route.steps.find((step) => isGovernanceRelation(step.relation)) ?? route.steps[0];
           const auto = route.steps.some((step) => step.relation.auto_approved);

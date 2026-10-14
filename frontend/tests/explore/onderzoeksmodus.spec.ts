@@ -219,11 +219,19 @@ test.describe("Eén beeld (demo)", () => {
     await expect(page.locator('[data-anchor="outlet:reuters"]')).toContainText("30 jun");
   });
 
-  test("Wie zit erachter? shows real routes in the demo", async ({ page }) => {
+  test("Wie zit erachter? shows no contact: in the demo RIVM and the PBL are only sources, so no block", async ({ page }) => {
     await openDemo(page);
-    const block = page.locator('section[aria-labelledby="behind-title"]');
-    await block.scrollIntoViewIfNeeded();
-    await expect(block.getByRole("list", { name: "Routes tussen de bronnen en de partijen van dit nieuws" })).toBeVisible({ timeout: 20_000 });
+    // Story 14.25: a source or an expert is no place in the outlet; nothing is left, so the block goes.
+    // Scroll through the page step by step, so the block loads once it comes into view
+    for (let i = 0; i < 40; i += 1) {
+      const bottom = await page.evaluate(() => {
+        window.scrollBy(0, 500);
+        return window.innerHeight + window.scrollY >= document.body.scrollHeight - 2;
+      });
+      await page.waitForTimeout(100);
+      if (bottom) break;
+    }
+    await expect(page.locator('section[aria-labelledby="behind-title"]')).toHaveCount(0, { timeout: 20_000 });
   });
 
   test("all sources and articles open downwards in the page", async ({ page }) => {

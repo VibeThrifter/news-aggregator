@@ -7,7 +7,7 @@
 import type { EntityKind, EntityResearch, EventEntity, PmMatch } from "@/lib/types";
 
 import { entityPanelKey } from "./entity-linker";
-import { DUTCH_OUTLETS } from "./media-landscape";
+import { DUTCH_OUTLETS, findOutletByName } from "./media-landscape";
 import { actorKeys } from "./normalize";
 import { compatibleMatches, newsNodeId } from "./pm-graph";
 import type { ExploreInput } from "./types";
@@ -16,6 +16,8 @@ export interface ActorAliases {
   aliases: string[];
   /** null = unknown (authorities from the analysis): any type matches */
   kind: EntityKind | null;
+  /** The outlets whose articles name it (model ids; null for one that is not in the model); undefined = not known */
+  outlets?: (number | null)[];
 }
 
 /** Outlets of this news that are in the model (not the international ones), in the order of the event. */
@@ -39,9 +41,47 @@ const ACTOR_KINDS: ReadonlySet<EntityKind> = new Set(["person", "org", "group"])
 /** People, organisations and groups of this news (named entities and authorities from the analysis), as aliases to match. */
 export function eventActorAliases(input: Pick<ExploreInput, "entities" | "insight">): ActorAliases[] {
   return [
-    ...input.entities.filter((entity) => ACTOR_KINDS.has(entity.kind)).map((entity) => ({ aliases: entity.aliases, kind: entity.kind })),
+    ...input.entities
+      .filter((entity) => ACTOR_KINDS.has(entity.kind))
+      .map((entity) => ({
+        aliases: entity.aliases,
+        kind: entity.kind,
+        outlets: Object.keys(entity.outlet_counts ?? {}).map((name) => findOutletByName(name)?.pmEntityId ?? null),
+      })),
     ...(input.insight?.authority_analysis ?? []).map((authority) => ({ aliases: actorKeys(authority.authority).aliases, kind: null })),
   ];
+}
+
+/**
+ * Per actor in the model the outlet that names it, when exactly one outlet of the news does: maybe
+ * that outlet's own reporter or columnist (Story 14.25). Left out when several outlets name it, when
+ * the one is not in the model, or when an actor with the same id has no known outlets (an authority
+ * of the analysis).
+ */
+export function soleOutlets(actors: ActorAliases[], matches: PmMatch[]): Map<number, number> {
+  const named = new Map<number, Set<number | null> | null>();
+  for (const actor of actors) {
+    for (const match of compatibleMatches(
+      matches.filter((item) => actor.aliases.includes(item.alias)),
+      actor.kind,
+    )) {
+      const seen = named.get(match.entity_id);
+      if (seen === null) continue;
+      if (!actor.outlets) {
+        named.set(match.entity_id, null);
+        continue;
+      }
+      const outlets = seen ?? new Set<number | null>();
+      actor.outlets.forEach((outlet) => outlets.add(outlet));
+      named.set(match.entity_id, outlets);
+    }
+  }
+  const sole = new Map<number, number>();
+  named.forEach((outlets, id) => {
+    const only = outlets?.size === 1 ? Array.from(outlets)[0] : null;
+    if (only !== null && only !== undefined) sole.set(id, only);
+  });
+  return sole;
 }
 
 /** The people and organisations of this news, as keys for their "Wie is dit?" research. */

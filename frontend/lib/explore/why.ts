@@ -7,22 +7,45 @@
 
 import type { PmArgument, PmEntity, PmPathRoute, PmPaths, PmRelation } from "@/lib/types";
 
-import { FILTERS, labelSourceId, PM_AFFILIATIONS } from "./labels";
+import { FILTERS, hasEnded, labelSourceId, PM_AFFILIATIONS } from "./labels";
 import { influenceOf, relationFilters } from "./pm-graph";
 
 /** Ties that make one party part of another: affiliations, owning, funding, carrying */
 const BELONGING_TYPES: ReadonlySet<string> = new Set([...Array.from(PM_AFFILIATIONS), "eigendom", "investering", "financiering", "donor", "mediaplatform"]);
 
-/** Pressure from outside: an attack, a threat, a ban. It says what someone did to an outlet, not who is behind its news */
-const PRESSURE_TYPES: ReadonlySet<string> = new Set(["flak", "censuur", "intimidatie", "etikettering", "oppositie"]);
+/**
+ * A place in an outlet (Story 14.25): a job, a column or programme, a board seat, an advisory role,
+ * a spokesman, an office, a move between the newsroom and politics, the choice of its editor. Not a
+ * membership: an omroep has members by the thousand.
+ */
+const POSITION_TYPES: ReadonlySet<string> = new Set([
+  ...Array.from(PM_AFFILIATIONS).filter((type) => type !== "lidmaatschap"),
+  "mediaplatform",
+  "cooptatie",
+  "ambt",
+]);
+
+/** Owning and funding: the party owns or pays the outlet, or shares its owner (Story 14.25) */
+const OWNER_TYPES: ReadonlySet<string> = new Set(["eigendom", "investering", "financiering", "donor", "zeggenschap"]);
+
+/** Facts about how two parties are built: they need no evidence that names the outlet */
+const STRUCTURE_TYPES: ReadonlySet<string> = new Set([...Array.from(BELONGING_TYPES), ...Array.from(POSITION_TYPES), ...Array.from(OWNER_TYPES)]);
+
+/** A plain job in a newsroom: a reporter, a columnist, a presenter */
+const NEWSROOM_JOBS: ReadonlySet<string> = new Set(["personeel", "dienstverband", "mediaplatform"]);
+
+/** Entity types that are newsrooms */
+const NEWSROOM_TYPES: ReadonlySet<string> = new Set(["mediaorganisatie", "omroep", "persbureau"]);
+
+/** Entity types that are a group others are a member of (the same list as labels.ts) */
+const GROUP_TYPES: ReadonlySet<string> = new Set(["partij", "elite_netwerk", "vakbond", "lobbygroep"]);
 
 /**
- * What kind of link a line of "Wie zit erachter?" is, the ones that tell most first (Story 14.23):
- * 0 a person who belongs to both the party and the outlet (Kees Berghuis: VVD-woordvoerder and RTL
- * Nieuws), 1 owning, funding and other ties of belonging, 2 sourcing, 3 other influence, 4 pressure
- * from outside.
+ * What kind of link a line of "Wie zit erachter?" is, the ones that tell most first (Story 14.23,
+ * 14.25): 0 a person with a place in the outlet (Kamran Ullah: hoofdredacteur of De Telegraaf and
+ * once a VVD board member), 1 owning and paying (DPG Media owns the AD and LINDA.; an advertiser).
  */
-export type LineTier = 0 | 1 | 2 | 3 | 4;
+export type LineTier = 0 | 1;
 
 /**
  * Whether a route from an outlet (`nodes[0]`) to a party explains something. Either every station in
@@ -109,18 +132,65 @@ export interface BehindLine {
 }
 
 /**
- * The kind of a line (see LineTier), from its steps read from the party. A person in the middle who
- * belongs to both ends, or a person of the news who belongs to the outlet, is a people link.
+ * The kind of a line (see LineTier), from its steps read from the party. A person in the middle with
+ * a place in the outlet, or a person of the news who has one, is a people link.
  */
 export function lineTier(steps: readonly ReadStep[], typeOf: TypeOf): LineTier {
-  const belonging = steps.every((step) => BELONGING_TYPES.has(step.relation.relation_type));
-  if (belonging) {
-    const person = steps.some((step) => PM_AFFILIATIONS.has(step.relation.relation_type) && (typeOf(step.from) === "persoon" || typeOf(step.to) === "persoon"));
-    return person ? 0 : 1;
+  return steps.some((step) => typeOf(step.from) === "persoon" || typeOf(step.to) === "persoon") ? 0 : 1;
+}
+
+/**
+ * How one end of a step belongs to the other: a membership of a party or another group, a job, a
+ * board seat, a spokesman, an advisory role, a move, or an office that is more than one of many
+ * seats (a minister is, a Kamerlid is not). `groupType` is the type of the organisation end.
+ */
+function belongsTo(relation: PmRelation, groupType: string | null | undefined): boolean {
+  if (relation.relation_type === "ambt") return !rankAndFile(relation);
+  if (relation.relation_type === "lidmaatschap") return GROUP_TYPES.has(groupType ?? "");
+  return PM_AFFILIATIONS.has(relation.relation_type);
+}
+
+/**
+ * Story 14.25: whether a route from an outlet (`nodes[0]`) to a party of the news says who is behind
+ * the outlet, not who stood in front of its microphone. Being a source, an expert, an interview, a
+ * copy of the ANP or an attack is contact: every outlet has it with every party, so it says nothing
+ * about how this outlet colours the news (who speaks in this news "Wie praat?" shows).
+ * - Direct: the party has a place in the outlet (works or worked there, a column, a board seat), owns
+ *   or funds it, or advertises in it.
+ * - Over a person: someone with a place in the outlet who belongs to the party (Kamran Ullah,
+ *   hoofdredacteur of De Telegraaf and once a VVD board member). Not two newsroom jobs: a journalist
+ *   who worked at the NRC and the Volkskrant says nothing about either.
+ * - Over an organisation only along the owner: LINDA. and Trouw both belong to DPG Media; a board
+ *   member of DPG Media. Never over an institute that once supplied an expert or advises the party.
+ * - Not the outlet's own reporter or columnist when only their own outlet names them (`soleOutlet`):
+ *   they bring the news.
+ * - Not when both ties have ended: history says nothing about today's news.
+ */
+export function behindRoute(
+  route: Pick<PmPathRoute, "nodes" | "relations">,
+  relations: ReadonlyMap<number, PmRelation>,
+  typeOf: TypeOf,
+  soleOutlet?: (entityId: number) => number | undefined,
+): boolean {
+  const steps = route.relations.map((id) => relations.get(id));
+  if (steps.length === 0 || steps.length > 2 || steps.some((step) => !step)) return false;
+  const [atOutlet, atParty] = steps as PmRelation[];
+  const outlet = route.nodes[0];
+  const party = route.nodes[route.nodes.length - 1];
+  const type = atOutlet.relation_type;
+  const position = POSITION_TYPES.has(type);
+  // An advertiser pays the outlet; the outlet advertising somewhere else is not who is behind it
+  const money = OWNER_TYPES.has(type) || (type === "adverteerder" && influenceOf(atOutlet)?.to === outlet);
+  if (!position && !money) return false;
+  if (!atParty) return !(typeOf(party) === "persoon" && NEWSROOM_JOBS.has(type) && soleOutlet?.(party) === outlet);
+  const station = route.nodes[1];
+  if (typeOf(station) === "persoon") {
+    if (!position || !belongsTo(atParty, typeOf(party))) return false;
+    if (NEWSROOM_TYPES.has(typeOf(party) ?? "") && NEWSROOM_JOBS.has(type) && NEWSROOM_JOBS.has(atParty.relation_type)) return false;
+  } else if (!OWNER_TYPES.has(type) || !(OWNER_TYPES.has(atParty.relation_type) || belongsTo(atParty, typeOf(station)))) {
+    return false;
   }
-  const telling = steps.filter((step) => !BELONGING_TYPES.has(step.relation.relation_type));
-  if (telling.some((step) => PRESSURE_TYPES.has(step.relation.relation_type))) return 4;
-  return telling.every((step) => relationFilters(step.relation).includes("sourcing")) ? 2 : 3;
+  return !(hasEnded(atOutlet.active_until) && hasEnded(atParty.active_until));
 }
 
 export interface BehindParty {
@@ -134,18 +204,20 @@ export interface BehindParty {
 const UNKNOWN_RANK = 1.5;
 
 /**
- * "Wie zit erachter?": per party of the news, how it reaches the outlets that brought it, directly or
- * over a station that belongs to one of them. Outlets with the same link and the same support share
- * one line ("is vaste bron voor NOS en de Volkskrant"). A route with a link that has no source at
- * all is left out (Story 14.23: a claim without a source is no finding). `rankOf` gives how well a
- * relation is supported (0 = best): a route counts as its weakest step that carries influence.
- * People who belong to both ends first (LineTier), then best supported, then the parties that reach
- * most outlets, then those with a direct link, then the order of pm_paths (strongest route first).
+ * "Wie zit erachter?": per party of the news, who it has behind the outlets that brought it (see
+ * behindRoute: a place in the outlet or its money, directly or over a person or the owner). Outlets
+ * with the same link and the same support share one line ("werkt voor NOS en de Volkskrant"). A
+ * route with a link that has no source at all is left out (Story 14.23: a claim without a source is
+ * no finding). `rankOf` gives how well a relation is supported (0 = best): a line is as strong as its
+ * weakest tie. `soleOutlet` gives the one outlet that names a party, when only one does. People with
+ * a place in the outlet first (LineTier), then best supported, then the parties that reach most
+ * outlets, then those with a direct link, then the order of pm_paths (strongest route first).
  */
 export function behindParties(
   paths: Pick<PmPaths, "routes" | "relations" | "entities"> | null | undefined,
   newsOutletIds: readonly number[],
   rankOf?: (relationId: number) => number | undefined,
+  soleOutlet?: (entityId: number) => number | undefined,
 ): BehindParty[] {
   if (!paths) return [];
   const relations = new Map(paths.relations.map((relation) => [relation.id, relation]));
@@ -153,19 +225,14 @@ export function behindParties(
   const newsOrder = (id: number) => newsOutletIds.indexOf(id);
   const lines = new Map<string, BehindLine & { partyId: number; order: number }>();
   paths.routes.forEach((route, order) => {
-    if (!newsOutletIds.includes(route.from) || !meaningfulRoute(route, relations)) return;
+    if (!newsOutletIds.includes(route.from) || !behindRoute(route, relations, typeOf, soleOutlet)) return;
     if (route.relations.some((id) => relations.get(id)?.source_count === 0)) return;
     const nodes = [...route.nodes].reverse();
     const steps = [...route.relations].reverse().map((id, index) => readStep(relations.get(id) as PmRelation, nodes[index], nodes[index + 1], typeOf));
-    // The outlet's own influence on the party (the NOS lobbies the Kamer) is not who is behind its news
-    if (steps.some((step) => step.flow === "up" && !BELONGING_TYPES.has(step.relation.relation_type))) return;
     const lead = steps.slice(0, -1);
     const last = steps[steps.length - 1];
     const kind = `${last.relation.relation_type}:${last.relation.mechanism ?? ""}:${last.forward ? ">" : "<"}`;
-    const telling = steps.filter((step) => !BELONGING_TYPES.has(step.relation.relation_type));
-    const ranks = (telling.length ? telling : steps)
-      .map((step) => rankOf?.(step.relation.id))
-      .filter((rank): rank is number => rank !== undefined);
+    const ranks = steps.map((step) => rankOf?.(step.relation.id)).filter((rank): rank is number => rank !== undefined);
     const rank = ranks.length ? Math.max(...ranks) : null;
     const key = `${route.to}|${lead.map((step) => step.relation.id).join(".")}|${kind}|${rank ?? ""}`;
     const line = lines.get(key) ?? { key, partyId: route.to, order, lead, last: [], explain: [], historic: false, rank, tier: lineTier(steps, typeOf) };
@@ -177,10 +244,12 @@ export function behindParties(
   const parties = new Map<number, { partyId: number; order: number; lines: (BehindLine & { order: number })[] }>();
   lines.forEach(({ partyId, ...line }) => {
     line.last.sort((a, b) => newsOrder(a.to) - newsOrder(b.to));
-    // The step that carries the influence tells more than a tie of belonging ("Hekkert treedt op bij de NOS" over "Hekkert werkt bij het PBL")
-    const steps = [...line.lead, ...line.last];
-    const telling = [...steps.filter((step) => !BELONGING_TYPES.has(step.relation.relation_type)), ...steps.filter((step) => BELONGING_TYPES.has(step.relation.relation_type))];
-    line.explain = Array.from(new Set(telling.map((step) => step.relation.id)));
+    // The weakest tie first (its verdict shows under the line, and a thin one is researched), else the
+    // place in the outlet before how its holder belongs to the party ("Ullah werkt voor De Telegraaf")
+    const steps = [...line.last, ...[...line.lead].reverse()];
+    const weakness = (step: ReadStep) => rankOf?.(step.relation.id) ?? UNKNOWN_RANK;
+    const ordered = steps.map((step, index) => ({ step, index })).sort((a, b) => weakness(b.step) - weakness(a.step) || a.index - b.index);
+    line.explain = Array.from(new Set(ordered.map(({ step }) => step.relation.id)));
     const party = parties.get(partyId) ?? { partyId, order: line.order, lines: [] };
     party.order = Math.min(party.order, line.order);
     party.lines.push(line);
@@ -263,10 +332,11 @@ export function evidenceNames(args: readonly PmArgument[], name: string): boolea
 }
 
 /**
- * Story 14.23: only links whose evidence is about these two parties. A step that carries influence
- * (not a tie of belonging) must rest on evidence that names its end towards the outlet; outlets of a
- * line whose own link fails drop out, and a line or party without any left goes. Relations without
- * looked-up arguments (`argsOf` undefined) are kept: there is nothing to judge them by.
+ * Story 14.23: only links whose evidence is about these two parties. A step that is no fact about
+ * how they are built (an advertiser, not a job or an owner) must rest on evidence that names its end
+ * towards the outlet; outlets of a line whose own link fails drop out, and a line or party without
+ * any left goes. Relations without looked-up arguments (`argsOf` undefined) are kept: there is
+ * nothing to judge them by.
  */
 export function specificParties(
   parties: readonly BehindParty[],
@@ -274,7 +344,7 @@ export function specificParties(
   nameOf: (entityId: number) => string,
 ): BehindParty[] {
   const specific = (step: ReadStep) => {
-    if (BELONGING_TYPES.has(step.relation.relation_type)) return true;
+    if (STRUCTURE_TYPES.has(step.relation.relation_type)) return true;
     const args = argsOf(step.relation.id);
     return !args || evidenceNames(args, nameOf(step.to));
   };

@@ -1,9 +1,10 @@
 import { findPaths } from "@/lib/explore/pm-paths";
-import { eventActorAliases, eventOutletSeeds, followedOutletIds, matchActorIds } from "@/lib/explore/pm-seeds";
+import { eventActorAliases, eventOutletSeeds, followedOutletIds, matchActorIds, soleOutlets } from "@/lib/explore/pm-seeds";
 import type { ExploreInput } from "@/lib/explore/types";
 import { hasEnded, labelSourceId, mechanismKey, pmRelationLabel, pmRelationReverseLabel, relationWords } from "@/lib/explore/labels";
 import {
   behindParties,
+  behindRoute,
   evidenceNames,
   governanceFilter,
   governanceRoutes,
@@ -88,6 +89,32 @@ describe("the parties of a news item in the model", () => {
     // Outlets are never a party of their own news
     expect(matchActorIds(actors, matches, new Set([30]))).toEqual([50, 60]);
   });
+
+  it("knows the one outlet that names a party (Story 14.25)", () => {
+    const input = {
+      entities: [{ kind: "person", aliases: ["erik-mouthaan"], outlet_counts: { "RTL Nieuws": 2 } }],
+      insight: { authority_analysis: [{ authority: "CPB" }] },
+    } as unknown as Pick<ExploreInput, "entities" | "insight">;
+    const named = eventActorAliases(input);
+    expect(named[0].outlets).toEqual([88]);
+    expect(named[1].outlets).toBeUndefined();
+
+    const actors = [
+      ...named,
+      // Named by RTL Nieuws and by the NOS: the news is about him
+      { aliases: ["jan-jansen"], kind: "person" as const, outlets: [88] },
+      { aliases: ["jan-jansen"], kind: "person" as const, outlets: [11] },
+      // Named by an outlet that is not in the model
+      { aliases: ["nordvind"], kind: "org" as const, outlets: [null] },
+    ];
+    const matches: PmMatch[] = [
+      { alias: "erik-mouthaan", entity_id: 403, name: "Erik Mouthaan", type: "persoon" },
+      { alias: "jan-jansen", entity_id: 50, name: "Jan Jansen", type: "persoon" },
+      { alias: "cpb", entity_id: 60, name: "CPB", type: "overheidsinstelling" },
+      { alias: "nordvind", entity_id: 30, name: "NordVind", type: "bedrijf" },
+    ];
+    expect(soleOutlets(actors, matches)).toEqual(new Map([[403, 88]]));
+  });
 });
 
 describe("Waarom zo?", () => {
@@ -153,58 +180,10 @@ describe("Wie zit erachter?", () => {
     expect(meaningfulRoute({ nodes: [11, 82], relations: [999] }, byId)).toBe(false);
   });
 
-  it("groups per party what reaches the outlets, read from the party", () => {
-    const parties = behindParties(newsPaths, [11, 4, 7]);
-    expect(parties.map((party) => [name(party.partyId), party.outletIds.map(name)])).toEqual([
-      ["RIVM", ["NOS", "de Volkskrant"]],
-      ["Planbureau voor de Leefomgeving (PBL)", ["NOS"]],
-    ]);
-    const words = parties.map((party) =>
-      party.lines.map((line) =>
-        [...line.lead, line.last[0]].map((step) => (step.forward ? pmRelationLabel(step.relation.relation_type, step.relation.mechanism) : pmRelationReverseLabel(step.relation.relation_type, step.relation.mechanism))).join(" › ") +
-        ` › ${line.last.map((step) => name(step.to)).join(" + ")}`,
-      ),
-    );
-    expect(words).toEqual([
-      ["is vaste bron voor › NOS + de Volkskrant", "levert experts en analyses aan › verschijnt bij › NOS"],
-      ["levert experts en analyses aan › NOS", "heeft als medewerker › treedt op als deskundige bij › NOS"],
-    ]);
-    // The step that carries the influence explains more than the tie of belonging
-    expect(parties[1].lines[1].explain).toEqual([1803, 1565]);
-    expect(parties[0].lines[0].explain).toEqual([143, 220]);
+  it("shows no contact: a source, an expert, a programme's expert (Story 14.25)", () => {
+    // RIVM is a source of the NOS, the PBL and its director explain at the NOS: every outlet has that
+    expect(behindParties(newsPaths, [11, 4, 7])).toEqual([]);
     expect(behindParties(null, [11])).toEqual([]);
-    expect(behindParties(newsPaths, [])).toEqual([]);
-  });
-
-  it("splits and orders the lines by how well the model supports them", () => {
-    // RIVM → NOS rests on a source, RIVM → de Volkskrant is disputed, RIVM → Nieuwsuur has nothing
-    const ranks: Record<number, number> = { 143: 1, 220: 3, 1579: 5, 1564: 1, 1803: 1 };
-    const parties = behindParties(newsPaths, [11, 4, 7], (id) => ranks[id]);
-    expect(parties.map((party) => [name(party.partyId), party.lines.map((line) => [line.rank, line.last.map((step) => name(step.to)).join(" + ")])])).toEqual([
-      [
-        "RIVM",
-        [
-          [1, "NOS"],
-          [3, "de Volkskrant"],
-          [5, "NOS"],
-        ],
-      ],
-      [
-        "Planbureau voor de Leefomgeving (PBL)",
-        [
-          [1, "NOS"],
-          [1, "NOS"],
-        ],
-      ],
-    ]);
-    // the expert line counts its influence (Hekkert at the NOS), not the tie of belonging
-    expect(parties[1].lines[1].lead.map((step) => step.relation.id)).toEqual([1565]);
-    // a party whose links are all weak comes after a better supported one
-    const weakRivm = behindParties(newsPaths, [11, 4, 7], (id) => (id === 143 || id === 220 || id === 1579 ? 4 : ranks[id]));
-    expect(weakRivm.map((party) => name(party.partyId))).toEqual(["Planbureau voor de Leefomgeving (PBL)", "RIVM"]);
-    // unknown support (no arguments looked up) keeps lines together, as before
-    expect(behindParties(newsPaths, [11, 4, 7], () => undefined)[0].lines[0].last).toHaveLength(2);
-    expect(lineRelationIds(parties)).toEqual([143, 220, 1579, 1011, 1564, 1803, 1565]);
   });
 
   it("reads a route with the influence, arrows where it has a direction", () => {
@@ -283,8 +262,8 @@ describe("Wat ertoe doet (Story 14.23)", () => {
   const links: PmRelation[] = [
     rel(1878, 398, 53, "bestuurder", { active_from: "2006", active_until: "2010", certainty_label: "aannemelijk" }),
     rel(1007, 398, 9, "personeel", { active_from: "2023-06-01", certainty_label: "aannemelijk" }),
-    rel(1075, 53, 400, "woordvoerder_van", { active_until: "2017", certainty_label: "onderbouwd" }),
-    rel(1076, 400, 12, "personeel", { active_until: "2015", certainty_label: "onderbouwd" }),
+    rel(1075, 53, 400, "woordvoerder_van", { active_from: "2015", certainty_label: "onderbouwd" }),
+    rel(1076, 400, 12, "personeel", { active_from: "2006", active_until: "2015", certainty_label: "onderbouwd" }),
     rel(252, 55, 3, "censuur", { mechanism: "Publieke aanval", filter: "flak", filters: ["flak"] }),
     rel(127, 55, 9, "alliantie", { mechanism: "Politicus als bron", filter: "sourcing", filters: ["sourcing"], source_count: 0 }),
   ];
@@ -294,31 +273,33 @@ describe("Wat ertoe doet (Story 14.23)", () => {
 
   it("leaves out a link without any source and puts people who belong to both ends first", () => {
     const parties = behindParties(paths, [3, 9, 12]);
-    // "PVV werkt samen met De Telegraaf" has no source: no line
-    expect(parties.flatMap((party) => party.lines.flatMap((line) => [...line.lead, ...line.last].map((step) => step.relation.id)))).not.toContain(127);
-    expect(parties.map((party) => nameOf(party.partyId))).toEqual(["VVD", "PVV"]);
-    expect(parties[0].lines.map((line) => [line.tier, line.lead.map((step) => nameOf(step.to)), line.last.map((step) => nameOf(step.to))])).toEqual([
-      [0, ["Kamran Ullah"], ["De Telegraaf"]],
-      [0, ["Kees Berghuis"], ["RTL Nieuws"]],
-    ]);
-    expect(parties[1].lines[0].tier).toBe(4);
+    // "PVV werkt samen met De Telegraaf" has no source, "PVV valt het AD aan" is pressure from outside: no line
+    expect(parties.map((party) => nameOf(party.partyId))).toEqual(["VVD"]);
+    expect(parties[0].lines.map((line) => [line.tier, line.lead.map((step) => nameOf(step.to)), line.last.map((step) => nameOf(step.to))])).toEqual(
+      expect.arrayContaining([
+        [0, ["Kamran Ullah"], ["De Telegraaf"]],
+        [0, ["Kees Berghuis"], ["RTL Nieuws"]],
+      ]),
+    );
+    expect(parties[0].lines).toHaveLength(2);
   });
 
-  it("drops a link whose evidence is about the press in general, not about this outlet", () => {
-    const parties = behindParties(paths, [3, 9, 12]);
-    const general = new Map<number, PmArgument[]>([
-      [252, [argument(2189, "De PVV valt de pers publiekelijk aan: Wilders noemde journalisten 'tuig van de richel'.", "Journalisten zijn - uitzonderingen daargelaten - gewoon tuig van de richel.")]],
-    ]);
-    const kept = specificParties(parties, (id) => general.get(id) ?? (id === 252 ? [] : undefined), nameOf);
-    expect(kept.map((party) => nameOf(party.partyId))).toEqual(["VVD"]);
+  it("drops money whose evidence is about advertising in general, not about this outlet", () => {
+    const shop: PmEntity = { id: 60, name: "Supermarkt A", type: "bedrijf", degree: 8 };
+    const ads = rel(260, 60, 3, "adverteerder", { filter: "advertentie", filters: ["advertentie"] });
+    const found = behindParties(findPaths([...people, shop], [...links, ads], [3, 9, 12], [53, 60], { at, maxHops: 2, limit: 3 }), [3, 9, 12]);
+    const named = (id: number) => (id === 60 ? "Supermarkt A" : nameOf(id));
+    expect(found.map((party) => named(party.partyId))).toContain("Supermarkt A");
+    const general = new Map<number, PmArgument[]>([[260, [argument(1, "Supermarkt A is de grootste adverteerder in Nederlandse kranten.")]]]);
+    expect(specificParties(found, (id) => general.get(id), named).map((party) => named(party.partyId))).toEqual(["VVD"]);
     // A claim that names the AD carries the link (also in a quote or a source title)
-    const aboutAd = new Map<number, PmArgument[]>([[252, [argument(1, "Wilders viel het AD aan om een peiling.")]]]);
-    expect(specificParties(parties, (id) => aboutAd.get(id), nameOf).map((party) => nameOf(party.partyId))).toEqual(["VVD", "PVV"]);
-    // Ties of belonging need no such check: the people lines stay without looked-up arguments
-    expect(specificParties(parties, () => undefined, nameOf)).toHaveLength(2);
+    const aboutAd = new Map<number, PmArgument[]>([[260, [argument(2, "Supermarkt A kocht in 2025 de meeste advertentieruimte in het AD.")]]]);
+    expect(specificParties(found, (id) => aboutAd.get(id), named).map((party) => named(party.partyId))).toContain("Supermarkt A");
+    // Facts about how parties are built need no such check: the people lines stay without looked-up arguments
+    expect(specificParties(found, () => [], named).map((party) => named(party.partyId))).toEqual(["VVD"]);
   });
 
-  it("leaves out the outlet's own influence on a party (the NOS lobbies the Kamer)", () => {
+  it("shows no contact: the Kamer's word through the ANP, the NOS lobbying the Kamer", () => {
     const parties: PmEntity[] = [
       { id: 11, name: "NOS", type: "omroep", degree: 120 },
       { id: 107, name: "Tweede Kamer", type: "overheidsinstelling", degree: 30 },
@@ -330,9 +311,7 @@ describe("Wat ertoe doet (Story 14.23)", () => {
       rel(2, 107, 20, "bron_van", { mechanism: "Persbureau brongebondenheid", filter: "sourcing", filters: ["sourcing"] }),
       rel(3, 20, 1, "beinvloeding", { mechanism: "Pakketjournalistiek", filter: "sourcing", filters: ["sourcing"] }),
     ];
-    const found = behindParties(findPaths(parties, ties, [11, 1], [107], { at, maxHops: 2, limit: 3 }), [11, 1]);
-    // The Kamer's word reaches the AD through the ANP; the NOS lobbying the Kamer is no line
-    expect(found.flatMap((party) => party.lines.map((line) => [...line.lead, ...line.last].map((step) => step.relation.id)))).toEqual([[2, 3]]);
+    expect(behindParties(findPaths(parties, ties, [11, 1], [107], { at, maxHops: 2, limit: 3 }), [11, 1])).toEqual([]);
   });
 
   it("names outlets the way a text does", () => {
@@ -411,6 +390,113 @@ describe("Wat ertoe doet (Story 14.23)", () => {
     expect(whoIsWho({ relation_type: "lobbyt" })).toBe(false);
     expect(massTie({ relation_type: "ambt", functie: "Tweede Kamerlid" })).toBe(true);
     expect(massTie({ relation_type: "ambt", functie: "Minister van Financiën" })).toBe(false);
+  });
+});
+
+// Story 14.25, the owner's examples of 2026-10-14: who is behind an outlet is a place in it or its
+// money, not who once was a source of it or supplied an expert
+describe("Wie zit erachter? posities, geen contact (Story 14.25)", () => {
+  const entity = (id: number, name: string, type: string, degree = 5): PmEntity => ({ id, name, type, degree });
+  const all = [
+    entity(3, "AD (Algemeen Dagblad)", "mediaorganisatie", 16),
+    entity(4, "de Volkskrant", "mediaorganisatie", 36),
+    entity(5, "Trouw", "mediaorganisatie", 15),
+    entity(9, "De Telegraaf", "mediaorganisatie", 25),
+    entity(11, "NOS", "omroep", 112),
+    entity(88, "RTL Nieuws", "omroep", 13),
+    entity(10, "NRC", "mediaorganisatie", 33),
+    entity(1, "DPG Media", "mediaorganisatie", 71),
+    entity(12, "ANP", "persbureau", 58),
+    entity(53, "VVD", "partij", 120),
+    entity(55, "PVV", "partij", 60),
+    entity(107, "Tweede Kamer", "overheidsinstelling", 160),
+    entity(2, "Ministerie van Financiën", "overheidsinstelling", 40),
+    entity(300, "Clingendael Instituut", "denktank", 40),
+    entity(301, "Wiardi Beckman Stichting", "denktank", 12),
+    entity(302, "PCM Uitgevers", "bedrijf", 6),
+    entity(303, "LINDA.", "mediaorganisatie", 3),
+    entity(398, "Kamran Ullah", "persoon"),
+    entity(401, "Kati Piri", "persoon", 12),
+    entity(402, "Paulien Cornelisse", "persoon", 3),
+    entity(403, "Erik Mouthaan", "persoon", 2),
+    entity(404, "Yvonne Zonderop", "persoon"),
+    entity(405, "Kamerlid A", "persoon"),
+    entity(406, "Minister B", "persoon"),
+  ];
+  const ties: PmRelation[] = [
+    // Contact: a source, an expert, a copy of the ANP
+    rel(127, 55, 9, "alliantie", { mechanism: "Politicus als bron", filters: ["sourcing"] }),
+    rel(5926, 401, 301, "personeel", { mechanism: "Draaideurconstructie", active_from: "2011", active_until: "2011" }),
+    rel(9001, 301, 4, "beinvloeding", { mechanism: "Expert framing", filters: ["sourcing"] }),
+    rel(1984, 300, 107, "adviseur", { mechanism: "Denktank → politiek" }),
+    rel(237, 300, 3, "beinvloeding", { mechanism: "Expert framing", filters: ["sourcing"] }),
+    rel(9002, 107, 12, "bron_van", { mechanism: "Persbureau brongebondenheid", filters: ["sourcing"] }),
+    rel(9003, 12, 3, "beinvloeding", { mechanism: "Pakketjournalistiek", filters: ["sourcing"] }),
+    // Places and money
+    rel(1878, 398, 53, "bestuurder", { active_from: "2006", active_until: "2010" }),
+    rel(1007, 398, 9, "personeel", { active_from: "2023-06-01" }),
+    rel(9004, 1, 303, "eigendom", { active_from: "2026-02-01" }),
+    rel(9005, 1, 5, "eigendom", { active_from: "2009" }),
+    rel(9006, 302, 10, "eigendom", { active_from: "1995", active_until: "2009" }),
+    rel(9007, 302, 5, "eigendom", { active_from: "1965", active_until: "2009" }),
+    rel(9008, 402, 10, "personeel"),
+    rel(9009, 402, 4, "personeel", { active_from: "2018", active_until: "2026" }),
+    rel(9010, 88, 403, "dienstverband"),
+    rel(9011, 404, 300, "bestuurder"),
+    rel(9012, 404, 11, "adviseur"),
+    rel(9013, 405, 107, "ambt", { functie: "Tweede Kamerlid" }),
+    rel(9014, 405, 11, "personeel"),
+    rel(9015, 406, 2, "ambt", { functie: "Minister van Financiën" }),
+    rel(9016, 406, 4, "personeel", { active_until: "2019" }),
+  ];
+  const outlets = [3, 4, 5, 9, 11, 88];
+  const lines = (parties: number[], sole?: (id: number) => number | undefined) =>
+    behindParties(findPaths(all, ties, outlets, parties, { at, maxHops: 2, limit: 3 }), outlets, undefined, sole).flatMap((party) =>
+      party.lines.map((line) => [...line.lead, ...line.last].map((step) => step.relation.id)),
+    );
+
+  it("shows no contact: the owner's examples", () => {
+    // "PVV is bron voor De Telegraaf": one interview in 2017
+    expect(lines([55])).toEqual([]);
+    // Kati Piri worked at the WBS in 2011, the Volkskrant once wrote about a WBS project
+    expect(lines([401])).toEqual([]);
+    // The Kamer is advised by Clingendael and the AD quotes it; the Kamer is a source of the ANP;
+    // a Kamerlid who works at the NOS is one of 150 seats
+    expect(lines([107])).toEqual([]);
+  });
+
+  it("shows a person with a place in the outlet who belongs to the party, and the owner", () => {
+    // Kamran Ullah: once a VVD board member, now at De Telegraaf
+    expect(lines([53])).toEqual([[1878, 1007]]);
+    // LINDA. and Trouw both belong to DPG Media
+    expect(lines([303])).toEqual([[9004, 9005]]);
+    // A minister who worked at the Volkskrant: one of the two ties still runs
+    expect(lines([2])).toEqual([[9015, 9016]]);
+    // Clingendael through its board member who advises the NOS, not through the AD quoting it
+    expect(lines([300])).toEqual([[9011, 9012]]);
+  });
+
+  it("leaves out history on both sides, newsroom colleagues and the outlet's own reporter", () => {
+    // NRC and Trouw had the same owner until 2009; Cornelisse wrote for the NRC and the Volkskrant
+    expect(lines([10])).toEqual([]);
+    // Erik Mouthaan brings the news of RTL Nieuws: only RTL names him
+    expect(lines([403], (id) => (id === 403 ? 88 : undefined))).toEqual([]);
+    // When another outlet names him too, the news is about him
+    expect(lines([403])).toEqual([[9010]]);
+    // An advertiser pays the outlet; the outlet advertising somewhere else is not who is behind it
+    const ad = (source: number, target: number) => behindRoute({ nodes: [9, 60], relations: [1] }, new Map([[1, rel(1, source, target, "adverteerder")]]), typeLookup(all));
+    expect(ad(60, 9)).toBe(true);
+    expect(ad(9, 60)).toBe(false);
+  });
+
+  it("shows the weakest tie of a line first, else the place in the outlet", () => {
+    const paths = findPaths(all, ties, outlets, [53], { at, maxHops: 2, limit: 3 });
+    expect(behindParties(paths, outlets)[0].lines[0].explain).toEqual([1007, 1878]);
+    // The VVD board seat rests on less: it comes first and the line counts as that weak
+    const ranked = behindParties(paths, outlets, (id) => (id === 1878 ? 3 : 1));
+    expect(ranked[0].lines[0].explain).toEqual([1878, 1007]);
+    expect(ranked[0].lines[0].rank).toBe(3);
+    expect(lineRelationIds(ranked)).toEqual([1878, 1007]);
   });
 });
 

@@ -5,7 +5,7 @@ import useSWR from "swr";
 
 import { pmMatch, pmPaths } from "@/lib/api";
 import { actorKeys } from "@/lib/explore/normalize";
-import { eventActorAliases, eventOutletSeeds, followedOutletIds, matchActorIds } from "@/lib/explore/pm-seeds";
+import { eventActorAliases, eventOutletSeeds, followedOutletIds, matchActorIds, soleOutlets } from "@/lib/explore/pm-seeds";
 import { exploreAuxSwrOptions } from "@/lib/swr-config";
 
 import { useExplore } from "../ExploreContext";
@@ -21,13 +21,17 @@ export function useWhyRoutes(enabled = true) {
   const demo = input.event.isDemo;
   const newsOutletIds = useMemo(() => eventOutletSeeds(input).map((seed) => seed.id), [input]);
   const from = useMemo(() => Array.from(new Set([...newsOutletIds, ...followedOutletIds()])).slice(0, 12), [newsOutletIds]);
-  // Named people/organisations, authorities, and the speakers parsed from the analysis
+  // Named people/organisations, authorities, and the speakers parsed from the analysis (with the outlets that name them)
   const actors = useMemo(
     () => [
       ...eventActorAliases(input),
       ...exploration.speakers.speakers
         .filter((speaker) => speaker.kind === "person" || speaker.kind === "org")
-        .map((speaker) => ({ aliases: actorKeys(speaker.name, { person: speaker.kind === "person" }).aliases, kind: speaker.kind as "person" | "org" })),
+        .map((speaker) => ({
+          aliases: actorKeys(speaker.name, { person: speaker.kind === "person" }).aliases,
+          kind: speaker.kind as "person" | "org",
+          outlets: [input.outlets.find((outlet) => outlet.key === speaker.outletKey)?.profile?.pmEntityId ?? null],
+        })),
     ],
     [input, exploration.speakers],
   );
@@ -43,6 +47,8 @@ export function useWhyRoutes(enabled = true) {
     () => (matches.data ? matchActorIds(actors, matches.data, new Set(from)).slice(0, 40) : null),
     [actors, matches.data, from],
   );
+  // The one outlet that names a party, when only one does (its own reporter brings the news, Story 14.25)
+  const sole = useMemo(() => (matches.data ? soleOutlets(actors, matches.data) : new Map<number, number>()), [actors, matches.data]);
   const routes = useSWR(
     enabled && actorIds && actorIds.length ? ["why-routes", input.event.id, demo, from.join(","), actorIds.join(",")] : null,
     () => pmPaths(from, actorIds as number[], { demo, maxHops: 2, limit: 2 }),
@@ -53,6 +59,7 @@ export function useWhyRoutes(enabled = true) {
   return {
     newsOutletIds,
     actorIds,
+    soleOutlets: sole,
     paths: routes.data ?? null,
     loading: enabled && (matches.isLoading || routes.isLoading),
     /** No party of this news is in the model */

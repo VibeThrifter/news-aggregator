@@ -5,7 +5,8 @@ This document provides Claude Code with essential context and guidelines for wor
 ## Rules
 - Never commit without asking
 - Frontend build warnings about `<img>` vs `<Image>` are expected and NOT errors - the build succeeds despite these warnings
-- Supabase storage (owner's rule 2026-10-07): Supabase keeps what the app shows; working data goes once nothing reads it, and never at the cost of accuracy. Event Maintenance clears every day the embedding + tf-idf of articles that are only in archived events (new articles are matched against event centroids, which stay) and raw LLM responses older than 7 days (`STORAGE_PRUNE_ENABLED`, `RAW_LLM_RESPONSE_RETENTION_DAYS`). `normalized_tokens` is not stored; centroids are stored with 6 decimals (`round_centroid`). The full article text and `normalized_text` stay (search, rebuilding vectors), but anon cannot read the text (migration 013). Images are not in Supabase, only links (`image_url`), which stay. Measure before cutting: check that a change leaves clustering, related events and search unchanged
+- Local working database (owner 2026-10-13, Story INFRA-2; Supabase stopped the project for egress: 20 GB of 5.5 GB, all from the backend reading Supabase): the backend works on a local Postgres 17 (`DATABASE_URL`) with everything. Supabase (`SUPABASE_DATABASE_URL`) only holds what the website shows; the backend publishes changed rows there every 10 s (`backend/app/services/publish_service.py`; writing costs no egress, reading does). The backend never reads Supabase, except what the website writes there: `voice_searches` (it listens: `LISTEN voice_search`), `access_codes`, `shared_entries*` and the research requests (pulled per cycle, `website_requests.py`). A table the website reads goes in `PUBLISHED_TABLES`, a column it does not show in its `skip`; run every migration on both databases (a column Supabase lacks is left out until it is there). Setup and steps: `scripts/local_db.py`, `docs/stories/active/INFRA-2-lokale-werkdatabase.md`. The local Postgres 17 is conda-forge (micromamba, no sudo): binaries `~/.local/share/news-aggregator/postgres17/bin`, data `~/.local/share/news-aggregator/pg17-data`, LaunchAgent `nl.newsaggregator.postgres17`; connect on `127.0.0.1`, never `localhost` (a sleeping Mac cannot look it up). The website's own tables exist only in Supabase: a psql/script write to them uses `SUPABASE_DATABASE_URL`, never `DATABASE_URL`. Daily `pg_dump` of the local database (job Local Database Backup, `data/local-db/backups/`)
+- Supabase storage (owner's rule 2026-10-07): Supabase keeps what the app shows; working data goes once nothing reads it, and never at the cost of accuracy. Event Maintenance clears every day the embedding + tf-idf of articles that are only in archived events (new articles are matched against event centroids, which stay) and raw LLM responses older than 7 days (`STORAGE_PRUNE_ENABLED`, `RAW_LLM_RESPONSE_RETENTION_DAYS`). `normalized_tokens` is not stored; centroids are stored with 6 decimals (`round_centroid`). The full article text stays in Supabase (search), but anon cannot read it (migration 013); `normalized_text`, vectors, centroids and raw LLM responses are only local (INFRA-2). Images are not in Supabase, only links (`image_url`), which stay. Measure before cutting: check that a change leaves clustering, related events and search unchanged
 - Supabase security (2026-10-07, migration 014): the public anon key (in every browser) only reads. Writes go through the backend (postgres) or a SECURITY DEFINER function; `llm_config` is backend only (`/admin/llm-config`). Every table in `public` has RLS on: a new table enables it in its migration, adds a read policy only for what the frontend shows, and never grants anon/authenticated INSERT, UPDATE or DELETE. New tables get only SELECT for anon by default
 
 ## 📋 Project Overview
@@ -31,7 +32,7 @@ Always consult these canonical documents before starting any task:
 
 ### Backend (Python 3.11)
 - **Framework**: FastAPI with Uvicorn
-- **Database**: Supabase PostgreSQL with SQLAlchemy ORM (asyncpg driver)
+- **Database**: local PostgreSQL 17 (working database) + Supabase PostgreSQL (what the website shows), SQLAlchemy ORM (asyncpg driver)
 - **Dependencies**: venv + pip with `requirements.txt`
 - **ML Stack**: PyTorch 2.2.2 + sentence-transformers 2.7.0 + hnswlib + spaCy (fully operational)
 - **Testing**: pytest with coverage target ≥80%
@@ -47,15 +48,15 @@ Always consult these canonical documents before starting any task:
 
 ### Deployment Architecture
 - **Backend**: Runs locally (to avoid 512MB memory limits for ML models)
-- **Database**: Supabase PostgreSQL (free tier, 500MB)
+- **Database**: local PostgreSQL 17 with everything; Supabase PostgreSQL (free tier, 500MB, 5.5 GB egress/month) with what the website shows
 - **Frontend**: Vercel (free tier, auto-deploys from GitHub)
-- **Data Flow**: Backend writes to Supabase → Frontend reads from Supabase
+- **Data Flow**: Backend works on the local database → publishes changed rows to Supabase → Frontend reads from Supabase
 
 ### Development Tools
 - **Build System**: Comprehensive Makefile with all dev targets
 - **Linting**: ruff + black (Python), ESLint (JavaScript/TypeScript)
 - **Environment**:
-  - Backend: `.env` (DATABASE_URL, Mistral API key)
+  - Backend: `.env` (DATABASE_URL = local Postgres, SUPABASE_DATABASE_URL, API keys)
   - Frontend: `frontend/.env.local` (Supabase credentials)
 - **Utility scripts**: `/scripts/test_rss_feeds.py` voor snelle feedchecks; voeg nieuwe helpers in dezelfde map toe
 
@@ -134,9 +135,9 @@ make clean             # Clean up generated files
 ## 🚨 Important Notes
 
 ### Current Status
-- **Backend**: Fully functional with Python 3.11 + venv, runs locally with Supabase PostgreSQL
+- **Backend**: Fully functional with Python 3.11 + venv, runs locally on a local PostgreSQL 17 and publishes to Supabase (INFRA-2)
 - **Frontend**: Next.js 14 deployed on Vercel with light theme UI (Pluriformiteit)
-- **Database**: Supabase PostgreSQL (cloud), direct queries from frontend via Supabase JS client
+- **Database**: local PostgreSQL 17 for the backend; Supabase PostgreSQL (cloud) for the website, direct queries via Supabase JS client
 - **ML Features**: Fully operational - PyTorch embeddings, vector search (hnswlib), spaCy NER
 - **LLM Classification**: Mistral-based semantic event type classification (replaced keyword matching)
 - **Clustering Performance**: 32.0% clustering rate (2.16x improvement from 14.78% baseline)
@@ -148,13 +149,18 @@ make clean             # Clean up generated files
   `merge_split_events`)
 - **LLM Insights**: Auto-generation working with Mistral API, narrative summaries, frames, coverage gaps. The analysis reads at most 16 articles (`LLM_PROMPT_ARTICLE_CAP`, 8 until 2026-10-14; the newest of every outlet first) and every article's text up to 4,000 characters (`ARTICLE_TEXT_CHAR_LIMIT` in `backend/app/llm/prompt_builder.py`; until 2026-10-13 only the first three sentences, so later quotes and context counted as "missing"). A find of Zoek met AI (no text) counts with its digest; an article without text is left out instead of stopping the analysis
 - **REST API**: Backend endpoints for admin/trigger functions
-- **Event Detail**: Epic 14 "Eén beeld": "Wie zegt wat?" as one picture (outlets, the speakers they quote, missing voices, numbered findings) with tabs Klopt het? / Wie praat? / Wat ontbreekt? / Hoe gebracht? / Tijdlijn, plus "Wie zit erachter?" (propagandamodel). Readers can add their own answers (doubt, fallacy, contradiction, error, speaker, source, missing voice, question, remark, moment; `lib/explore/own.ts`, marked "jij", numbered after the analysis, stored on this device). They can share them with other readers and take over what others shared ("Van anderen", `lib/shared.ts`, migration 012). Nothing of others is in your picture until you take it over, and there is no AI: extra AI is admin only. No game mechanics. Spec: `docs/stories/active/epic-14-een-beeld.md`
-- **Front page**: Story 14.19: the top story as a small "Wie zegt wat?" (per outlet the summary sentence that names it,
-  plus "Niet aan het woord"), two more top stories, then the news per day (`components/front/`, `lib/front-page.ts`).
+- **Event Detail**: Epic 14 "Eén beeld": "Wie zegt wat?" as one picture (outlets, the speakers they quote, missing voices, numbered findings) with tabs Klopt het? / Wie praat? / Wat ontbreekt? (missing voices, missing context, the debate) / Niet gevraagd (per outlet the questions it did not ask; Story 14.24) / Hoe gebracht? / Tijdlijn, plus "Wie zit erachter?" (propagandamodel). Readers can add their own answers (doubt, fallacy, contradiction, error, speaker, source, missing voice, question, remark, moment; `lib/explore/own.ts`, marked "jij", numbered after the analysis, stored on this device). They can share them with other readers and take over what others shared ("Van anderen", `lib/shared.ts`, migration 012). Nothing of others is in your picture until you take it over, and there is no AI: extra AI is admin only. No game mechanics. Spec: `docs/stories/active/epic-14-een-beeld.md`
+- **Front page**: Story 14.19/14.21: the top story as a small "Wie zegt wat?" (per outlet the summary sentence that
+  names it) plus "Klopt het?" (one claim without evidence, who makes it, the question to ask). Two more top stories
+  follow, then the news per day. Under the start of the story every card has one hook. That is a small "Klopt het?"
+  when someone with a name makes a claim, else the next part of the story: the first summary heading about the news,
+  with its first sentence. The front page shows what is there, never what is missing ("Niet aan het woord" and
+  questions not asked stay on the event page; `components/front/`, `lib/front-page.ts`).
+  The lead is picked from the last 24 h, most Dutch outlets first.
   It only shows news with an article of a main source ("Hoofdbron" in Beheer; since 2026-10-07 NOS, RTL Nieuws,
   NU.nl, AD, De Telegraaf, Het Parool, de Volkskrant and Trouw), 120 per page sorted on `first_seen_at`; "Meer nieuws"
   loads the next page (`FEED_PAGE_SIZE`). Never sort the feed on `last_updated_at`: maintenance and re-analyses move it
-- **LLM provider per step**: `llm_config` keys `provider_<step>` (event assignment, classification, factual, critical, digest, voice search, bias) via `backend/app/llm/providers.py`; never hard-wire a provider. Values: mistral, deepseek, deepseek-r1, gemini or `claude-code[:haiku|sonnet|opus]`, which runs the local Claude Code CLI (`claude -p`, the owner's subscription, no API key; `backend/app/llm/claude_code.py`, `CLAUDE_CODE_*`). Selectable on /admin/llm-config. Since 2026-10-04 every step runs on Claude Code (DeepSeek credit ran out); since 2026-10-14 every Claude Code step runs on Haiku, the analyses too (owner: Sonnet used too much of the subscription), and a bare `claude-code` means Haiku (`CLAUDE_CODE_MODEL`). At most `CLAUDE_CODE_MAX_PARALLEL` (2) calls run at once; a waiting call of the news pipeline (classification, event assignment) gets the next free slot before analyses, digests and the rest (`NEWS_PIPELINE_PRIORITY`): the analyses that every link starts held both slots while the poll waited (2026-10-08). Every call runs with `--effort medium` (`CLAUDE_CODE_EFFORT`, owner 2026-10-09; without it Sonnet ran on medium and Haiku probably on high)
+- **LLM provider per step**: `llm_config` keys `provider_<step>` (event assignment, classification, factual, critical, digest, voice search, bias) via `backend/app/llm/providers.py`; never hard-wire a provider. Values: mistral, deepseek, deepseek-r1, gemini, `gemini-fast[:model]` (Gemini 3.5 Flash with minimal thinking, 1-3 s a call; `backend/app/llm/gemini_fast.py`) or `claude-code[:haiku|sonnet|opus]`, which runs the local Claude Code CLI (`claude -p`, the owner's subscription, no API key; `backend/app/llm/claude_code.py`, `CLAUDE_CODE_*`). Selectable on /admin/llm-config. Since 2026-10-04 every step runs on Claude Code (DeepSeek credit ran out); since 2026-10-14 every Claude Code step runs on Haiku, the analyses too (owner: Sonnet used too much of the subscription), and a bare `claude-code` means Haiku (`CLAUDE_CODE_MODEL`). At most `CLAUDE_CODE_MAX_PARALLEL` (2) calls run at once; a waiting call of the news pipeline (classification, event assignment) gets the next free slot before analyses, digests and the rest (`NEWS_PIPELINE_PRIORITY`): the analyses that every link starts held both slots while the poll waited (2026-10-08). Every call runs with `--effort medium` (`CLAUDE_CODE_EFFORT`, owner 2026-10-09; without it Sonnet ran on medium and Haiku probably on high)
 - **Besluitvorming (Epic 15)**: the propaganda model holds decision-making in the same network (owner decision
   2026-10-07): five categories next to the filters (formele_macht, belangen, kennis_advies, polder, werving; after
   Domhoff), relation types ambt/zeggenschap/controle/geschenk, `bestuurslaag` on organisations and the office as the
@@ -169,8 +175,13 @@ make clean             # Clean up generated files
 - **What matters, not what exists (Story 14.23, owner 2026-10-08)**: the pm blocks of an event show only links that
   matter for that news (`lib/explore/why.ts`).
   - Never a link without a source.
-  - A link of influence rests on evidence that names that outlet ("PVV valt de pers aan" is no link with the AD).
-  - Never the outlet's own influence on a party.
+  - "Wie zit erachter?" shows who is behind an outlet, never who once had contact with it (Story 14.25, owner
+    2026-10-14). That means a place in the outlet (a job, a column, a board seat, an office) or its money (owner,
+    funder, an advertiser whose evidence names that outlet). It shows it directly, over a person who also belongs to
+    the party (Ullah: hoofdredacteur De Telegraaf, once a VVD board member), or over the owner. A source, an expert,
+    an interview, ANP copy or an attack is contact: every outlet has it. A column is a place; being asked as an
+    expert is contact. Not shown: their own reporter named only by their own outlet, two newsroom jobs, and ties
+    ended on both sides (`behindRoute`). With nothing left the block is gone.
   - "Hoe hangen ze samen?" skips a station that is one of many on both sides (a member, lobbyist or Kamerlid), and
     a direct tie that only says who someone is.
   - People who belong to both the party and the newsroom go first.
@@ -191,12 +202,14 @@ make clean             # Clean up generated files
 | RSS Feed Polling | 15 min | Polls all RSS feeds for new articles |
 | Insight Backfill | 15 min | Generates LLM insights for events missing them, then redoes (≥ 30 min after the last one) analyses that leave out a Dutch outlet that joined later |
 | International Enrichment | 2 hours | Adds international perspectives via Google News (Epic 9) |
-| Event Maintenance | daily | Refreshes centroids, archives stale events, then clears working data of archived news (storage rule, see Rules). Every hour (first 5 min after the start) it checks whether the last run is 24 h ago; that moment is kept in `data/scheduler_state.json`, so restarts and a sleeping Mac do not reset it (a 24 h interval never ran from 2026-10-02 to 10-08) |
+| Event Maintenance | daily | Refreshes centroids, archives stale events, then clears working data of archived news (storage rule, see Rules). Every hour (first 5 min after the start) it checks whether the last run is 24 h ago; that moment is kept in `data/scheduler_state.json`, so restarts and a sleeping Mac do not reset it (a 24 h interval never ran from 2026-10-02 to 10-08). |
+| Local Database Backup | hourly check | A `pg_dump` of the local working database when the newest one in `data/local-db/backups/` is a day old (it holds what Supabase does not; the age comes from the files, so restarts and a sleeping Mac do not skip it; 7 kept, `LOCAL_BACKUP_*`, INFRA-2) |
+| Publish to Supabase | 10 s | Sends the rows of the local database that changed to Supabase, without the columns that stay local (INFRA-2, `PUBLISH_*`); nothing to send = no Supabase traffic |
 | Bias Analysis | 6 hours | Per-sentence bias detection (Epic 10, disabled by default) |
 | Exploration Refresh | 24 hours (na Event Maintenance) | Event Maintenance → daarna Exploration refresh (entiteiten + gerelateerde events, Epic 11) |
 | Entity Research | 15 min | Wie is dit? (Epic 12): triage van namen in het nieuws (rol + belang), onderzoeksdoelen naar het propagandamodel en resultaten ophalen. De rondes van de pm-agent `nieuws-scout` plant het propagandamodel zelf (launchd, elke 2 uur, max 6/dag, 08–22); de nieuws-app start ze niet (sinds 2026-10-09 is die code weg) en toont in de status alleen wat de pm-runs melden. `ENTITY_RESEARCH_ENABLED`, `ENTITY_RESEARCH_*`; vereist migratie 006 + draaiende pm-server |
 | Article Digest | 15 min | "Wat schreef …?": haalt de tekst van nieuwe buitenlandse artikelen op (Google News geeft alleen de kop) en laat de LLM een Nederlandse kern van hoogstens twee zinnen schrijven in `source_metadata.digest`; de tekst zelf wordt niet opgeslagen. Alleen artikelen van de laatste 72 uur, oudere via de admin-backfill (`ARTICLE_DIGEST_*`; provider: `llm_config.provider_digest`, anders die van de feitenanalyse) |
-| Voice Search | 1 min | "Zoek met AI" (Epic 14, Story 14.10): runs the searches for missing voices the admin queued in the app (`voice_searches`, migration 009): own articles + the same news on Google News, LLM check; the admin approves what is found and it becomes a source of the event (`VOICE_SEARCH_*`; provider `llm_config.provider_voice_search`, else that of the factual analysis) |
+| Voice Search | 5 s | "Zoek met AI" (Epic 14, Story 14.10): runs the searches for missing voices the admin queued in the app (`voice_searches`, migration 009). Since INFRA-2 it looks in Supabase only after a signal of the website (`LISTEN voice_search`, migration 018) or every 5 minutes (`VOICE_SEARCH_FALLBACK_SECONDS`); an approval only stores the verdict in Supabase and the backend adds the article locally (`apply_reviews`). Gemini with Google Search finds and judges articles in one call (`llm_config.provider_voice_web`: `gemini-search[:model]`, or `google-news` for the old route; `GEMINI_API_KEY`). At the same time it searches own articles with an LLM check (`llm_config.provider_voice_search`: `gemini-fast`; when it fails, the provider of the factual analysis does the step). Only when Gemini fails: the same news on Google News, reading the pages ourselves. A copy of an article already in the news is never a find (same headline, an aggregator link ending in the outlet and a number like `headliner.nl/item/…-nieuwrechts-23375`, or the same text start; `is_copy`, 2026-10-13), and Gemini gets the headlines that are already there. Finds show as soon as they are there (first after about 5-10 s, done in about 15 s) and the admin can approve them right away; it becomes a source of the event (`VOICE_SEARCH_*`). Gemini's free tier allows 20 requests a day per model: Google search on 2.5 Flash, the check on 3.5 Flash. Whoever adds a missing voice first sees the voices already searched ("Al gezocht met AI", Story 14.22, migration 015): readers only what was approved, the admin everything |
 | Propagandamodel Sync | 60 min | Synct het goedgekeurde propagandamodel (alleen-lezen) naar de `pm_*`-tabellen, alleen als het DB-bestand gewijzigd is (Epic 11, Story 11.17; `PROPAGANDA_SYNC_ENABLED`, `PROPAGANDA_SYNC_INTERVAL_MINUTES`, vereist migratie 005). Sinds format 5 ook de argumenten achter elke relatie (voor/tegen/nuance, status, bronnen) en de uitleg per mechanisme: vereist migratie 010 (Story 14.12). Sinds format 8 (Epic 15) ook de besluitvorming (`bestuurslaag`, `functie`, vijf categorieën): vereist migratie 016 |
 | Evidence Research | 15 min | Dun bewijs (Story 14.13): verbanden onder "Wie zit erachter?" die op dun bewijs rusten (de eventpagina meldt ze aan via `request_relation_research`) gaan als onderzoeksdoel naar het propagandamodel (`nieuws_doelen`, soort `relatie`, max 6/dag) en de uitkomst komt terug (`relation_research`). De rondes van de pm-agent `nieuws-bewijs` (bewijs vóór én tegen) plant het propagandamodel zelf (launchd, elke 2 uur, max 3/dag = 6 verbanden, 08–22; de nieuws-app start ze niet); daarna beslist de automatische beoordeling van het propagandamodel, elk uur (bronzoeker, bronchecker, smaadtoets, aanklager, immuunpoort, bronklassen, opruimen; niemand beoordeelt met de hand). Elke cyclus meldt alle aangevraagde verbanden ook als voorrang (`POST /api/nieuws/voorrang`, zonder budget): het propagandamodel controleert hun bronnen eerst en zijn bronzoeker zoekt een bron waar die ontbreekt (agents doen alles, Story 14.17). `EVIDENCE_RESEARCH_*`; vereist migratie 011 |
 
@@ -358,7 +371,7 @@ curl -X POST "http://localhost:8000/admin/trigger/article-digest/{article_id}"
 # Gist batch for foreign articles of active news without one (leave out max_age_hours = backfill all)
 curl -X POST "http://localhost:8000/admin/trigger/article-digests?limit=50"
 
-# Zoek met AI (Story 14.10): run the queued searches for missing voices now (the job does this every minute)
+# Zoek met AI (Story 14.10): run the queued searches for missing voices now (the job does this every 5 s)
 curl -X POST "http://localhost:8000/admin/trigger/voice-search?limit=2"
 # Access codes for it (admin only for now): create / list / revoke; the code is printed once
 PYTHONPATH=. .venv/bin/python scripts/access_code.py create --role admin --label Eigenaar

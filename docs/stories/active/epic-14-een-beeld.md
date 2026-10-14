@@ -88,8 +88,9 @@ Bronnen en artikelen
   Vergelijk/Bewaar/Wie zit erachter?.
 - EntitySheet: "In dit nieuws" met rol, claims en belang i.p.v. "?"-teasers.
 - Tijdlijn (`lib/explore/chronology.ts`): voorgeschiedenis, eerdere afleveringen, dit nieuws, tegelijk verschenen,
-  latere afleveringen, "Waarom nu?", dezelfde mensen in ander nieuws. Relaties met alleen thema/categorie/land vallen
-  weg; ijkpunt is het eerste NL-artikel (oude buitenlandse artikelen maakten de eventstart soms maanden te vroeg).
+  latere afleveringen, "Waarom nu?". Relaties met alleen thema/categorie/land vallen weg; ijkpunt is het eerste
+  NL-artikel (oude buitenlandse artikelen maakten de eventstart soms maanden te vroeg). Sinds Story 14.26 één as in
+  één kaart, zonder "Dezelfde mensen in ander nieuws".
 - `why/WhoIsBehind.tsx`: routes, geladen zodra het blok in beeld komt.
 - Netwerkpagina: alleen het propagandamodel; `focus=outlet:<key>` werkt nu.
 
@@ -107,7 +108,7 @@ Bronnen en artikelen
   - `/event/demo-aanloop`: eerdere aflevering.
   - `/event/demo-vervolg`: latere aflevering met één NL-bron (de gewone situatie), sprekers, lege stemmen en een oud
     buitenlands artikel met datum.
-  - `/event/demo-verbeek`: ander nieuws met de wethouder ("Dezelfde mensen in ander nieuws").
+  - `/event/demo-verbeek`: ander nieuws met de wethouder (sinds Story 14.26 via de naam: "Ook in ander nieuws").
 - Echte instanties (RIVM, PBL, ANP, Ipsos I&O) staan erin zodat "Wie zit erachter?" echte routes uit het
   propagandamodel toont; hun uitspraken en rol in het verhaal zijn verzonnen (banner).
 - "Belang"-label alleen bij genoemde belangen of een analyse die partij niet onafhankelijk noemt; financiering alleen
@@ -197,11 +198,13 @@ alleen admin**, met een admincode; betalende gebruikers later.
     beantwoordt;
   - terugdraaien haalt alleen weg wat de zoektocht maakte.
 - **Backend**:
-  - job "Voice Search", elke minuut, maximaal 2 zoektochten (`VOICE_SEARCH_*`), via
+  - job "Voice Search", elke 5 seconden (eerst elke minuut), maximaal 2 zoektochten (`VOICE_SEARCH_*`), via
     `backend/app/services/voice_search.py`;
-  - stappen: plan (LLM) → eigen database (A) + hetzelfde nieuws op Google News (D) → teksten (betaalmuur telt als
-    geen tekst, ANP-kopieën één keer) → controle (LLM). Niets gevonden bij een concrete groep of context? Dan de twee
-    zoekopdrachten (B);
+  - stappen (sinds 2026-10-07, zie "Sneller met Google"): Gemini met Google Search (G) zoekt en beoordeelt in één
+    aanroep, en tegelijk plan (LLM) → eigen database (A) → controle (LLM);
+  - zonder G (`provider_voice_web` = `google-news`) of als G faalt, de oude route: hetzelfde nieuws op Google News (D)
+    → teksten (betaalmuur telt als geen tekst, ANP-kopieën één keer) → controle (LLM). Niets gevonden bij een
+    concrete groep of context? Dan de twee zoekopdrachten (B);
   - wat blijft: hetzelfde nieuws, de stem zelf (of de context concreet), de tekst gelezen, zekerheid ≥ 0,6. Eerst
     was dat 0,7, maar de zekerheid schommelt per run rond die grens en jij keurt toch alles goed. Elk oordeel staat in
     `voice_searches.stats.verdicts`, voor het bijstellen;
@@ -234,10 +237,73 @@ alleen admin**, met een admincode; betalende gebruikers later.
     - classificatie, event-toewijzing, kern buitenlandse artikelen en bias: `claude-code:haiku`.
   - Proef: een echte feitelijke analyse duurde 12 s (Sonnet), een kern 12 s (Haiku).
 
+### Sneller met Google (2026-10-07)
+Vraag eigenaar: "waarom duurt Zoeken met AI zo lang? … Dat killt de UX. Google of Perplexity zou dit super goed en snel
+kunnen."
+- Gemeten bij de zoektocht naar NSC-partijleiding: 80 s, en niets gevonden.
+  - 42 s wachtrij: de job keek één keer per minuut.
+  - 39 s zoeken:
+    - plan (Sonnet, 5 s);
+    - eigen artikelen, Google News met pauzes en pagina's ophalen (16 s);
+    - controle (Sonnet, 5 s);
+    - B (11 s) voor niets: Trouw, de Volkskrant en Parool (cookiemuur), IJmuider Courant en BNR (403) gaven geen
+      tekst.
+- Nu:
+  - De job kijkt elke 5 s (`VOICE_SEARCH_INTERVAL_SECONDS`). APScheduler's regels over deze job blijven uit het log.
+  - G (`backend/app/llm/web_search.py`): Gemini 2.5 Flash met Google Search zoekt en beoordeelt in één aanroep,
+    tegelijk met A. Google heeft de artikelen achter de muren wel gelezen.
+  - De links zijn Google-doorverwijzingen. Alleen die van de eigen zoekresultaten tellen, dus een verzonnen link
+    valt af. Een artikel dat al bij het nieuws hoort, van buiten de week of met zekerheid < 0,6 valt ook af.
+  - D en B alleen nog als G faalt. Bij 503 (overbelast, vanavond 2 op de 3 keer) eerst één keer opnieuw.
+  - Kiesbaar op /admin/llm-config, "Zoek met AI: zoeken op het web": Google (Gemini) of Google News
+    (`provider_voice_web`, ook `gemini-search:<model>`).
+- Proef zonder iets op te slaan, NSC-partijleiding: 22 s en 2 bronnen waarin het NSC-bestuur zelf reageert (Trouw via
+  A, Nieuws.nl via G). Gemini alleen duurt 12–18 s.
+- Kosten:
+  - de Gemini-sleutel zit in de gratis laag, met een daglimiet per model; is die op, dan volgt de oude route;
+  - betaald: ±1 cent per zoektocht (±1.900 tokens in, ±3.700 uit met denken), Google Search gratis tot 1.500 per
+    dag;
+  - Perplexity Sonar: ±0,6–2 cent per zoektocht, eigen betaald account nodig.
+- Tests: `test_voice_search.py` (15), `test_web_search.py` (10).
+
+### Nog sneller: vondsten meteen in beeld (2026-10-09)
+Eigenaar: "Zoeken met AI · admin duurt erg lang nog".
+- Gemeten bij de eerste echte zoektocht via de nieuwe route (zoektocht 5, huisregels rond vlaggen): 3 s wachtrij,
+  35 s zoeken.
+  - G 22 s: Gemini dacht zelf na (4.300 tokens uit).
+  - A 35 s: plan en controle via Claude Code wachtten op een vrije plek achter het nieuws (de inhaalslag na een
+    herstart). Zonder wachtrij is A met Sonnet 14–16 s; Haiku was trager (35–62 s).
+- Nu:
+  - G met een denkbudget van 1024 tokens (`VOICE_SEARCH_WEB_THINKING_BUDGET`): 5–17 s.
+    - Zonder denken was het 2–6 s, maar het vond minder: niets bij 3 van 5 zoektochten, waar 1024 wel iets vond.
+    - Eén keer kwam er geen JSON.
+  - A via `gemini-fast` (`backend/app/llm/gemini_fast.py`): Gemini 3.5 Flash met zo min mogelijk denken, 1–3 s per
+    stap, A in 6–10 s.
+    - Zelfde oordelen als Sonnet bij zoektochten 3 en 5.
+    - Faalt Gemini, dan doet de aanbieder van de feitenanalyse (Claude Code) de stap opnieuw.
+    - Kiesbaar op /admin/llm-config bij "Zoek met AI (ontbrekende stemmen)".
+  - Vondsten verschijnen zodra G of A ze heeft: de rij krijgt ze terwijl de status nog 'bezig' is en de app kijkt
+    dan elke 1,5 s.
+    - Elke vondst houdt zijn nummer (c1 …), dus de admin kan meteen goedkeuren.
+    - Een latere schrijfactie laat goed- en afkeuringen staan (`keep_reviews`, met een rijslot zoals
+      `review_voice_candidate`).
+    - Gaat het zoeken daarna mis, dan blijven de getoonde vondsten staan.
+  - `stats.timings` noteert per zoektocht wanneer plan, controle, G en de eerste vondst klaar waren (ms).
+- Gratis laag van Gemini: 20 verzoeken per dag per model (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`).
+  - G gebruikt 2.5 Flash, de enige met Google Search in de gratis laag (3.x geeft 429), dus ±20 zoektochten per dag.
+  - A gebruikt daarom een eigen model (3.5 Flash).
+  - Is een limiet op, dan volgt de oude route (G) of Claude (A).
+  - Betaald (±1 cent per zoektocht) heft dat op.
+- De Gemini-sleutel ging als `?key=` in de URL en stond zo in `logs/app.log` (httpx logt URL's). Hij gaat nu in de
+  header `x-goog-api-key`.
+- Tests: `test_voice_search.py` (19), `test_web_search.py` (10), `test_gemini_fast.py` (7).
+
 ### Later
 - Elk gevonden artikel tegen álle ontbrekende stemmen van het item controleren: één artikel beantwoordt soms een
   andere stem.
-- Tekst achter cookiemuren ophalen met de toestemming van de feedlezers (DPG, Telegraaf, NU.nl).
+- Tekst achter cookiemuren ophalen met de toestemming van de feedlezers (DPG, Telegraaf, NU.nl). G leest wat Google
+  daar zag; alleen de oude route heeft dit nog nodig.
+- Perplexity Sonar als tweede zoekmodel in `provider_voice_web`.
 - Betalende gebruikers: accounts en betalingen, en dan `pro` toelaten in `voice_search_role_allowed()`.
 
 ## Story 14.11: Wie zit erachter? leesbaar
@@ -461,7 +527,7 @@ kunnen toevoegen, en die delen (Story 14.15).
 | Tab | Toevoegen | Velden | In het beeld |
 |---|---|---|---|
 | Klopt het? | Drogreden | welke (de soorten van de analyse) · welke redenering · wie · waarom klopt die niet | ↯ op die spreker of bron |
-| Klopt het? | Tegenspraak | waarover · wie zegt het één · wie het andere · wat zeggen ze · bron | gestippelde ⚡-lijn tussen de twee ballonnen |
+| Klopt het? | Tegenspraak | waarover · wie zegt het één · wie het andere · wat zeggen ze · bron | ⚡ op beide kanten (zie hieronder) |
 | Klopt het? | Fout | wat is er fout · waar · wat klopt wel · bron | ✕ naast het nummer dat hij verbetert |
 | Wie praat? | Bron | link · wat brengt deze bron · kop · wie komt er aan het woord | een eigen ballon |
 
@@ -471,6 +537,16 @@ kunnen toevoegen, en die delen (Story 14.15).
 - **Tegenspraak**: alleen als er twee kanten te kiezen zijn. Een spreker zonder eigen ballon (bij groepen per
   invalshoek, of een buitenlandse bron) telt als zijn bron. Staat er maar één kant in het beeld, dan komt het
   nummer op die kant.
+- **Tegenspraak in het beeld** (eigenaar 2026-10-14: "geen schijnverband maken en maak duidelijk wat het is als er
+  wel een verband is"), voor die van de analyse en die van jou. Een lange lijn dwars door het beeld suggereerde een
+  verband met de bronnen waar hij overheen liep.
+  - Een gestippelde lijn met ⚡ in het midden komt er alleen tussen twee kanten in dezelfde groep die naast of onder
+    elkaar staan. Zo'n lijn kruist geen andere ballon.
+  - Elke andere ballon van de tegenspraak krijgt "⚡14 ≠ NOS": nummer plus de andere kant, onder aan de ballon.
+    Dat geldt voor alle bronnen van beide kanten, en voor elke kopie van een bron die in twee invalshoeken staat.
+  - Een tik opent de bevinding. "Toon in het beeld" laat alle kanten tegelijk oplichten.
+  - Het model staat in `figure.ts`: `contradictions` (lijnen tussen buren) en `contradictionNotes` (per
+    `placeKey(groep, anker)`).
 - **Bron**: "＋ Bron" in de bronnenkiezer en onder Wie praat?. Een link van een medium dat al in het nieuws zit,
   hangt aan die bron. Een nieuw medium komt in `Exploration.ownOutlets`, niet in `input`. Wat de analyse vond
   (toeschrijving, nummers, groepering per invalshoek) verandert dus niet. `index.outlet()` vindt hem wel, zodat er
@@ -875,8 +951,20 @@ Eigenaar: "hier staat geen tekst bij telegraaf wolkje" (event 7955, Stockholm: a
 - 7955 opnieuw geanalyseerd (`/admin/trigger/generate-insights/7955`). De analyse las nu beide artikelen, en de
   samenvatting noemt AD en De Telegraaf. Het wolkje van De Telegraaf zegt nu: "Benadrukt in de kop dat de man zich
   agressief gedroeg".
-- De backend is om 22:31 herstart (hij draait zonder auto-reload). De andere 29 komen via de backfill, vanaf de ronde
-  van 22:46, in porties binnen de time-out van 10 minuten per ronde.
+- De backend is om 22:31 herstart (hij draait zonder auto-reload), en om 22:44 nog eens.
+- **Eerste ronde (22:59)**: `events_outdated=0`. De 30 plekken gingen allemaal naar nieuws zonder analyse.
+  - Dat waren er 996, op 2 na ouder dan 72 uur (28 september t/m 4 oktober). De backfill sorteert ze op
+    `last_updated_at`.
+  - Een ronde loopt na ongeveer 7 analyses in de time-out van 10 minuten. Dat gebeurde ook al vóór deze wijziging.
+  - De verouderde analyses kwamen zo nooit aan de beurt, ook niet die van het topverhaal "Christa Pike".
+  - Nu gaan de verouderde analyses voor: het zijn er weinig en ze gaan over recent nieuws. Daarna komt het nieuws
+    zonder analyse.
+  - Het nieuws zonder analyse gaat voortaan op `first_seen_at`: het nieuwste nieuws eerst, zoals de voorpagina het
+    toont (gemeld door de backend-sessie).
+    - `last_updated_at` verschuift door het onderhoud en door inhaalslagen.
+    - De inhaalslag van de Volkskrant, het Parool en Trouw maakte vannacht 370 nieuwsitems. 282 daarvan gaan over
+      nieuws van meer dan 24 uur oud, en die stonden zo vóór de 47 nieuwsitems zonder analyse op pagina 1 van de
+      voorpagina.
 
 ### Opgelost
 - De oude eventpagina (`EventDetailScreen` met `CriticalAnalysis` en dergelijke) is weg, met de vlag
@@ -1220,6 +1308,127 @@ Tests:
 - In de browser: een tik op de bron onder "sensationeel" opent de bronballon ("Naar het artikel") en de rij blijft
   dicht; een tik op een spreker onder een bewering opent de sprekerkaart. Er zijn geen fouten in de console.
 
+## Story 14.21: Klopt het? en een haakje op de voorpagina
+
+**Status**: ✅ Done (2026-10-07)
+
+Eigenaar (2026-10-07):
+- "niet aan het woord is niet echt iets voor de voorpagina.. wat kan er beter op?"
+- Over de eerste versie, met een niet gestelde vraag per kaart: "die vroeg niet werkt ook niet echt.. je wilt wat
+  meer info en een haakje om door te lezen", en "je wilt niet weten wat ontbreekt bij een voorpagina".
+- Over "Klopt het?" bij het topverhaal: "dit is opzich wel een haakje", en "Hoeft niet allemaal zo te zijn".
+
+Waarom "Niet aan het woord" en "NOS vroeg niet" weg moesten:
+- Een voorpagina laat zien wat er is, niet wat ontbreekt.
+- "Niet aan het woord" is bijna altijd hetzelfde soort zin ("Onafhankelijke energie-economen", "Juridische
+  experts"). Alle 34 recente analyses hadden zo'n lijst, dus het onderscheidt het ene verhaal niet van het andere.
+- Een losse vraag ("Wat is de motivatie van het college?") geeft geen informatie over het nieuws.
+
+```
+Topverhaal   Wie zegt wat?  ballon per bron
+             Klopt het?     ! claim zonder bewijs · wie het zegt (organisatie) · zonder bewijs
+                            ? de vraag die je kunt stellen
+Kaarten      begin van het verhaal, dan één haakje:
+             Klopt het?     ! "Volgens de man zou Nederland Hamas niet als terroristische organisatie
+                               moeten zien …" · een organisator van de demonstratie · zonder bewijs
+             of
+             Reactie van Ronaldo
+                            Volgens NU.nl was Cristiano Ronaldo een van de prominenten die reageerde.
+```
+
+Wat er veranderd is:
+- **Topverhaal**: onder "Wie zegt wat?" staat "Klopt het?". Het is één claim zonder bewijs, met de rode "!" van de
+  eventpagina. Daaronder staat wie hem doet en de eerste vraag die je erbij kunt stellen.
+  - `frontClaim` kiest een spreker met naam ("Jan-Willem van den Beukel (Vemobin)") vóór een medium dat het zelf
+    beweert, en een claim met vraag vóór een zonder.
+  - Wie het zegt, leest `parseSourcePart` van "Wie praat?". Zo wordt "Kommersant, via de NOS" Kommersant, en
+    "(anoniem)" een anonieme bron. "Niet-genoemde Franse media" telt niet als spreker met naam.
+  - Zonder claim toont het topverhaal het volgende stuk van het verhaal (zie hieronder).
+- **Kaarten** (de twee topverhalen met minder dan twee ballonnen, en het nieuws per dag) tonen onder het begin van
+  het verhaal één haakje (`storyHook`), niet overal hetzelfde:
+  - Doet iemand met naam een claim zonder bewijs, dan staat er een kleine "Klopt het?" (zonder de vraag).
+  - Anders staat er het volgende stuk van het verhaal: het eerste tussenkopje van de samenvatting met de eerste zin
+    eronder (`storySection`), zoals "Reactie van Zelensky" of "Context en eerdere incidenten". Alle samenvattingen
+    hebben tussenkopjes.
+  - Kopjes over de bronnen of de berichtgeving vallen weg: "Beperkte bronbasis", "Duiding", "Internationale
+    perspectieven", "Framing van De Telegraaf".
+  - Zinnen over het artikel zelf ("Het bericht van NU.nl is kort …") vallen ook weg, en zinnen die de kaart al toont
+    (het begin van het verhaal, een ballon).
+- **Topverhalen kiezen** (`pickTopStories`): wat het kleine beeld van het topverhaal laat zien, telt als ballonnen
+  plus een claim. Bij evenveel ballonnen gaat een nieuwsitem met een claim dus voor.
+- **Eén bron bovenaan** (eigenaar: "waarom staat bovenaan een artikel met maar 1 bron?"):
+  - Oorzaak: de keuze keek alleen naar de 15 nieuwste nieuwsitems. Met meer hoofdbronnen zijn dat een paar uur nieuws,
+    en die 15 hadden allemaal één Nederlandse bron. "Nobelprijs Scheikunde" (NU.nl + 10 buitenlandse) won op het
+    aantal buitenlandse bronnen.
+  - Nu: de kandidaten zijn het nieuws van het laatste etmaal voor het nieuwste nieuwsitem, en minstens de 15 nieuwste.
+  - Eerst telt hoeveel Nederlandse bronnen het brachten (1, 2, 3 of meer), dan het kleine beeld, dan alle bronnen en
+    dan wat het nieuwst is.
+  - Op 7 oktober om 22 uur staat nu bovenaan "Christa Pike weer bij bewustzijn" (5 Nederlandse bronnen). Daarna
+    volgen "Gotink verlaat NSC" (3) en "Hybride warmtepomp" (2).
+  - Van de 120 nieuwsitems op de eerste pagina hadden er maar 7 twee of meer Nederlandse bronnen. Hetzelfde nieuws
+    staat vaak in twee nieuwsitems, zoals "Messi eert Maradona" (NU.nl) en "Messi neemt afscheid" (2 bronnen). Zie
+    de clustering.
+- **Data**:
+  - In plaats van `coverage_gaps->0..5->>perspective` haalt de lijstquery nu `unsubstantiated_claims->0..1` op
+    (claim, `source_in_article`, eerste `critical_questions`), als JSON-paden.
+  - Het tussenkopje komt uit de samenvatting, die al meekwam.
+  - `EventListItem.missing_voices` is vervangen door `claims`.
+- **Opgeruimd**: `MissingVoices` en `MissingVoicePill` (`components/front/StoryParts.tsx`). "Niet aan het woord"
+  staat alleen nog op de eventpagina.
+
+Tests:
+- Jest: 317 groen, waarvan 9 nieuw in `__tests__/front-page.test.ts`. Ze testen de claim en de spreker, het
+  tussenkopje (wat de kaart al toont en kopjes over de bronnen vallen weg), de keuze van het haakje, de voorrang in de
+  topverhalen en het laatste etmaal.
+- tsc en ESLint zijn schoon.
+- Screenshots op 1440 en 390 breed, zonder zijwaarts scrollen en zonder fouten in de console:
+  - het topverhaal toont "Klopt het?";
+  - 15 van de 19 zichtbare kaarten hebben een haakje, een mix van "Klopt het?" en tussenkopjes;
+  - "Niet aan het woord" en "vroeg niet" staan niet meer op de voorpagina.
+
+## Story 14.22: Al gezocht met AI
+
+**Status**: ✅ Done (2026-10-08)
+
+Eigenaar (2026-10-07): "bij niet aan het woord en dat soort dingen zou je wel al bij toevoegen moeten kunnen zien wat
+andere gebruikers hebben gezocht en gevonden met hun AI search". Besluiten (AskUserQuestion):
+- **Lezers zien wat goedgekeurd is, de admin alles.** De regel van Story 14.10 blijft: een vondst die niet is
+  goedgekeurd, zien lezers nooit (de controle klopt in 60–75%).
+- **Alleen bij ontbrekende stemmen**, want alleen daar bestaat "Zoek met AI".
+
+Hoe het werkt:
+- In het formulier "Ontbrekende stem" staat onder "Wie komt niet aan het woord?" de lijst **Al gezocht met AI**: de
+  stemmen van dit nieuws die al gezocht zijn. Wat lijkt op wat je typt staat bovenaan; hoogstens 5.
+- Per stem:
+  - de goedgekeurde bronnen: wie, bij welk medium, en de kern;
+  - anders "Nog geen bron", of "Wordt gezocht";
+  - voor de admin ook "n te beoordelen".
+- **Bekijk** als de stem al in je beeld staat (de ontbrekende stem van de analyse, of je eigen met dezelfde woorden).
+  Anders **Neem over**: de stem komt in je beeld, met wat je bij "Waarom doet dat ertoe?" schreef. De goedgekeurde
+  bronnen hangen er dan vanzelf onder (gelijke woorden).
+- **Database**: migratie `015_eerder_gezocht.sql`, RPC `voice_searches_public(p_event_id)`, voor anon:
+  - één rij per stem over al haar zoektochten (hoofdletters en spaties tellen niet);
+  - mislukte zoektochten tellen niet mee;
+  - alleen goedgekeurde kandidaten;
+  - de tabel blijft dicht.
+
+  De admin krijgt alles uit `voice_searches_for_event`.
+- **Code**:
+  - `lib/explore/earlier-searches.ts`: de rijen per stem, de volgorde en "staat al in je beeld";
+  - `EarlierSearches` in `components/explore/map/VoiceSearch.tsx`, getoond door `OwnForm`;
+  - `publicVoiceSearches` in `lib/voice-search.ts`;
+  - de demo leidt het af uit de demozoektochten.
+
+Tests:
+- Jest: `__tests__/explore/earlier-searches.test.ts` (5), en alle 289 explore-tests groen. tsc en ESLint zijn schoon.
+- Migratie 015 eerst op een tijdelijke PostgreSQL 15 getest, twee keer gedraaid. Daarna op Supabase gezet, zonder
+  tabellock. Getest met de anon-sleutel: de RPC werkt en de tabel blijft dicht (42501).
+- In de browser (390 breed, als lezer zonder code), eventpagina 7970, Wat ontbreekt? → Ontbrekende stem:
+  - "NSC-partijleiding · Nog geen bron";
+  - "Mona Keijzer en haar achterban" met de goedgekeurde bron van RTL Nieuws;
+  - beide met "Bekijk";
+  - typ je "NSC", dan staat die stem bovenaan.
+
 ## Story 14.23: Wat ertoe doet — Wie zit erachter? en Hoe hangen ze samen?
 
 **Status**: ✅ Live (2026-10-09): app-commit 3cbde36 op main, migratie 017 toegepast, pm-commit 54516d9.
@@ -1309,3 +1518,199 @@ Tests:
     NOS (met bron, noemt de NOS);
   - PVV → AD, PVV ↔ De Telegraaf en "Tweede Kamer wordt belobbyd door NOS" zijn weg;
   - "Hoe hangen ze samen?" is leeg, dus het blok verdwijnt.
+
+## Story 14.24: Wat ontbreekt? leesbaar, en Niet gevraagd als eigen tab
+
+**Status**: ✅ Done (2026-10-14), nog niet gecommit
+
+Eigenaar (2026-10-14): "Wat ontbreekt? Nog niet helemaal mooi leesbaar en geformat.. en is het wel mooi uitgevoerd en
+zinnig?", "Vooral die text aan de onderkant beetje vaag" en "misschien apart tab voor niet gestelde vragen?"
+
+Wat er mis was (event 9241, storing Albert Heijn):
+- Onderaan stonden tellingen in plaats van inhoud: "5 niet gestelde vragen · NOS · 5 weggelaten perspectieven", ook
+  "1 niet gestelde vragen". De vragen zelf zag je pas na een tik.
+- NL Times stond er twee keer in (twee artikelen).
+- "Weggelaten perspectieven" per bron herhaalde de ontbrekende stemmen erboven.
+- Een rij met alleen een naam ("Medewerkers en distributiecentra"): wat er mist, stond pas achter een tik.
+- Het debat uit de wetenschap had het lange onderwerp als vette kop en "andere visies niet genoemd" eronder.
+- Ongeveer een op de vijf "ontbrekende stemmen" is geen stem maar ontbrekende context ("Oorsprong en onderbouwing van
+  de cijfers", "Wat '40 jaar tot levenslang' concreet betekent"). Het beeld tekende die als lege ballon met een
+  doorgestreepte microfoon. De prompt vraagt er zelf om ("historical context, international comparison").
+
+Wat er veranderd is:
+- **Nieuwe tab "Niet gevraagd"** (`vragen`, roze, na Wat ontbreekt?), `components/explore/map/VragenTab.tsx`:
+  - een kaart per bron (de meeste vragen eerst): de naam, één regel over wat het weglaten met het verhaal doet
+    (`framing_by_omission`, zonder zinnen over de tekst die de analyse had, `omissionText`), dan de vragen zelf;
+  - één bevinding per vraag (`type: "question"`), dus elke vraag kan "Klopt niet" en "Bewaar"; dezelfde vraag van
+    één bron (twee artikelen) staat er één keer;
+  - "＋ Vraag" en je eigen vragen staan hier, bij de bron (of spreker) waaraan je ze stelde;
+  - de bronballon zegt "Niet gevraagd · 5 vragen"; Vergelijk gebruikt de eerste vraag.
+  - "Weggelaten perspectieven" per bron toont de app niet meer: Wat ontbreekt? en Wie praat? laten dat al zien.
+- **Wat ontbreekt?** (`OntbreektTab.tsx`), elk in een eigen witte kaart met serif kop:
+  - "Wie komt niet aan het woord?": de ontbrekende stemmen, met in de dichte rij twee regels over wat er mist;
+  - "Welke context ontbreekt?": hetzelfde voor ontbrekende context. Die staat niet meer als lege ballon in het beeld
+    en heeft geen nummer; "Wie had het kunnen zeggen" heet daar "Waar het te vinden is";
+  - "Welk debat ontbreekt?": het onderwerp, zo gebracht, waarover discussie is, andere visies, oordeel.
+- **Stem of context**: de kritische prompt vraagt per gap `kind` (`stem` of `context`, en nooit beide in één gap).
+  Database en `critical_prompt.txt` zijn gelijk; de template volgt nu ook de database, waar `quote_analysis` al uit
+  was. `CoverageGap.kind` in `backend/app/llm/schemas.py` (een onbekende waarde wordt `null`, de analyse faalt
+  nooit). **Werkt pas na een herstart van de backend**; tot dan, en voor oudere analyses, beslissen de woorden van
+  het label (`isContextGap` in `lib/explore/missing.ts`). Op de 475 labels van de laatste twee dagen: 96 context, die
+  lijst klopt; een paar gemengde ("Verdediging en context bij het Nord Stream-proces") gaan naar context.
+
+Tests:
+- Jest: `__tests__/explore/missing.test.ts` (5), alle 332 frontend-tests groen; tsc en ESLint schoon.
+- Pytest: `test_coverage_gap_kind.py` (3).
+- Playwright (explore, 3 apparaten): 135 groen. De 6 die falen zijn twee netwerktests in `netwerk-bord.spec.ts`
+  ("asks who has influence…", "edges explain the relation…"). Die falen ook op HEAD zonder deze wijziging.
+- Screenshots op 390 en 1440 breed van event 9241: geen zijwaarts scrollen, geen consolefouten.
+
+## Story 14.25: Wie zit erachter? — posities, geen contact
+
+**Status**: ✅ Done (2026-10-14), nog niet gecommit
+
+Eigenaar (2026-10-14), bij "Regenboogvlag hangt toch bij Tweede Kamer" en "Yeşilgöz noemt Rusland 'onze vijand'":
+"dit is allemaal wel echt vergezocht.. mensen of partijen die ooit bronnen waren etc. die niks met dit verhaal te
+maken hebben.. Wel relevant als ze posities in een bepaald medium hebben ofzo dat zegt nog wat over de kleuring".
+Akkoord ("ok") met het voorstel:
+- alleen posities en geld;
+- een column of vaste rubriek is een positie, vaak als deskundige gevraagd worden is contact;
+- het blok verdwijnt als er niets overblijft;
+- het onderzoek in het propagandamodel gaat naar posities, bij alle partijen.
+
+Waar het misging:
+- Story 14.23 liet elk verband met een bron zien dat het medium noemt. Bijna al die verbanden zijn contact, en contact
+  heeft elk medium met elke partij:
+  - "PVV is bron voor De Telegraaf" (rel 127) rust op één interview uit 2017. De controle vond het citaat terug, dus
+    stond er "stevig onderbouwd".
+  - "Kati Piri werkte voor de Wiardi Beckman Stichting" (2011), en de WBS "levert experts aan de Volkskrant". Dat
+    laatste rust op één Volkskrant-stuk uit 2013.
+  - "Tweede Kamer wordt geadviseerd door Clingendael", en Clingendael "levert experts aan het AD".
+  - "Tweede Kamer is bron voor het ANP", en het ANP "levert kant-en-klaar nieuws aan" elke krant: 22 regels in een
+    week.
+- Een tussenstation telde als het bij één van de uiteinden hoorde (`meaningfulRoute`), ook aan de kant van de
+  partij. Een instituut waar iemand ooit werkte of dat de Kamer adviseert, maakte zo van contact een verband.
+
+Wat het doet in de nieuws-app (`behindRoute`, `behindParties`, `lineTier` in `lib/explore/why.ts`):
+- "Wie zit erachter?" laat zien wie áchter het medium zit, niet wie ervóór de microfoon stond. Wie in dít nieuws
+  praat, laat "Wie praat?" zien.
+- De stap naar het medium is een positie of geld:
+  - positie: werkt of werkte er, column of programma, bestuur, advies, woordvoerder, ambt, overstap, keuze van de
+    hoofdredacteur;
+  - geld: eigenaar, financier, investeerder, zeggenschap, of een adverteerder die het medium betaalt.
+- Via een persoon alleen als die een positie bij het medium heeft én bij de partij hoort. Bij de partij horen is: lid
+  van een partij of groep, baan, bestuur, woordvoerder, advies, of een ambt dat meer is dan één van de vele zetels.
+  Voorbeelden: Ullah, Berghuis, Frits Wester.
+- Via een organisatie alleen langs de eigenaar: LINDA. en Trouw zijn allebei van DPG Media, of een bestuurder van de
+  eigenaar.
+- Weg:
+  - contact: bron, deskundige, interview, ANP-kopij, agenda, aanval, druk;
+  - twee redactiebanen: een journalist die bij NRC en de Volkskrant werkte;
+  - de eigen verslaggever of columnist die alleen door zijn eigen medium genoemd wordt: hij brengt het nieuws
+    (`soleOutlets` in `lib/explore/pm-seeds.ts`, uit `outlet_counts` en de sprekers per medium);
+  - een route waarvan beide banden voorbij zijn: NRC en Trouw hadden tot 2009 dezelfde eigenaar.
+- Een regel is zo sterk als zijn zwakste band. Die band staat voorop: het oordeel, het bewijs en het onderzoek naar
+  dun bewijs gaan over hem. Bij gelijke steun staat de positie bij het medium voorop.
+- Geld zonder band (een adverteerder) rust nog steeds op bewijs dat het medium noemt (`specificParties`).
+- Blijft er niets over, ook niet in "Hoe hangen ze samen?", dan verdwijnt het blok. De zinnen "Geen partij uit dit
+  nieuws in het propagandamodel." en "Geen verband binnen twee stappen …" zijn weg. Is er alleen "Hoe hangen ze
+  samen?", dan is dat de kop.
+- `meaningfulRoute` blijft voor "Waarom zo?" in het filterblad van het netwerk.
+
+Doorgerekend op de afgelopen week. Dat zijn 933 nieuwsitems uit de lokale database, als benadering: namen uit het
+nieuws, niet de sprekers uit de analyse, zonder het oordeel "onbewezen".
+- Voorheen hadden 47 items samen 96 regels. Nu hebben 11 items 19 regels.
+- Weg, per soort band met het medium (77 regels):
+  - experts en duiders: 29;
+  - ANP-kopij: 22;
+  - bron en gezag: 9;
+  - eigendom die voorbij is of via contact loopt: 7;
+  - eigen mensen en collega's: 7;
+  - aanval en druk: 2;
+  - een NOS-programma via een bron: 1.
+- Blijft:
+  - Ullah (VVD, De Telegraaf);
+  - Berghuis en Frits Wester (RTL Nieuws);
+  - Weesie (PowNed, De Telegraaf);
+  - LINDA. en Trouw;
+  - de omroepen en de NOS via de NPO.
+- Drie blijvers rusten op banden zonder datum (Marcel van Dam, Wolffensperger en Hillen, die als "1969–" open
+  staat). Ze vallen weg zodra de datumzoeker van het propagandamodel ze dateert.
+
+In het propagandamodel:
+- Het model kent weinig posities. Mensen tussen redactie en partij staan er alleen in bij PvdA (vooral oud-NOS en
+  oud-Volkskrant), CDA, VVD, D66 en PRO (Bolhuis). Zonder meer onderzoek zwijgt het blok bij PVV, JA21, BBB, SP, NSC
+  enzovoort. Dat is een gat in het model, geen afwezigheid van banden.
+- De acht doelen `redactieleiding:<medium>` (sinds 2026-10-09) waren nog niet opgepakt. Op prioriteit 80 gingen
+  namen uit het nieuws (tot ± 87) steeds voor, en de scout pakte in zes dagen 21 doelen op.
+  `scripts/nieuws_redactieleiding_doelen.py`:
+  - prioriteit 88, onder spoed (≥ 90);
+  - de opdracht vraagt ook columnisten en vaste commentatoren;
+  - een column wordt een positie (`mediaplatform` met Podiumverlening, of `personeel` met functie columnist), nooit
+    Expert legitimatie;
+  - de scout zoekt banden bij alle partijen;
+  - de acht doelen zijn opnieuw ingediend (open, 88). `missies/nieuws_scout_brief.md` § redactieleiding zegt
+    hetzelfde.
+- Ongeveer 25 columns, vaste rubrieken en vaste tafelgasten staan als `beinvloeding` / Expert legitimatie, onder meer
+  Bolhuis → RTL Nieuws, Van Rossem → de Volkskrant en de columnisten van Buitenhof.
+  - Voor het blok tellen alleen de twee bij een nieuwsmedium van de app. Die gaan langs de scout:
+    `context.column_als_deskundige` van de doelen voor RTL Nieuws en de Volkskrant noemt ze, en de scout legt de
+    column vast als positie. De oude deskundige-relatie blijft staan; de app slaat die over.
+  - De rest (Buitenhof, Op1, BNR, De Groene …) telt alleen in het netwerk en staat nog open. De
+    pm-governancesessie nam het omzetten niet op zich.
+
+Tests:
+- Jest, `__tests__/explore/why.test.ts`, met de voorbeelden van de eigenaar:
+  - weg: PVV → De Telegraaf, Piri → WBS → Volkskrant, Kamer → Clingendael → AD, Kamer → ANP → AD, een Kamerlid bij
+    de NOS;
+  - blijft: Ullah, LINDA. en Trouw, een minister die bij de Volkskrant werkte, Clingendael via zijn bestuurder die de
+    NOS adviseert;
+  - weg: geschiedenis aan beide kanten, collega's, de eigen verslaggever, het medium als adverteerder;
+  - de zwakste band voorop, en `soleOutlets`;
+  - alle 336 frontend-tests groen, tsc en ESLint schoon.
+- Playwright: "Wie zit erachter?" in `onderzoeksmodus.spec.ts` en `waarom-zo.spec.ts`. In de demo zijn RIVM en het
+  PBL alleen bron, dus er is geen blok en geen zin.
+- In de app (dev-server, 390 en 1440 breed):
+  - "Regenboogvlag" toont VVD (Berghuis, Ullah), CDA (Wester, Hillen) en D66 (Wolffensperger);
+  - "Yeşilgöz noemt Rusland 'onze vijand'" toont alleen "Hoe hangen ze samen?";
+  - geen zijwaarts scrollen.
+- Pm: `scripts/test_datumzoeker.py` groen.
+
+## Story 14.26: Tijdlijn als één as
+
+**Status**: ✅ Done (2026-10-14), nog niet gecommit
+
+Eigenaar (2026-10-14): "Dezelfde mensen in ander nieuws beetje random bij tijdlijn en lelijk om wat troep text
+daaronder te plaatsen.. maak het mooi strak overzichtelijk en passend allemaal"
+
+Wat er mis was:
+- "Dezelfde mensen in ander nieuws" toonde losse namen met een telling ("Dat · 1 nieuwsitem", "Tweede Kamer",
+  "Spreidingswet"). Het nieuws zelf zag je pas na een tik. De namen komen uit de herkenning van namen, met ruis:
+  `org:dat`, `org:server`, `org:me`, `person:vuurwerkverbod` staan tussen de meest gedeelde namen in
+  `event_relations`.
+- Losse kopjes zonder kaart, onder elkaar: Voorgeschiedenis, Eerder in dit verhaal, Dit nieuws, Tegelijk verschenen,
+  Later in dit verhaal, een dichte rij "Waarom nu?".
+- Momenten na het laatste artikel werden vastgezet op het einde van het nieuws, in de volgorde van de analyse: "1 apr
+  2027" stond vóór "1 jan 2027".
+
+Wat er veranderd is (`components/explore/map/TijdlijnTab.tsx`, `lib/explore/chronology.ts`):
+- Eén witte kaart met één as. Links staat de tijd, op de lijn een punt, rechts wat er gebeurde:
+  - erboven het verhaal ervóór: achtergrond (jaartallen) en eerdere nieuwsitems (link, aantal artikelen);
+  - dan "Dit nieuws" op een zwarte lijn, per dag en per uur: wie publiceerde wanneer (met vertraging), wat er gebeurde,
+    je eigen momenten;
+  - eronder het verhaal erna: latere nieuwsitems en wat nog komt, elk op zijn eigen datum.
+- Een vol punt is berichtgeving (artikel, nieuwsitem), een open punt is iets dat gebeurde. Zwart is dit nieuws,
+  grijs het verhaal eromheen, gestippeld is van jou.
+- Meer dan drie dingen ervóór: de oudste vouwen weg achter "Nog n eerder"; je eigen momenten blijven staan.
+- "Waarom nu?" is een eigen kaart: waarom nu, wie heeft er baat bij, wat komt eraan, met Klopt niet en Bewaar.
+- "Dezelfde mensen in ander nieuws" is weg. Elke naam is aantikbaar en toont "Ook in ander nieuws". Een relatie
+  met één gedeelde naam hoort niet bij het verhaal (`storyThread` heeft geen `people` meer).
+- Een moment hoort bij dit nieuws als het tot een dag voor het eerste of na het laatste artikel valt (`partOf`).
+
+Tests:
+- Jest `__tests__/explore/figure.test.ts`: de as (ervoor, dit nieuws, erna) en momenten na het nieuws op hun eigen
+  datum; alle 339 frontend-tests groen, tsc en ESLint schoon.
+- Playwright `onderzoeksmodus.spec.ts` ("follows the story", "switches between the questions") groen op drie
+  apparaten. "Wie zit erachter? shows real routes in the demo" faalt: de demo heeft sinds Story 14.25 geen blok.
+- Screenshots op 390 en 1440 breed (demo, "Bart van den Brink vraagt hulp", "Meerdere explosies"): geen zijwaarts
+  scrollen.

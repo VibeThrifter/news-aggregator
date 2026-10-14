@@ -13,17 +13,21 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe("Waarom zo?", () => {
-  test("Wie zit erachter? shows the most specific routes of the news, or honestly none", async ({ page }) => {
+  test("Wie zit erachter? shows only places in the outlets and their money, and no sentence when there is none", async ({ page }) => {
     await page.goto("/event/demo");
-    const block = page.locator('section[aria-labelledby="behind-title"]');
-    await block.scrollIntoViewIfNeeded();
-    const routes = block.getByRole("list", { name: "Routes tussen de bronnen en de partijen van dit nieuws" });
-    const none = block.getByText(/^Geen verband binnen twee stappen|^Geen partij uit dit nieuws/);
-    await expect(routes.or(none)).toBeVisible({ timeout: 20_000 });
-    if (await routes.isVisible()) {
-      await routes.getByRole("button", { name: /^Bronnen van / }).first().click();
-      await expect(page.getByRole("dialog").filter({ hasText: /Bron: Propagandamodel/ }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 20_000 });
+    // Scroll through the page step by step, so the block loads once it comes into view
+    for (let i = 0; i < 40; i += 1) {
+      const bottom = await page.evaluate(() => {
+        window.scrollBy(0, 500);
+        return window.innerHeight + window.scrollY >= document.body.scrollHeight - 2;
+      });
+      await page.waitForTimeout(100);
+      if (bottom) break;
     }
+    // RIVM and the PBL are sources of the NOS and the Volkskrant: contact, not who is behind them (Story 14.25)
+    await expect(page.locator('section[aria-labelledby="behind-title"]')).toHaveCount(0, { timeout: 20_000 });
+    await expect(page.getByText(/^Geen verband binnen twee stappen|^Geen partij uit dit nieuws/)).toHaveCount(0);
   });
 
   test("the network lists which outlets are linked to the news, also those that did not bring it", async ({ page }) => {
