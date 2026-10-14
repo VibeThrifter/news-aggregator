@@ -51,15 +51,6 @@ class FakeClient:
         )
 
 
-@pytest.fixture(autouse=True)
-def no_cache_sync(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
-    """Never write to the developer's SQLite cache."""
-
-    sync = AsyncMock(return_value=0)
-    monkeypatch.setattr(digest_module, "sync_entities_to_cache", sync)
-    return sync
-
-
 async def add_article(
     factory: async_sessionmaker,
     *,
@@ -136,9 +127,7 @@ def test_payload_collapses_whitespace() -> None:
     assert ArticleDigestPayload(kern="  een \n twee  ").kern == "een twee"
 
 
-async def test_digest_from_the_fetched_text_is_stored_in_the_metadata(
-    no_cache_sync: AsyncMock,
-) -> None:
+async def test_digest_from_the_fetched_text_is_stored_in_the_metadata() -> None:
     factory, engine = await make_session_factory()
     try:
         article_id = await add_article(
@@ -162,7 +151,6 @@ async def test_digest_from_the_fetched_text_is_stored_in_the_metadata(
         assert metadata["google_news_url"] == "g"
         assert metadata["digest"]["nl"] == outcome.digest["nl"]
         assert "digest_failures" not in metadata
-        no_cache_sync.assert_awaited_once()
     finally:
         await engine.dispose()
 

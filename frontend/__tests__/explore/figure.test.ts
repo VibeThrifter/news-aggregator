@@ -1,4 +1,4 @@
-import { chronology, storyThread } from "@/lib/explore/chronology";
+import { chronology, partOf, storyThread } from "@/lib/explore/chronology";
 import { buildExploration } from "@/lib/explore/exploration";
 import { buildFigure, numberFindings } from "@/lib/explore/figure";
 import { DEMO_EVENT, DEMO_EVENTS } from "@/lib/explore/fixtures/demo-event";
@@ -99,7 +99,45 @@ describe("figure", () => {
 
   it("draws contradiction lines only between outlets in the picture", () => {
     expect(buildFigure(exploration, () => true).contradictions.length).toBeGreaterThan(0);
-    expect(buildFigure(exploration, (outlet) => outlet.key === "nos").contradictions).toHaveLength(0);
+    const one = buildFigure(exploration, (outlet) => outlet.key === "nos");
+    expect(one.contradictions).toHaveLength(0);
+    expect(one.contradictionNotes.size).toBe(0);
+  });
+
+  it("draws a contradiction line only between balloons right next to each other, never across others", () => {
+    const figure = buildFigure(exploration, () => true);
+    expect(figure.mode).toBe("perInvalshoek");
+    for (const line of figure.contradictions) {
+      const anchors = figure.groups.find((group) => group.key === line.group)?.outlets.map((balloon) => balloon.anchor) ?? [];
+      const [a, b] = [anchors.indexOf(line.from), anchors.indexOf(line.to)];
+      expect(a).toBeGreaterThanOrEqual(0);
+      expect(b).toBeGreaterThanOrEqual(0);
+      // Two columns: side by side in one row, or one under the other
+      expect((Math.abs(a - b) === 1 && Math.floor(a / 2) === Math.floor(b / 2)) || Math.abs(a - b) === 2).toBe(true);
+    }
+    // AD and NOS stand side by side: a line, labelled with who and what
+    expect(figure.contradictions).toEqual([
+      expect.objectContaining({ group: "p:1", from: "outlet:ad", to: "outlet:nos", between: ["AD", "NOS"], topic: "Hoeveel turbines komen er?", lead: true }),
+    ]);
+  });
+
+  it("puts a contradiction whose sides stand apart on each balloon, with who it contradicts", () => {
+    const figure = buildFigure(exploration, () => true);
+    const notes = (key: string) => (figure.contradictionNotes.get(key) ?? []).map((note) => [note.number, note.against]);
+    // NU.nl is on the side of NOS about the turbines, a perspective away from AD; and contradicts NOS about the noise study
+    const turbines = figure.contradictions[0].number;
+    expect(notes("p:0|outlet:nu-nl")).toEqual([
+      [turbines, ["AD"]],
+      [turbines + 1, ["NOS"]],
+    ]);
+    expect(notes("p:1|outlet:nos")).toEqual([[turbines + 1, ["NU.nl"]]]);
+    // The ends of the line carry no note of their own, and nothing is put on an outlet that is no side
+    expect(figure.contradictionNotes.has("p:1|outlet:ad")).toBe(false);
+    expect(figure.contradictionNotes.has("p:0|outlet:telegraaf")).toBe(false);
+    // The picture scrolls to one place per contradiction
+    const leads = [...figure.contradictions, ...Array.from(figure.contradictionNotes.values()).flat()].filter((item) => item.lead);
+    expect(leads.map((item) => item.findingId).sort()).toEqual(Array.from(new Set(leads.map((item) => item.findingId))).sort());
+    expect(leads).toHaveLength(2);
   });
 });
 
@@ -131,7 +169,7 @@ describe("chronology and story thread", () => {
   const person = (name: string) => ({ type: "entity" as const, key: `person:${name}`, name, kind: "person" as const });
   const place = (name: string) => ({ type: "entity" as const, key: `place:${name}`, name, kind: "place" as const });
 
-  it("splits relations into the same story (earlier, alongside, later) and other news per person", () => {
+  it("splits relations into the same story (earlier, alongside, later); one shared name is not the story", () => {
     const raw = clone(DEMO_EVENT);
     raw.relations = [
       relation(1, "2026-09-20T10:00:00Z", [person("Anouk Verbeek"), place("Dijkerhoven")]),
@@ -144,26 +182,55 @@ describe("chronology and story thread", () => {
     expect(thread.earlier.map((item) => item.eventId)).toEqual([1]);
     expect(thread.alongside.map((item) => item.eventId)).toEqual([2]);
     expect(thread.later.map((item) => item.eventId)).toEqual([3]);
-    expect(thread.people).toEqual([expect.objectContaining({ name: "Anouk Verbeek", episodes: [expect.objectContaining({ eventId: 4 })] })]);
     expect(thread.earlier[0].title).toBe("Titel 1");
   });
 
-  it("puts publications and moments on one axis, history apart", () => {
-    const { history, rows } = chronology(buildExploration(DEMO_EVENT).input);
-    expect(history.length).toBeGreaterThan(0);
+  it("puts the story before, this news and the story after on one axis", () => {
+    const { before, rows, after } = chronology(buildExploration(DEMO_EVENT).input);
+    // 2019 and March 2025 are background, then the plan of 20 September (an earlier episode)
+    expect(before.map((row) => (row.kind === "episode" ? row.episode.eventId : row.headline.slice(0, 20)))).toEqual([
+      "Provincie wijst de p",
+      "NordVind presenteert",
+      -2,
+    ]);
     expect(rows.some((row) => row.kind === "publication")).toBe(true);
-    expect(rows.some((row) => row.kind === "moment")).toBe(true);
-    const times = rows.map((row) => row.t);
-    expect([...times].sort((a, b) => a - b)).toEqual(times);
+    expect(rows.filter((row) => row.kind === "moment")).toHaveLength(4);
+    expect(after.map((row) => row.kind === "episode" && row.episode.eventId)).toEqual([-3]);
+    for (const list of [before, rows, after]) {
+      const times = list.map((row) => row.t);
+      expect([...times].sort((a, b) => a - b)).toEqual(times);
+    }
+  });
+
+  it("keeps every moment at its own date: what comes after this news goes after it", () => {
+    const raw = clone(DEMO_EVENT);
+    raw.relations = [];
+    raw.insight!.timeline = [
+      { time: "2027-04-01", headline: "In april 2027 zijn 7600 plekken nodig", sources: [], spectrum: "mainstream" },
+      { time: "2027-01-01", headline: "In januari 2027 zijn 3600 plekken nodig", sources: [], spectrum: "mainstream" },
+      { time: "2026-09-28T09:00:00Z", headline: "Stichting Stille Polder kondigt rechtszaak aan", sources: [], spectrum: "mainstream" },
+    ];
+    const { before, rows, after, span } = chronology(buildExploration(raw).input);
+    expect(before).toEqual([]);
+    expect(rows.filter((row) => row.kind === "moment").map((row) => row.kind === "moment" && row.headline)).toEqual([
+      "Stichting Stille Polder kondigt rechtszaak aan",
+    ]);
+    expect(after.map((row) => row.kind === "moment" && row.headline)).toEqual([
+      "In januari 2027 zijn 3600 plekken nodig",
+      "In april 2027 zijn 7600 plekken nodig",
+    ]);
+    expect(partOf(span.start - 2 * 86_400_000, span)).toBe("before");
+    expect(partOf(span.end, span)).toBe("news");
+    expect(partOf(span.end + 2 * 86_400_000, span)).toBe("after");
   });
 });
 
 describe("the demo story", () => {
-  it("links its four news items into one story with other news per person", () => {
+  it("links its news items into one story, without the other news of the alderman", () => {
     const thread = storyThread(buildExploration(DEMO_EVENT).input);
     expect(thread.earlier.map((item) => item.eventId)).toEqual([-2]);
     expect(thread.later.map((item) => item.eventId)).toEqual([-3]);
-    expect(thread.people.map((person) => person.name)).toEqual(["Anouk Verbeek"]);
+    expect(thread.alongside).toEqual([]);
     const later = storyThread(buildExploration(DEMO_EVENTS["demo-vervolg"]).input);
     expect(later.earlier.map((item) => item.eventId)).toEqual([-2, -1]);
   });

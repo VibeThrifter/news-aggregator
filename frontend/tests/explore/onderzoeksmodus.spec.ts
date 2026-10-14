@@ -77,8 +77,11 @@ test.describe("Eén beeld (demo)", () => {
   test("switches between the questions", async ({ page }) => {
     await openDemo(page);
     await page.getByRole("tab", { name: /^Wie praat\?/ }).click();
-    await expect(page.getByRole("table", { name: "Wie praat bij welke bron" })).toBeVisible();
-    await expect(page.getByText("● aan het woord · ○ alleen genoemd")).toBeVisible();
+    const matrix = page.getByRole("region", { name: "Wie komt waar aan het woord?" });
+    await expect(matrix.getByRole("table", { name: "Wie praat bij welke bron" })).toBeVisible();
+    await expect(matrix.getByText("alleen genoemd")).toBeVisible();
+    // A card per outlet, under the matrix
+    await expect(page.getByRole("region", { name: "Wie praat bij De Telegraaf" })).toContainText("Anouk Verbeek");
 
     await page.getByRole("tab", { name: /^Wat ontbreekt\?/ }).click();
     await expect(page.getByRole("tabpanel").getByText("Onafhankelijke geluidsdeskundigen")).toBeVisible();
@@ -202,10 +205,11 @@ test.describe("Eén beeld (demo)", () => {
   test("follows the story: earlier and later episodes, and the usual one-outlet picture", async ({ page }) => {
     await openDemo(page);
     await page.getByRole("button", { name: /^Ook in 2 andere nieuwsitems over dit verhaal/ }).click();
-    const panel = page.getByRole("tabpanel");
-    await expect(panel.getByText("Eerder in dit verhaal")).toBeVisible();
-    await expect(panel.getByText("Dezelfde mensen in ander nieuws")).toBeVisible();
-    await panel.getByRole("link", { name: /Rechter legt bouw windpark Dijkerhoven stil/ }).click();
+    // One axis: the earlier episode above this news, the later one below it
+    const axis = page.getByRole("tabpanel").getByRole("region", { name: "Tijdlijn" });
+    await expect(axis.getByRole("link", { name: /Dijkerhoven wil windpark van NordVind in de polder/ })).toBeVisible();
+    await expect(axis.getByText("Dit nieuws")).toBeVisible();
+    await axis.getByRole("link", { name: /Rechter legt bouw windpark Dijkerhoven stil/ }).click();
 
     await expect(page.getByRole("heading", { level: 1, name: "Rechter legt bouw windpark Dijkerhoven stil" })).toBeVisible();
     // One Dutch outlet: a group for NOS with the speakers it gives the word to

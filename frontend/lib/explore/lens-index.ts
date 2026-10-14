@@ -75,14 +75,9 @@ export function outletIndex(exploration: Exploration, outletKey: string): IndexL
     lines.push({ tab: "stemmen", text: `${names.join(", ")}${rest > 0 ? ` +${rest}` : ""}`, findingIds: voices.map((finding) => finding.id) });
   }
 
-  const questions = about.find((finding) => finding.body.type === "questions");
-  if (questions && questions.body.type === "questions") {
-    const asked = questions.body.analysis.questions_not_asked?.length ?? 0;
-    const omitted = questions.body.analysis.perspectives_omitted?.length ?? 0;
-    const text = [asked ? plural(asked, "vraag niet gesteld", "vragen niet gesteld") : null, omitted ? plural(omitted, "perspectief weggelaten", "perspectieven weggelaten") : null]
-      .filter(Boolean)
-      .join(" · ");
-    if (text) lines.push({ tab: "ontbreekt", text, findingIds: [questions.id] });
+  const questions = about.filter((finding) => finding.body.type === "question");
+  if (questions.length) {
+    lines.push({ tab: "vragen", text: plural(questions.length, "vraag", "vragen"), findingIds: questions.map((finding) => finding.id) });
   }
 
   const tone = about.find((finding) => finding.body.type === "tone");

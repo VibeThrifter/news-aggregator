@@ -18,6 +18,7 @@ import { Favicon } from "../ui/primitives";
 import { NumberBadge } from "./Markers";
 import { Avatar } from "./PeopleCards";
 import { ScrollRow } from "../ui/ScrollRow";
+import { EarlierSearches } from "./VoiceSearch";
 
 /** "jij": added by the reader; "overgenomen": taken over from another reader. */
 export function OwnTag({ adopted = false, className = "" }: { adopted?: boolean; className?: string }) {
@@ -420,6 +421,12 @@ export function OwnForm({
     if (entry) onDone(entry);
   };
 
+  // A missing voice that was searched with AI already: take it over with what you wrote about it
+  const takeOver = (perspective: string) => {
+    const entry = addOwn({ kind: "gap", text: perspective, detail: detail.trim() || undefined });
+    if (entry) onDone(entry);
+  };
+
   const textInput = spec.text.multiline ? (
     <textarea
       id={`${id}-text`}
@@ -502,6 +509,7 @@ export function OwnForm({
       <Field id={`${id}-text`} label={spec.text.label}>
         {textInput}
       </Field>
+      {kind === "gap" && !initial ? <EarlierSearches typed={text} onTake={takeOver} onClose={onCancel} /> : null}
       {spec.title ? (
         <Field id={`${id}-title`} label={spec.title.label} optional>
           <input id={`${id}-title`} value={title} onChange={(event) => setTitle(event.target.value)} maxLength={spec.title.max} className={inputClass} />

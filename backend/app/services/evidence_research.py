@@ -65,6 +65,7 @@ from backend.app.services.entity_research.runner import (
     PmAgentRuns,
 )
 from backend.app.services.propaganda_model_sync import connect_read_only
+from backend.app.services.website_requests import pull_requests
 
 logger = get_logger(__name__).bind(component="EvidenceResearchService")
 
@@ -118,9 +119,9 @@ def _default_write_factory() -> AbstractAsyncContextManager[AsyncSession]:
 
 
 def _default_read_factory() -> AbstractAsyncContextManager[AsyncSession]:
-    from backend.app.db.dual_write import get_read_session
+    from backend.app.db.session import get_sessionmaker
 
-    return get_read_session()
+    return get_sessionmaker()()
 
 
 def _utc(value: datetime | None) -> datetime | None:
@@ -559,11 +560,13 @@ class EvidenceResearchService:
             return {"skipped": True, "reason": "disabled"}
         started, started_at = time.monotonic(), datetime.now(timezone.utc)
         async with self._lock:
+            requests = await self.pull_requests()
             status = await self.sync_status()
             enqueue = await self.enqueue()
             prioritised = await self.prioritise()
         outcome = {
             "skipped": False,
+            "requests": requests,
             "status": status,
             "enqueue": enqueue,
             "prioritised": prioritised,
@@ -575,6 +578,17 @@ class EvidenceResearchService:
         }
         logger.info("evidence_research_cycle", correlation_id=correlation_id, **outcome)
         return outcome
+
+    async def pull_requests(self) -> dict[str, Any]:
+        """Story INFRA-2: the readers' requests (written in Supabase) into the local database."""
+
+        if not self.settings.supabase_database_url:
+            return {"skipped": "one database"}
+        try:
+            return await pull_requests("relation_research")
+        except Exception as exc:  # the next cycle tries again
+            logger.warning("evidence_research_pull_failed", error=str(exc)[:300])
+            return {"error": str(exc)[:300]}
 
     # ------------------------------------------------------------------ enqueue
     async def _well_supported(self, session: AsyncSession, ids: Sequence[int]) -> set[int]:

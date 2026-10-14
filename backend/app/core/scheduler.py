@@ -7,6 +7,7 @@ and other background jobs according to Story 1.1 requirements.
 
 import asyncio
 import json
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,6 +17,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from ..db.session import ensure_healthy_connection, get_sessionmaker
+from ..db.supabase import SupabaseListener, dispose_supabase_engine
 from ..events.maintenance import get_event_maintenance_service
 from ..repositories.event_repo import EventRepository
 from ..services.article_digest import get_article_digest_service
@@ -31,6 +33,8 @@ from ..services.international_enrichment import (
 from ..services.entity_research.service import get_entity_research_service
 from ..services.evidence_research import get_evidence_research_service
 from ..services.propaganda_model_sync import get_propaganda_sync_service
+from ..services.local_backup import backup_local_database, latest_backup_age
+from ..services.publish_service import get_publish_service
 from .config import get_settings
 
 # Maximum time allowed for a single poll cycle (5 minutes)
@@ -54,7 +58,7 @@ INTERNATIONAL_ENRICHMENT_TIMEOUT_SECONDS = 900
 BIAS_ANALYSIS_TIMEOUT_SECONDS = 1800
 # Maximum time allowed for one article digest batch (page fetches + one LLM call per article)
 ARTICLE_DIGEST_TIMEOUT_SECONDS = 900
-# One AI search for a missing voice takes about a minute; the service times out each one itself
+# One AI search for a missing voice takes 15 s to a minute; the service times out each one itself
 VOICE_SEARCH_TIMEOUT_SECONDS = 900
 # Maximum time allowed for the propaganda-model sync (Story 11.17)
 PROPAGANDA_SYNC_TIMEOUT_SECONDS = 600
@@ -62,6 +66,11 @@ PROPAGANDA_SYNC_TIMEOUT_SECONDS = 600
 ENTITY_RESEARCH_TIMEOUT_SECONDS = 600
 # One evidence research cycle (Story 14.13)
 EVIDENCE_RESEARCH_TIMEOUT_SECONDS = 300
+# Publishing the changes of the local database to Supabase (Story INFRA-2)
+PUBLISH_TIMEOUT_SECONDS = 600
+# The daily backup of the local database
+LOCAL_BACKUP_TIMEOUT_SECONDS = 900
+LOCAL_BACKUP_INTERVAL_HOURS = 24
 
 logger = structlog.get_logger()
 
@@ -80,6 +89,18 @@ def _write_state(path: Path, **values: str) -> None:
     partial = path.with_suffix(".tmp")
     partial.write_text(json.dumps(state, indent=2))
     partial.replace(path)
+
+
+class _QuietVoiceSearchLog(logging.Filter):
+    """The voice search job looks at its queue every few seconds: APScheduler's lines about
+    running it, and about skipping a turn while a search runs, would flood the log."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno > logging.WARNING or '"Voice Search (' not in record.getMessage()
+
+
+for _name in ("apscheduler.scheduler", "apscheduler.executors.default"):
+    logging.getLogger(_name).addFilter(_QuietVoiceSearchLog())
 
 
 class NewsAggregatorScheduler:
@@ -106,6 +127,15 @@ class NewsAggregatorScheduler:
         # "Wat schreef …?": outcome of the last foreign article digest batch
         self._article_digest_last_run: dict | None = None
         self._voice_search_last_run: dict | None = None
+        # Story INFRA-2: the voice search waits for a signal from Supabase instead of asking every
+        # few seconds (None: Supabase is the one database, ask as before)
+        self._voice_listener: SupabaseListener | None = (
+            SupabaseListener("voice_search", self.settings.voice_search_fallback_seconds)
+            if self.settings.supabase_database_url
+            else None
+        )
+        self._publish_last_error: dict | None = None
+        self._local_backup_last_run: dict | None = None
         self._state_file = SCHEDULER_STATE_FILE
         self._is_running = False
 
@@ -247,19 +277,55 @@ class NewsAggregatorScheduler:
         if self.settings.voice_search_enabled:
             self.scheduler.add_job(
                 func=self._voice_search_job,
-                trigger=IntervalTrigger(minutes=self.settings.voice_search_interval_minutes),
+                trigger=IntervalTrigger(seconds=self.settings.voice_search_interval_seconds),
                 id="voice_search",
                 name="Voice Search",
                 replace_existing=True,
                 max_instances=1,
+                coalesce=True,
             )
             logger.info(
                 "Voice search job enabled",
-                interval_minutes=self.settings.voice_search_interval_minutes,
+                interval_seconds=self.settings.voice_search_interval_seconds,
                 batch_size=self.settings.voice_search_batch_size,
             )
         else:
             logger.info("Voice search job disabled (set VOICE_SEARCH_ENABLED=true to enable)")
+
+        # Story INFRA-2: a daily backup of the local working database (it holds what Supabase does not)
+        if self.settings.supabase_database_url and self.settings.local_backup_enabled:
+            self.scheduler.add_job(
+                func=self._local_backup_when_due,
+                trigger=IntervalTrigger(minutes=MAINTENANCE_CHECK_MINUTES),
+                next_run_time=(
+                    datetime.now(timezone.utc) + timedelta(minutes=MAINTENANCE_FIRST_CHECK_MINUTES)
+                ),
+                id="local_backup",
+                name="Local Database Backup",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
+
+        # Story INFRA-2: what changed in the local database goes to Supabase, what the website reads
+        if self.settings.supabase_database_url and self.settings.publish_enabled:
+            self.scheduler.add_job(
+                func=self._publish_job,
+                trigger=IntervalTrigger(seconds=self.settings.publish_interval_seconds),
+                id="publish_supabase",
+                name="Publish to Supabase",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                # A poll keeps the event loop busy for seconds at a time; then run late, once,
+                # instead of skipping the run (APScheduler's default grace is one second)
+                misfire_grace_time=None,
+            )
+            logger.info(
+                "Publish job enabled", interval_seconds=self.settings.publish_interval_seconds
+            )
+        else:
+            logger.info("Publish job disabled (no SUPABASE_DATABASE_URL: Supabase is the database)")
 
         # Propaganda-model sync (Story 11.17) - only writes when the pm database changed
         if self.settings.propaganda_sync_enabled:
@@ -498,6 +564,36 @@ class NewsAggregatorScheduler:
         await self._run_exploration_refresh(correlation_id)
         return True
 
+    async def _local_backup_when_due(self) -> None:
+        """A pg_dump of the local working database when the newest backup is a day old (Story
+        INFRA-2): it holds what Supabase no longer has. The age comes from the files, so restarts
+        and a sleeping Mac never skip or repeat it. Never raises."""
+
+        age = latest_backup_age(self.settings)
+        if age is not None and age < timedelta(hours=LOCAL_BACKUP_INTERVAL_HOURS):
+            return
+        await self._run_local_backup(str(uuid.uuid4()))
+
+    async def _run_local_backup(self, correlation_id: str) -> None:
+        """pg_dump of the local working database. Never raises."""
+
+        job_logger = logger.bind(correlation_id=correlation_id, job="local_backup")
+        run: dict = {"started_at": datetime.now(timezone.utc).isoformat(), "success": False}
+        try:
+            result = await asyncio.wait_for(
+                backup_local_database(self.settings), timeout=LOCAL_BACKUP_TIMEOUT_SECONDS
+            )
+            run.update(success=True, result=result)
+            job_logger.info("Local database backup completed", **result)
+        except asyncio.TimeoutError:
+            run["error"] = f"timed out after {LOCAL_BACKUP_TIMEOUT_SECONDS} seconds"
+            job_logger.error("Local database backup timed out")
+        except Exception as exc:
+            run["error"] = str(exc) or type(exc).__name__
+            job_logger.error("Local database backup failed", error=run["error"])
+        run["finished_at"] = datetime.now(timezone.utc).isoformat()
+        self._local_backup_last_run = run
+
     async def _run_exploration_refresh(self, correlation_id: str) -> None:
         """Refresh event entities + related events after maintenance. Never raises."""
 
@@ -564,6 +660,12 @@ class NewsAggregatorScheduler:
         job_logger = logger.bind(correlation_id=correlation_id, job="voice_search")
         run: dict = {"started_at": datetime.now(timezone.utc).isoformat(), "success": False}
         try:
+            # Story INFRA-2: only look in Supabase after a signal of the website (or now and then)
+            signals = await self._voice_listener.due() if self._voice_listener else []
+            if signals is None:
+                return
+            if signals:
+                run["signals"] = signals[:10]
             if not await ensure_healthy_connection():
                 run["error"] = "database connection unhealthy"
                 self._reset_services()
@@ -585,13 +687,33 @@ class NewsAggregatorScheduler:
             run["error"] = str(exc) or type(exc).__name__
             job_logger.error("Voice search job failed", error=run["error"])
         run["finished_at"] = datetime.now(timezone.utc).isoformat()
-        # Keep the last run that did something (the job runs every minute)
+        # Keep the last run that did something (the job runs every few seconds)
         if (
             run.get("error")
             or (run.get("result") or {}).get("ran")
             or self._voice_search_last_run is None
         ):
             self._voice_search_last_run = run
+
+    async def _publish_job(self) -> None:
+        """Send what changed in the local database to Supabase (Story INFRA-2). Never raises."""
+
+        try:
+            await asyncio.wait_for(
+                get_publish_service().publish_once(), timeout=PUBLISH_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            self._publish_last_error = {
+                "at": datetime.now(timezone.utc).isoformat(),
+                "error": f"timed out after {PUBLISH_TIMEOUT_SECONDS} seconds",
+            }
+            logger.error("Publish job timed out", timeout_seconds=PUBLISH_TIMEOUT_SECONDS)
+        except Exception as exc:
+            self._publish_last_error = {
+                "at": datetime.now(timezone.utc).isoformat(),
+                "error": str(exc)[:500] or type(exc).__name__,
+            }
+            logger.error("Publish job failed", error=self._publish_last_error["error"])
 
     async def _propaganda_sync_job(self) -> None:
         """Sync the approved propaganda-model graph when its database changed. Never raises."""
@@ -826,6 +948,25 @@ class NewsAggregatorScheduler:
             self._is_running = False
             logger.info("Scheduler stopped")
 
+    async def close_connections(self) -> None:
+        """Close the Supabase connections (Story INFRA-2)."""
+        if self._voice_listener is not None:
+            await self._voice_listener.close()
+        await dispose_supabase_engine()
+
+    def _storage_status(self) -> dict:
+        """Story INFRA-2: where the backend works and what it published to Supabase."""
+        publish = get_publish_service().status() if self.settings.supabase_database_url else {}
+        return {
+            "local_database": bool(self.settings.supabase_database_url),
+            "publish_enabled": bool(self.settings.supabase_database_url) and self.settings.publish_enabled,
+            "publish_last_run": publish.get("last_run"),
+            "publish_last_change": publish.get("last_change"),
+            "publish_last_error": self._publish_last_error,
+            "voice_search_listening": bool(self._voice_listener and self._voice_listener.connected),
+            "local_backup_last_run": self._local_backup_last_run,
+        }
+
     def _maintenance_last_run_text(self) -> str | None:
         last_run = self._maintenance_last_run()
         return last_run.isoformat() if last_run else None
@@ -843,6 +984,7 @@ class NewsAggregatorScheduler:
                 "evidence_research_last_run": self._evidence_research_last_run,
                 "article_digest_last_run": self._article_digest_last_run,
                 "voice_search_last_run": self._voice_search_last_run,
+                "storage": self._storage_status(),
             }
 
         jobs = []
@@ -866,6 +1008,7 @@ class NewsAggregatorScheduler:
             "evidence_research_last_run": self._evidence_research_last_run,
             "article_digest_last_run": self._article_digest_last_run,
             "voice_search_last_run": self._voice_search_last_run,
+            "storage": self._storage_status(),
         }
 
     async def run_poll_feeds_now(self) -> dict:

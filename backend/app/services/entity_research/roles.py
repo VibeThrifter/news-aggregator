@@ -667,7 +667,7 @@ def cue_from_before(context: MentionContext) -> RoleCue | None:
                 return None  # another name or organisation right before the mention
             continue
         previous = folded[-back - 1] if len(tokens) > back else ""
-        foreign = previous in FOREIGN_DEMONYMS or fold(token) in FOREIGN_HEAD_TITLES
+        foreign = previous in FOREIGN_DEMONYMS or is_foreign_head(token)
         party = _party_prefix(token)
         label = tokens[-back].lower() if not party else f"{party}-{token.partition('-')[2].lower()}"
         cue = RoleCue(
@@ -697,7 +697,7 @@ def cue_from_span(context: MentionContext) -> RoleCue | None:
         tokens[0].lower(),
         W_SPAN_TITLE,
         _clip(context.span, 160),
-        foreign=not party and fold(tokens[0]) in FOREIGN_HEAD_TITLES,
+        foreign=not party and is_foreign_head(tokens[0]),
         domestic=bool(party) or fold(tokens[0]).split("-")[-1] in DOMESTIC_TITLES,
     )
 
@@ -828,11 +828,74 @@ _DEPARTMENT_SUFFIX = re.compile(rf"\s+van\s+(?:{_DEPARTMENTS})\s*$")
 _DEPARTMENT_PREFIX = re.compile(rf"^(?:{_DEPARTMENTS})\s+")
 
 
+# Words NER takes for a name at the start of a sentence or in a teaser ("KIJK OOK", "Gisteren")
+LOOSE_WORDS: frozenset[str] = frozenset(
+    {
+        "ook",
+        "wij",
+        "we",
+        "zij",
+        "ze",
+        "hij",
+        "ik",
+        "jij",
+        "u",
+        "dat",
+        "dit",
+        "die",
+        "deze",
+        "het",
+        "de",
+        "een",
+        "er",
+        "hier",
+        "daar",
+        "nu",
+        "toen",
+        "meer",
+        "kijk",
+        "lees",
+        "bekijk",
+        "luister",
+        "gisteren",
+        "vandaag",
+        "morgen",
+        "video",
+        "foto",
+        "live",
+        "update",
+        "nieuws",
+    }
+)
+
+
 def is_non_actor(name: str) -> bool:
-    """A photo credit or reference site, not someone to research ("Wikimedia Commons")."""
+    """A photo credit or reference site ("Wikimedia Commons"), or no name at all: a loose
+    word ("KIJK OOK", "Gisteren") or a name without a capital ("bond", "senaat")."""
 
     slug = re.sub(r"[^a-z0-9]+", "-", fold(name)).strip("-")
-    return slug in NON_ACTOR_NAMES
+    if not slug or slug in NON_ACTOR_NAMES:
+        return True
+    if not any(ch.isupper() for ch in name):
+        return True
+    return all(word in LOOSE_WORDS for word in slug.split("-"))
+
+
+def is_foreign_head(word: str) -> bool:
+    """A title of a foreign head of state or government, also as former one ("ex-president")."""
+
+    folded = fold(word).strip("'’-")
+    if folded in FOREIGN_HEAD_TITLES:
+        return True
+    head, _, tail = folded.rpartition("-")
+    return tail in FOREIGN_HEAD_TITLES and head in MODIFIERS
+
+
+def is_foreign_head_label(label: str | None) -> bool:
+    """A role label that starts with a foreign head title ("ex-president", "president")."""
+
+    tokens = _TOKEN.findall(label or "")
+    return bool(tokens) and is_foreign_head(tokens[0])
 
 
 def clean_person_name(name: str) -> str:
@@ -958,5 +1021,7 @@ __all__ = [
     "fold",
     "clean_person_name",
     "infer_kind",
+    "is_foreign_head",
+    "is_foreign_head_label",
     "is_non_actor",
 ]

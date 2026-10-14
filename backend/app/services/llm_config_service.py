@@ -11,7 +11,6 @@ from typing import Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.logging import get_logger
-from backend.app.db.dual_write import get_read_session
 from backend.app.db.models import LlmConfig
 from backend.app.db.session import get_sessionmaker
 from backend.app.repositories.llm_config_repo import LlmConfigRepository
@@ -216,6 +215,15 @@ Respond with ONLY the category name in lowercase, nothing else.""",
         ),
     },
     {
+        "key": "provider_voice_web",
+        "value": "gemini-search",
+        "config_type": "provider",
+        "description": (
+            "Zoek met AI: zoeken op het web. gemini-search[:model] = Gemini met Google Search, "
+            "±15 s; google-news = Google News en de pagina's zelf lezen, ±1 min"
+        ),
+    },
+    {
         "key": "deepseek_use_reasoner",
         "value": "false",
         "config_type": "provider",
@@ -263,8 +271,7 @@ class LlmConfigService:
                 if age < CACHE_TTL_SECONDS:
                     return _config_cache.data
 
-            # Use get_read_session() for SQLite cache support (INFRA-1)
-            async with get_read_session() as session:
+            async with get_sessionmaker()() as session:
                 repo = LlmConfigRepository(session)
                 config_dict = await repo.get_all_as_dict()
 
@@ -333,15 +340,13 @@ class LlmConfigService:
 
     async def list_all(self) -> List[LlmConfig]:
         """Get all config entries as model objects."""
-        # Use get_read_session() for SQLite cache support (INFRA-1)
-        async with get_read_session() as session:
+        async with get_sessionmaker()() as session:
             repo = LlmConfigRepository(session)
             return await repo.get_all()
 
     async def list_by_type(self, config_type: str) -> List[LlmConfig]:
         """Get all config entries of a specific type."""
-        # Use get_read_session() for SQLite cache support (INFRA-1)
-        async with get_read_session() as session:
+        async with get_sessionmaker()() as session:
             repo = LlmConfigRepository(session)
             return await repo.get_by_type(config_type)
 

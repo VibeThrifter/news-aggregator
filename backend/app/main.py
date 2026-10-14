@@ -6,9 +6,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.core.config import get_settings
-from backend.app.core.logging import configure_logging
+from backend.app.core.logging import configure_logging, get_logger
 from backend.app.core.scheduler import get_scheduler
 from backend.app.db.session import init_db
+from backend.app.db.supabase import supabase_configured
+from backend.app.services.publish_service import get_publish_service
 from backend.app.routers import (
     aggregate_router,
     bias_router,
@@ -34,12 +36,20 @@ async def lifespan(app: FastAPI):
 
     # Initialize database tables
     await init_db()
+    if supabase_configured():
+        # Story INFRA-2: every change of a published table is noted for Supabase. A table without
+        # its trigger is logged (publish_tables_without_trigger); the backend starts regardless
+        try:
+            await get_publish_service().ensure_local_schema()
+        except Exception as exc:
+            get_logger(__name__).error("publish_schema_failed", error=str(exc)[:300])
 
     scheduler = get_scheduler()
     scheduler.start()
     yield
     # Shutdown
     scheduler.shutdown()
+    await scheduler.close_connections()
 
 
 app = FastAPI(title="News360 Aggregator", version="0.1.0", lifespan=lifespan)

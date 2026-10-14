@@ -37,7 +37,7 @@ export const OWN_KINDS: Record<OwnKind, OwnKindDefinition> = {
   // Hangs on the outlet of its link (ownSources)
   source: { tab: "stemmen", marker: null, anchor: null },
   gap: { tab: "ontbreekt", marker: "gap", anchor: null },
-  question: { tab: "ontbreekt", marker: "question", anchor: "speaker-or-outlet" },
+  question: { tab: "vragen", marker: "question", anchor: "speaker-or-outlet" },
   note: { tab: "gebracht", marker: "note", anchor: "speaker-or-outlet" },
   moment: { tab: "tijdlijn", marker: null, anchor: null },
 };
@@ -48,7 +48,8 @@ export const OWN_KIND_IDS = Object.keys(OWN_KINDS) as OwnKind[];
 export const OWN_KINDS_BY_TAB: Partial<Record<TabId, OwnKind[]>> = {
   klopt: ["claim", "fallacy", "contradiction", "error"],
   stemmen: ["speaker", "source"],
-  ontbreekt: ["gap", "question"],
+  ontbreekt: ["gap"],
+  vragen: ["question"],
   gebracht: ["note"],
   tijdlijn: ["moment"],
 };

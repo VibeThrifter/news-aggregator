@@ -20,6 +20,7 @@ import {
 } from "./ids";
 import { ArticleIndex } from "./input";
 import { OWN_KIND_LABELS } from "./labels";
+import { isContextGap } from "./missing";
 import { actorKeys, fnv1a } from "./normalize";
 import { firstReporters, parseTimelineTime } from "./timeline";
 import type { AnalysisBody, AnalysisType, ExploreInput, Finding, NodeId, StanceEntry, TabId } from "./types";
@@ -39,8 +40,8 @@ export const TAB_OF_TYPE: Record<AnalysisType, TabId> = {
   tone: "gebracht",
   bias: "gebracht",
   gap: "ontbreekt",
-  questions: "ontbreekt",
   science: "ontbreekt",
+  question: "vragen",
   first: "tijdlijn",
   timeline: "tijdlijn",
   timing: "tijdlijn",
@@ -248,21 +249,27 @@ export function deriveFindings(input: ExploreInput, index: ArticleIndex = new Ar
     collector.add(`gap:${gap.perspective}`, { type: "gap", gap }, [], [gapNode(gap.perspective)]);
   }
 
-  for (const analysis of insight?.media_analysis ?? []) {
-    const questions = analysis.questions_not_asked?.length ?? 0;
-    const omitted = analysis.perspectives_omitted?.length ?? 0;
-    if (questions === 0 && omitted === 0 && !analysis.framing_by_omission) continue;
-    const outletKey = index.outletForName(analysis.source, analysis.article_url);
-    collector.add(
-      `questions:${outletKey ?? analysis.source}`,
-      { type: "questions", analysis, outletKey },
-      outletKey ? [outletKey] : [],
-      outletKey ? [outletNode(outletKey)] : [],
-    );
-  }
-
   if (insight?.scientific_plurality?.topic) {
     collector.add("science", { type: "science", plurality: insight.scientific_plurality }, [], []);
+  }
+
+  // --- Niet gevraagd ---------------------------------------------------------------------------
+  // One finding per question; an outlet with two articles has the same question once
+  const asked = new Set<string>();
+  for (const analysis of insight?.media_analysis ?? []) {
+    const outletKey = index.outletForName(analysis.source, analysis.article_url);
+    for (const raw of analysis.questions_not_asked ?? []) {
+      const question = raw?.trim();
+      const key = `${outletKey ?? analysis.source}:${question?.toLowerCase()}`;
+      if (!question || asked.has(key)) continue;
+      asked.add(key);
+      collector.add(
+        `question:${key}`,
+        { type: "question", question, analysis, outletKey },
+        outletKey ? [outletKey] : [],
+        outletKey ? [outletNode(outletKey)] : [],
+      );
+    }
   }
 
   // --- Tijdlijn --------------------------------------------------------------------------------
@@ -330,7 +337,7 @@ export const FINDING_TYPE_LABELS: Record<Finding["type"], string> = {
   tone: "Toon",
   bias: "Gekleurde zinnen",
   gap: "Ontbrekende stem",
-  questions: "Niet gesteld",
+  question: "Niet gestelde vraag",
   science: "Wetenschap",
   first: "Wie eerst",
   timeline: "Moment",
@@ -339,7 +346,9 @@ export const FINDING_TYPE_LABELS: Record<Finding["type"], string> = {
 
 /** Type label of a finding; a reader's own entry by its kind ("Twijfel", "Ontbrekende stem"). */
 export function findingLabel(finding: Finding): string {
-  return finding.body.type === "own" ? OWN_KIND_LABELS[finding.body.entry.kind] : FINDING_TYPE_LABELS[finding.type];
+  if (finding.body.type === "own") return OWN_KIND_LABELS[finding.body.entry.kind];
+  if (finding.body.type === "gap" && isContextGap(finding.body.gap)) return "Ontbrekende context";
+  return FINDING_TYPE_LABELS[finding.type];
 }
 
 /** Short title of a finding (rows, dossier, popovers). */
@@ -371,8 +380,8 @@ export function findingTitle(finding: Finding, index: ArticleIndex): string {
       return `Gekleurde zinnen bij ${outletName(body.outletKey)}`;
     case "gap":
       return body.gap.perspective;
-    case "questions":
-      return `Niet gesteld door ${outletName(body.outletKey) || body.analysis.source}`;
+    case "question":
+      return body.question;
     case "science":
       return body.plurality.topic;
     case "first":

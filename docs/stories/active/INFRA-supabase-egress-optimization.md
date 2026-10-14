@@ -1,5 +1,9 @@
 # INFRA: Supabase Egress Optimization
 
+> **Superseded (2026-10-13) by `INFRA-2-lokale-werkdatabase.md`.** The SQLite read cache below was never
+> switched on (`BACKEND_READ_SOURCE=supabase`) and is removed; the backend now works on a local Postgres and
+> publishes to Supabase only what the website shows.
+
 > Reduce Supabase data egress from 19.51 GB to under 5 GB (free tier limit) by implementing local SQLite cache for backend reads.
 
 ## Problem Description

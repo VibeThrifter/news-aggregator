@@ -15,9 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.config import get_settings
 from backend.app.core.logging import get_logger
-from backend.app.db.dual_write import sync_entities_to_cache
 from backend.app.db.models import Article, Event, EventArticle
 from backend.app.db.session import get_sessionmaker
+from backend.app.db.supabase import get_frontend_sessionmaker
 from backend.app.events.scoring import (
     ArticleFeatures,
     EventFeatures,
@@ -1257,7 +1257,6 @@ class EventService:
             event.archived_at = now
             event.article_count = 0
             await session.commit()
-            await sync_entities_to_cache([event], "events")
             await self.vector_index.remove(event_id)
             correlation_log.info("split_event_merged", to_event=target.id)
             return "merged", move
@@ -1269,8 +1268,10 @@ class EventService:
             "SELECT 1 FROM voice_searches WHERE event_id = :event_id "
             "UNION ALL SELECT 1 FROM shared_entries WHERE event_id = :event_id LIMIT 1"
         )
+        # The website writes these tables where it reads (Supabase, Story INFRA-2)
+        sessions = get_frontend_sessionmaker() if get_settings().supabase_database_url else self.session_factory
         try:
-            async with self.session_factory() as session:
+            async with sessions() as session:
                 result = await session.execute(statement, {"event_id": event_id})
                 return result.first() is not None
         except SQLAlchemyError:  # Tables of migrations 009/012 missing (tests): no reader content
@@ -1319,9 +1320,6 @@ class EventService:
             timestamp=timestamp,
         )
         await session.commit()
-        # Sync event and event_article to SQLite cache (INFRA-1: dual-write)
-        await sync_entities_to_cache([event], "events")
-        await sync_entities_to_cache([event_article_link], "event_articles")
         if event.centroid_embedding:
             await self.vector_index.upsert(
                 event.id,
@@ -1374,9 +1372,6 @@ class EventService:
             timestamp=timestamp,
         )
         await session.commit()
-        # Sync event and event_article to SQLite cache (INFRA-1: dual-write)
-        await sync_entities_to_cache([event], "events")
-        await sync_entities_to_cache([event_article_link], "event_articles")
         if event.centroid_embedding:
             await self.vector_index.upsert(
                 event.id,

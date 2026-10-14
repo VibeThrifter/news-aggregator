@@ -23,7 +23,7 @@ import type {
 import type { SplitSummary } from "./summary";
 
 /** The tabs under "Wie zegt wat?" (Epic 14): one per question you can ask the news. */
-export type TabId = "invalshoeken" | "klopt" | "stemmen" | "ontbreekt" | "gebracht" | "tijdlijn";
+export type TabId = "invalshoeken" | "klopt" | "stemmen" | "ontbreekt" | "vragen" | "gebracht" | "tijdlijn";
 
 export type OwnershipType = "public" | "corporate" | "independent" | "state" | "cooperative" | "trust" | "unknown";
 
@@ -203,7 +203,8 @@ export type FindingBody =
       topTypes: { type: string; count: number }[];
     }
   | { type: "gap"; gap: CoverageGap }
-  | { type: "questions"; analysis: MediaAnalysis; outletKey: string | null }
+  /** A question the article of this outlet did not ask (one finding per question) */
+  | { type: "question"; question: string; analysis: MediaAnalysis; outletKey: string | null }
   | { type: "science"; plurality: ScientificPlurality }
   | { type: "first"; order: OutletRef[] }
   | { type: "timeline"; item: TimelineEvent; timeLabel: string; historic: boolean }

@@ -301,6 +301,7 @@ Currently, schema changes are applied manually:
 | `012_van_anderen.sql` | `shared_entries`, `shared_entry_adoptions`, `shared_entry_reports` (RLS without policies) + RPC functions `share_entry`, `unshare_entry`, `shared_entries_for_event`, `adopt_shared_entry`, `report_shared_entry`, `shared_entries_reported`, `moderate_shared_entry` (readers share what they added and take over what others shared; Epic 14, Story 14.15) |
 | `013_artikeltekst_afschermen.sql` | anon/authenticated may only SELECT the display columns of `articles` (no full text, no working data, no writes); `search_articles` becomes SECURITY DEFINER (storage rule, 2026-10-07) |
 | `014_publieke_sleutel_alleen_lezen.sql` | the public anon key only reads: SELECT-only grants and RLS with a read policy on the tables the frontend shows, nothing on `llm_config`, only SELECT by default on new tables (security, 2026-10-07) |
+| `015_eerder_gezocht.sql` | RPC function `voice_searches_public` (per missing voice of an event whether it was searched with "Zoek met AI", with only the approved sources; for every reader; Epic 14, Story 14.22) |
 | `016_besluitvorming.sql` | `pm_entities.bestuurslaag`/`wikidata`, `pm_relations.functie`; `pm_neighborhood`, `pm_paths`, `pm_details` and `request_relation_research` with the decision-making layer of the propaganda model (Epic 15, Story 15.1) |
 | `017_herkomst.sql` | `pm_relations.origin`/`added_at` (where a relation of the propaganda model comes from and when it was added); `pm_details` returns them (Epic 14, Story 14.23) |
 
@@ -407,6 +408,15 @@ check the access code). No backend job: the app calls the functions directly.
 ```bash
 psql "postgresql://postgres:<password>@<host>:5432/postgres" \
   -f database/migrations/012_van_anderen.sql
+```
+
+**015 - "Al gezocht met AI" (Epic 14, Story 14.22).** One read-only SECURITY DEFINER function over
+`voice_searches` for anon: per missing voice whether it was searched, with only the approved
+sources. No table lock (CREATE FUNCTION and GRANT): safe while the backend runs. Needs 009.
+
+```bash
+psql "postgresql://postgres:<password>@<host>:5432/postgres" \
+  -f database/migrations/015_eerder_gezocht.sql
 ```
 
 **016 - Besluitvorming in het netwerk (Epic 15, Story 15.1).** Three columns and four replaced SECURITY DEFINER

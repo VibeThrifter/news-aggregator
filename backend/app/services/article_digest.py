@@ -23,7 +23,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
-from backend.app.db.dual_write import sync_entities_to_cache
 from backend.app.db.models import Article, Event, EventArticle
 from backend.app.db.session import get_sessionmaker
 from backend.app.llm.client import (
@@ -207,7 +206,6 @@ class ArticleDigestService:
             # A new dict, so SQLAlchemy sees the JSON change
             article.source_metadata = metadata
             await session.commit()
-        await sync_entities_to_cache([article], "articles")
 
         log.info("digest_stored", basis=digest["basis"], chars=len(digest["nl"]))
         return DigestOutcome(article_id=article_id, digest=digest)

@@ -14,17 +14,18 @@ export const MARKER_STYLE: Record<MarkerType, { color: string; sign: string; lab
   contradiction: { color: "#E30613", sign: "⚡", label: "Tegenspraak", ownLabel: "Tegenspraak van jou" },
   error: { color: "#c2410c", sign: "✕", label: "Fout", ownLabel: "Fout volgens jou" },
   gap: { color: "#0f766e", sign: "", label: "Ontbrekende stem", ownLabel: "Ontbrekende stem van jou" },
-  question: { color: "#0f766e", sign: "?", label: "Niet gestelde vraag", ownLabel: "Vraag van jou" },
+  question: { color: "#be185d", sign: "?", label: "Niet gestelde vraag", ownLabel: "Vraag van jou" },
   note: { color: "#475569", sign: "✎", label: "Opmerking", ownLabel: "Opmerking van jou" },
 };
 
 const markerLabel = (type: MarkerType, own: boolean | undefined) => (own ? MARKER_STYLE[type].ownLabel : MARKER_STYLE[type].label);
 
 /**
- * Scroll the element into view and ring it when it is the jump target (`kind`/`id`).
+ * Scroll the element into view and ring it when it is the jump target (`kind`/`id`); for the ids in
+ * `quiet` it only rings (another element of the same target scrolls).
  * Returns the ref to attach and whether it is ringing now.
  */
-export function useFocusRing<T extends HTMLElement>(kind: FocusTarget["kind"], id: string | string[], onFocus?: () => void) {
+export function useFocusRing<T extends HTMLElement>(kind: FocusTarget["kind"], id: string | string[], onFocus?: () => void, quiet: string[] = []) {
   const ref = useRef<T | null>(null);
   const target = useFocusStore((state) => state.target);
   const [ringing, setRinging] = useState(false);
@@ -32,7 +33,7 @@ export function useFocusRing<T extends HTMLElement>(kind: FocusTarget["kind"], i
     if (!target || target.kind !== kind || !(Array.isArray(id) ? id.includes(target.id) : target.id === id)) return;
     onFocus?.();
     // Let an opening row or tab render before scrolling
-    const scroll = window.setTimeout(() => scrollToElement(ref.current), 60);
+    const scroll = quiet.includes(target.id) ? undefined : window.setTimeout(() => scrollToElement(ref.current), 60);
     setRinging(true);
     const stop = window.setTimeout(() => setRinging(false), RING_MS);
     return () => {

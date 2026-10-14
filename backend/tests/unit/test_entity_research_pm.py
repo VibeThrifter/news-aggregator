@@ -334,6 +334,32 @@ async def test_enqueue_statuses() -> None:
     assert json.loads(seen[-1].content)["opnieuw"] is True
 
 
+async def test_withdraw() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path.endswith("/5"):
+            return httpx.Response(403, json={"error": "al geclaimd"})
+        return httpx.Response(200, json={"doel": {"id": 4, "status": "klaar"}})
+
+    client = _client(handler)
+    assert await client.withdraw(4, "klaar", "Staat al in het model", 11) == {
+        "id": 4,
+        "status": "klaar",
+    }
+    assert seen[0].method == "PATCH" and seen[0].url.path == "/api/nieuws/doelen/4"
+    assert json.loads(seen[0].content) == {
+        "status": "klaar",
+        "verslag": "Staat al in het model",
+        "entity_id": 11,
+    }
+    with pytest.raises(PmApiError) as error:
+        await client.withdraw(5, "overgeslagen", "Geen actor")
+    assert error.value.status_code == 403
+    assert "entity_id" not in json.loads(seen[1].content)
+
+
 async def test_enqueue_without_token_or_server() -> None:
     with pytest.raises(PmApiUnavailableError):
         await _client(lambda request: httpx.Response(201), token=None).enqueue({"sleutel": "org:a"})

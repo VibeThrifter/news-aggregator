@@ -17,13 +17,14 @@ import { Badge, NumberBadge, useFocusRing } from "./Markers";
 import { ShareControl, SharedTag } from "./Others";
 import { OwnForm, OwnTag } from "./OwnForm";
 import { AnchorInline, SpeakerInline } from "./PeopleCards";
-import { FindingDetail, findingHeadline } from "./FindingDetail";
+import { FindingDetail, findingHeadline, findingPreview } from "./FindingDetail";
 
 /**
  * Who a finding is about: the speaker of a claim ("Van den Beukel · via NOS") or its outlets. The
- * names open the same balloon as in the picture (what the outlet wrote, its article).
+ * names open the same balloon as in the picture (what the outlet wrote, its article). `omit`: the
+ * outlet of the card the row is in, which the card already names.
  */
-function Attribution({ finding }: { finding: Finding }) {
+function Attribution({ finding, omit }: { finding: Finding; omit?: string }) {
   const { exploration } = useExplore();
   const entry = ownEntryOf(finding);
   // A contradiction of your own: both sides
@@ -46,11 +47,13 @@ function Attribution({ finding }: { finding: Finding }) {
       : null
     : exploration.speakers.claimAnchor.get(finding.id);
   const speaker = anchor?.kind === "speaker" ? exploration.speakers.byId.get(anchor.id) : undefined;
-  const outletKeys = speaker
-    ? [speaker.outletKey]
-    : entry
-      ? [anchorOutletKey(ownAnchor, exploration.speakers)].filter((key): key is string => Boolean(key))
-      : finding.outletKeys;
+  const outletKeys = (
+    speaker
+      ? [speaker.outletKey]
+      : entry
+        ? [anchorOutletKey(ownAnchor, exploration.speakers)].filter((key): key is string => Boolean(key))
+        : finding.outletKeys
+  ).filter((key) => key !== omit);
   const outlets = outletKeys.map((key) => exploration.index.outlet(key)).filter(Boolean);
   if (!speaker && outlets.length === 0) return null;
   return (
@@ -59,7 +62,7 @@ function Attribution({ finding }: { finding: Finding }) {
         <>
           <SpeakerInline speakerId={speaker.id} />
           {speaker.org ? <span>({speaker.org})</span> : null}
-          <span>via</span>
+          {outlets.length ? <span>via</span> : null}
         </>
       ) : null}
       {outlets.slice(0, 4).map((outlet) => (outlet ? <OutletInline key={outlet.key} outletKey={outlet.key} /> : null))}
@@ -72,21 +75,80 @@ const actionClass =
   "inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-paper-300 px-3 text-xs font-medium text-ink-700 hover:bg-paper-100";
 
 /**
- * A finding as a compact row; opens inline. Rings and opens when it is the target of a jump.
- * The reader's own entries can be changed and removed here.
+ * What you can do with a finding: show it in the picture, change, remove or share your own, say
+ * the analysis got it wrong, save it.
  */
-export function FindingRow({ finding, extra, leading }: { finding: Finding; extra?: ReactNode; leading?: ReactNode }) {
-  const { exploration, eventId, numbers, pin, isPinned, anchorOf, toAnchor, toFinding, removeOwn, compose } = useExplore();
+export function FindingActions({ finding }: { finding: Finding }) {
+  const { exploration, eventId, pin, isPinned, anchorOf, toAnchor, removeOwn, compose } = useExplore();
+  const setEditing = useFocusStore((state) => state.setEditing);
+  const entry = ownEntryOf(finding);
+  const anchor = anchorOf.get(finding.id) ?? (finding.type === "contradiction" ? `contradiction:${finding.id}` : null);
+  const pinId = dossierIds.finding(eventId, finding.id);
+  return (
+    <div className="flex flex-wrap gap-2">
+      {anchor ? (
+        <button type="button" onClick={() => toAnchor(anchor)} className={actionClass}>
+          <Crosshair size={14} /> Toon in het beeld
+        </button>
+      ) : null}
+      {entry ? (
+        <>
+          <button type="button" onClick={() => setEditing(finding.id)} className={actionClass}>
+            <Pencil size={14} /> Pas aan
+          </button>
+          <button type="button" onClick={() => removeOwn(finding.id)} className={actionClass}>
+            <Trash2 size={14} /> Verwijder
+          </button>
+          <ShareControl entry={entry} />
+        </>
+      ) : (
+        <button type="button" onClick={() => compose("error", null, finding.id)} className={actionClass}>
+          <CircleX size={14} /> Klopt niet
+        </button>
+      )}
+      <button
+        type="button"
+        aria-pressed={isPinned(pinId)}
+        onClick={() =>
+          pin({
+            id: pinId,
+            kind: "finding",
+            refId: finding.id,
+            findingId: finding.id,
+            tab: finding.tab,
+            title: truncate(findingTitle(finding, exploration.index), 90),
+            subtitle: entry ? `${findingLabel(finding)} · jij` : findingLabel(finding),
+            text: entry?.detail,
+            url: entry?.url,
+            keys: finding.links,
+          })
+        }
+        className={actionClass}
+      >
+        <Pin size={14} /> {isPinned(pinId) ? "Bewaard" : "Bewaar"}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * A finding as a compact row; opens inline. Rings and opens when it is the target of a jump.
+ * The reader's own entries can be changed and removed here. `outletKey`: the outlet of the card
+ * the row is in (its name is not repeated under the row).
+ */
+export function FindingRow({ finding, extra, leading, outletKey }: { finding: Finding; extra?: ReactNode; leading?: ReactNode; outletKey?: string }) {
+  const { exploration, numbers, toFinding } = useExplore();
   const entry = ownEntryOf(finding);
   const editing = useFocusStore((state) => Boolean(entry) && state.editing === finding.id);
   const setEditing = useFocusStore((state) => state.setEditing);
   const [open, setOpen] = useState(false);
   const { ref, ringing } = useFocusRing<HTMLLIElement>("finding", finding.id, () => setOpen(true));
   const { title, meta } = findingHeadline(finding);
+  const preview = open ? null : findingPreview(finding);
   const marker = markerTypeOf(finding);
-  const anchor = anchorOf.get(finding.id) ?? (finding.type === "contradiction" ? `contradiction:${finding.id}` : null);
-  const pinId = dossierIds.finding(eventId, finding.id);
   const italic = finding.type === "claim" || finding.type === "statistic" || entry?.kind === "claim" || entry?.kind === "fallacy";
+  // A question reads as a sentence, not as a heading
+  const plain = finding.type === "question" || entry?.kind === "question";
   // What the reader says is wrong in this finding of the analysis
   const corrections = entry
     ? []
@@ -108,7 +170,8 @@ export function FindingRow({ finding, extra, leading }: { finding: Finding; extr
     <li
       ref={ref}
       id={`finding-${finding.id}`}
-      className={`relative scroll-mt-28 rounded-xl transition-shadow ${ringing ? "ring-4 ring-amber-300 ring-offset-2" : ""}`}
+      // Rounded only for the ring: a rounded row bends the line between the rows
+      className={`relative scroll-mt-28 transition-shadow ${ringing ? "rounded-xl ring-4 ring-amber-300 ring-offset-2" : ""}`}
     >
       <div className="flex items-start gap-2.5 py-2.5">
         {leading ??
@@ -122,13 +185,14 @@ export function FindingRow({ finding, extra, leading }: { finding: Finding; extr
         <div className="min-w-0 flex-1">
           {/* The padding makes a one-line title a big enough tap target; the negative margin keeps the layout */}
           <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="-my-[7px] block w-full py-[7px] text-left">
-            <span className={`block text-sm leading-snug text-ink-900 ${italic ? "italic" : "font-semibold"}`}>
+            <span className={`block text-sm leading-snug text-ink-900 ${italic ? "italic" : plain ? "" : "font-semibold"}`}>
               {truncate(title || findingTitle(finding, exploration.index), open ? 600 : 180)}
             </span>
+            {preview ? <span className="mt-0.5 line-clamp-2 text-sm leading-snug text-ink-600">{preview}</span> : null}
           </button>
           {/* Not inside the button: the names in it are buttons of their own. A tap elsewhere on the line opens the row. */}
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5" onClick={() => setOpen((value) => !value)}>
-            <Attribution finding={finding} />
+            <Attribution finding={finding} omit={outletKey} />
             {/* An opened own entry shows its source as a link below */}
             {meta && !(open && entry?.url) ? <span className="text-xs text-ink-500">{meta}</span> : null}
             {entry ? <OwnTag adopted={Boolean(entry.from)} /> : null}
@@ -162,49 +226,7 @@ export function FindingRow({ finding, extra, leading }: { finding: Finding; extr
             </button>
           ))}
           {extra}
-          <div className="flex flex-wrap gap-2">
-            {anchor ? (
-              <button type="button" onClick={() => toAnchor(anchor)} className={actionClass}>
-                <Crosshair size={14} /> Toon in het beeld
-              </button>
-            ) : null}
-            {entry ? (
-              <>
-                <button type="button" onClick={() => setEditing(finding.id)} className={actionClass}>
-                  <Pencil size={14} /> Pas aan
-                </button>
-                <button type="button" onClick={() => removeOwn(finding.id)} className={actionClass}>
-                  <Trash2 size={14} /> Verwijder
-                </button>
-                <ShareControl entry={entry} />
-              </>
-            ) : (
-              <button type="button" onClick={() => compose("error", null, finding.id)} className={actionClass}>
-                <CircleX size={14} /> Klopt niet
-              </button>
-            )}
-            <button
-              type="button"
-              aria-pressed={isPinned(pinId)}
-              onClick={() =>
-                pin({
-                  id: pinId,
-                  kind: "finding",
-                  refId: finding.id,
-                  findingId: finding.id,
-                  tab: finding.tab,
-                  title: truncate(findingTitle(finding, exploration.index), 90),
-                  subtitle: entry ? `${findingLabel(finding)} · jij` : findingLabel(finding),
-                  text: entry?.detail,
-                  url: entry?.url,
-                  keys: finding.links,
-                })
-              }
-              className={actionClass}
-            >
-              <Pin size={14} /> {isPinned(pinId) ? "Bewaard" : "Bewaar"}
-            </button>
-          </div>
+          <FindingActions finding={finding} />
         </div>
       ) : null}
     </li>

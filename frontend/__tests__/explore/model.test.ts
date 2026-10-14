@@ -109,14 +109,14 @@ describe("deriveFindings", () => {
   const byTab = findingsByTab(findings);
 
   it("fills every tab for a rich event", () => {
-    for (const tab of ["invalshoeken", "klopt", "stemmen", "ontbreekt", "gebracht", "tijdlijn"] as const) {
+    for (const tab of ["invalshoeken", "klopt", "stemmen", "ontbreekt", "vragen", "gebracht", "tijdlijn"] as const) {
       expect(byTab.get(tab)?.length ?? 0).toBeGreaterThan(0);
     }
   });
 
   it("covers every insight field", () => {
     const types = new Set(findings.map((finding) => finding.type));
-    for (const type of ["perspective", "voices", "contradiction", "claim", "statistic", "fallacy", "authority", "timing", "frame", "tone", "bias", "gap", "questions", "science", "first", "timeline"]) {
+    for (const type of ["perspective", "voices", "contradiction", "claim", "statistic", "fallacy", "authority", "timing", "frame", "tone", "bias", "gap", "question", "science", "first", "timeline"]) {
       expect(types.has(type as never)).toBe(true);
     }
     expect(findings.filter((finding) => finding.type === "contradiction")).toHaveLength(2);

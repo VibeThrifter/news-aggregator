@@ -77,6 +77,7 @@ def spans(text: str, names: list[tuple[str, str]]) -> list[dict[str, Any]]:
 class FakePmClient:
     def __init__(self) -> None:
         self.calls: list[tuple[dict[str, Any], bool]] = []
+        self.withdrawn: list[tuple[int, str, int | None]] = []
         self.responses: dict[str, Any] = {}
         self.next_id = 100
         self.healthy = True
@@ -93,6 +94,13 @@ class FakePmClient:
 
     async def health(self):
         return self.healthy
+
+    async def withdraw(self, doel_id, status, verslag, entity_id=None):
+        self.withdrawn.append((doel_id, status, entity_id))
+        response = self.responses.get(f"withdraw:{doel_id}")
+        if isinstance(response, Exception):
+            raise response
+        return {"id": doel_id, "status": status}
 
 
 class FakeRunner:
@@ -519,6 +527,60 @@ async def test_triage_keeps_status_of_research_in_progress(tmp_path: Path) -> No
         await session.commit()
     await service.triage()  # re-assessed because of the tap
     assert (await rows(factory))["person:anouk-verbeek"].status == "bezig"
+
+
+async def test_tidy_queue_withdraws_and_links(tmp_path: Path) -> None:
+    """A queued target the scout did not pick up yet is withdrawn when the model has it by now
+    (e.g. through the registers), or when it is a loose word or a foreign head of state."""
+
+    env = await make_env(tmp_path)
+    service, factory, client = env["service"], env["factory"], env["client"]
+    queued = {
+        "org:nos": ("NOS", "org", None, None, 1),
+        "org:kijk-ook": ("KIJK OOK", "org", None, None, 2),
+        "org:bond": ("bond", "org", None, None, 3),
+        "person:jair-bolsonaro": ("Jair Bolsonaro", "person", "politicus", "ex-president", 4),
+        "person:anouk-verbeek": ("Anouk Verbeek", "person", "politicus", "wethouder", 5),
+        "person:claimed": ("Ex Voorbeeld", "person", "politicus", "oud-president", 6),
+        "org:dpg-media": ("DPG Media", "org", None, None, 7),  # in the model, two relations
+    }
+    async with factory() as session:
+        for key, (name, kind, category, label, doel_id) in queued.items():
+            session.add(
+                EntityResearch(
+                    entity_key=key,
+                    name=name,
+                    kind=kind,
+                    role_category=category,
+                    role_label=label,
+                    status="wachtrij",
+                    pm_doel_id=doel_id,
+                )
+            )
+        await session.commit()
+    client.responses["withdraw:6"] = PmApiError(403, "geclaimd")
+
+    result = await service.tidy_queue()
+
+    assert result == {"niet_nodig": 1, "overgeslagen": 3, "refused": 1, "linked": 1}
+    # the target gets the node it can add to
+    assert [doel["sleutel"] for doel, _again in client.calls] == ["org:dpg-media"]
+    assert client.calls[0][0]["entity_id"] == 1
+    assert sorted(client.withdrawn) == [
+        (1, "klaar", 11),
+        (2, "overgeslagen", None),
+        (3, "overgeslagen", None),
+        (4, "overgeslagen", None),
+        (6, "overgeslagen", None),
+    ]
+    after = await rows(factory)
+    assert after["org:nos"].status == "niet_nodig" and after["org:nos"].pm_entity_id == 11
+    assert after["org:kijk-ook"].status == "overgeslagen"
+    assert after["person:jair-bolsonaro"].status_reason.startswith("Buitenlandse persoon")
+    assert after["person:anouk-verbeek"].status == "wachtrij"  # still needed
+    assert after["person:claimed"].status == "wachtrij"  # the scout has it now
+    assert after["org:dpg-media"].status == "wachtrij" and after["org:dpg-media"].pm_entity_id == 1
+    assert await service.tidy_queue() == {"refused": 1}  # linked once
 
 
 async def test_tap_on_name_without_public_role(tmp_path: Path) -> None:

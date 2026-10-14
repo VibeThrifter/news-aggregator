@@ -114,6 +114,26 @@ class PmClient:
             raise PmApiRateLimitError(429, str(body.get("error") or "rate limit"))
         raise PmApiError(response.status_code, str(body.get("error") or response.text[:200]))
 
+    async def withdraw(
+        self, doel_id: int, status: str, verslag: str, entity_id: int | None = None
+    ) -> dict[str, Any]:
+        """PATCH /api/nieuws/doelen/<id>: withdraw an open target this app no longer needs
+        (status "klaar" when the model has it by now, "overgeslagen" when it is no actor).
+        Returns the target; 403 means somebody claimed it in the meantime."""
+
+        payload: dict[str, Any] = {"status": status, "verslag": verslag}
+        if entity_id is not None:
+            payload["entity_id"] = int(entity_id)
+        try:
+            async with self._client(self._token()) as client:
+                response = await client.patch(f"/api/nieuws/doelen/{int(doel_id)}", json=payload)
+        except httpx.HTTPError as exc:
+            raise PmApiUnavailableError(str(exc)) from exc
+        body = _json(response)
+        if response.status_code == 200:
+            return body.get("doel") or {}
+        raise PmApiError(response.status_code, str(body.get("error") or response.text[:200]))
+
     async def prioritise(self, relation_ids: Sequence[int]) -> int:
         """POST /api/nieuws/voorrang: links readers see go first in the propaganda model's
         automatic check and source search. Returns how many it took (unknown ids are ignored)."""

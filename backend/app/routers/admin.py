@@ -692,7 +692,7 @@ async def trigger_article_digests(limit: int = 10, max_age_hours: int | None = N
 # Stemmen zoeken (Epic 14, Story 14.10): AI searches for missing voices, queued in the app
 @router.post("/trigger/voice-search")
 async def trigger_voice_search(limit: int = 2):
-    """Run the queued AI searches for missing voices now (the job does this every minute).
+    """Run the queued AI searches for missing voices now (the job does this every few seconds).
 
     Args:
         limit: Maximum number of queued searches (1-10, default 2)

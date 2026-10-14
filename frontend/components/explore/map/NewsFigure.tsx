@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { Mic, MicOff } from "lucide-react";
 
@@ -9,8 +9,10 @@ import {
   buildFigure,
   gapAnchor,
   outletAnchor,
+  placeKey,
   speakerAnchor,
   type ContradictionLine,
+  type ContradictionNote,
   type FigureGroup,
   type FoundSpeakerRef,
   type Marker,
@@ -28,13 +30,21 @@ import { useExplore } from "../ExploreContext";
 import { OutletCard } from "../outlet/OutletCard";
 import { Balloon } from "../ui/Balloon";
 import { Favicon } from "../ui/primitives";
-import { Badge, MarkerButton, useFocusRing } from "./Markers";
+import { Badge, MARKER_STYLE, MarkerButton, useFocusRing } from "./Markers";
 import { AddButton, FoundTag, OwnForm, OwnTag } from "./OwnForm";
 import { Avatar, GhostCard, SpeakerCard } from "./PeopleCards";
 import { SpectrumMap } from "./SpectrumMap";
 import { ScrollRow } from "../ui/ScrollRow";
 
 const RING = "ring-4 ring-amber-300 ring-offset-2";
+
+/** The group a balloon is drawn in (an outlet can be in more than one perspective) */
+const GroupKey = createContext("");
+/** Contradictions per place (`placeKey`): notes on the balloon and the findings it is a side of */
+const Contradictions = createContext<{ notes: Map<string, ContradictionNote[]>; sides: Map<string, string[]> }>({
+  notes: new Map(),
+  sides: new Map(),
+});
 
 /** "Wie zegt wat?": outlets, the speakers they give the word to and the voices that are missing. */
 export function NewsFigure() {
@@ -110,7 +120,7 @@ export function NewsFigure() {
       {spectrum ? (
         <SpectrumMap shown={shown} />
       ) : (
-        <FigureCanvas groups={figure.groups} markers={figure.markers} contradictions={figure.contradictions} />
+        <FigureCanvas groups={figure.groups} markers={figure.markers} contradictions={figure.contradictions} notes={figure.contradictionNotes} />
       )}
     </section>
   );
@@ -120,19 +130,36 @@ function FigureCanvas({
   groups,
   markers,
   contradictions,
+  notes,
 }: {
   groups: FigureGroup[];
   markers: Map<string, Marker[]>;
   contradictions: ContradictionLine[];
+  notes: Map<string, ContradictionNote[]>;
 }) {
   const container = useRef<HTMLDivElement | null>(null);
+  // Every balloon that is a side of a contradiction rings when it is shown in the picture
+  const value = useMemo(() => {
+    const sides = new Map<string, string[]>();
+    const add = (key: string, findingId: string) => sides.set(key, [...(sides.get(key) ?? []), findingId]);
+    for (const line of contradictions) {
+      add(placeKey(line.group, line.from), line.findingId);
+      add(placeKey(line.group, line.to), line.findingId);
+    }
+    for (const [key, list] of Array.from(notes.entries())) for (const note of list) add(key, note.findingId);
+    return { notes, sides };
+  }, [contradictions, notes]);
   return (
-    <div ref={container} className="relative space-y-3">
-      {groups.map((group) => (
-        <GroupView key={group.key} group={group} markers={markers} />
-      ))}
-      {contradictions.length ? <ContradictionLines container={container} lines={contradictions} /> : null}
-    </div>
+    <Contradictions.Provider value={value}>
+      <div ref={container} className="relative space-y-3">
+        {groups.map((group) => (
+          <GroupKey.Provider key={group.key} value={group.key}>
+            <GroupView group={group} markers={markers} />
+          </GroupKey.Provider>
+        ))}
+        {contradictions.length ? <ContradictionLines container={container} lines={contradictions} /> : null}
+      </div>
+    </Contradictions.Provider>
   );
 }
 
@@ -142,6 +169,7 @@ function GroupView({ group, markers }: { group: FigureGroup; markers: Map<string
   return (
     <motion.section
       initial={false}
+      data-group={group.key}
       aria-label={group.label}
       className={`rounded-3xl border-2 p-3 ${missing ? "border-dashed" : ""}`}
       style={{ borderColor: `${group.color}${missing ? "88" : "55"}`, backgroundColor: `${group.color}0d` }}
@@ -266,10 +294,20 @@ function Anchored({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const { ref, ringing } = useFocusRing<HTMLDivElement>("anchor", alsoFor.length ? [anchor, ...alsoFor] : anchor);
+  const place = placeKey(useContext(GroupKey), anchor);
+  const contradictions = useContext(Contradictions);
+  const notes = contradictions.notes.get(place);
+  // Shown in the picture, a contradiction rings all its sides; its first place scrolls (ContradictionChip)
+  const sides = (contradictions.sides.get(place) ?? []).map((findingId) => `contradiction:${findingId}`);
+  const { ref, ringing } = useFocusRing<HTMLDivElement>("anchor", [anchor, ...alsoFor, ...sides], undefined, sides);
   return (
-    // z-10: above the contradiction lines (z-[5]), which run between the balloons
-    <div ref={ref} data-anchor={anchor} className={`relative z-10 rounded-[20px] transition-shadow ${ringing ? RING : ""} ${className}`}>
+    // z-10: above the contradiction lines (z-[5]), which run between the balloons. Notes stick out
+    // under the balloon: room for them before the next one
+    <div
+      ref={ref}
+      data-anchor={anchor}
+      className={`relative z-10 rounded-[20px] transition-shadow ${ringing ? RING : ""} ${notes?.length ? "mb-4" : ""} ${className}`}
+    >
       <Balloon label={label} open={open} onOpenChange={setOpen} content={card}>
         {({ ref: triggerRef, props }) => (
           <button ref={triggerRef} {...props} type="button" className="block w-full text-left">
@@ -278,7 +316,21 @@ function Anchored({
         )}
       </Balloon>
       <MarkerRow list={markers} />
+      <NoteRow notes={notes} />
     </div>
+  );
+}
+
+/** Contradictions whose other side stands elsewhere in the picture: "⚡14 ≠ NOS" under the balloon. */
+function NoteRow({ notes }: { notes: ContradictionNote[] | undefined }) {
+  if (!notes?.length) return null;
+  return (
+    <span className="absolute -bottom-2.5 right-2 z-10 flex gap-1">
+      {notes.slice(0, 2).map((note) => (
+        <ContradictionChip key={note.findingId} findingId={note.findingId} number={note.number} own={note.own} lead={note.lead} against={note.against} topic={note.topic} />
+      ))}
+      {notes.length > 2 ? <span className="rounded-full bg-ink-900 px-1.5 text-[10px] font-bold leading-6 text-white">+{notes.length - 2}</span> : null}
+    </span>
   );
 }
 
@@ -503,7 +555,10 @@ function GhostPill({
   );
 }
 
-/** Dashed red lines between outlets that contradict each other, with the numbered ⚡ in the middle. */
+/**
+ * A dashed red line between two sides of a contradiction that stand right next to each other, with
+ * the numbered ⚡ in the middle (`figure.ts` draws no line across other balloons).
+ */
 function ContradictionLines({
   container,
   lines,
@@ -511,22 +566,22 @@ function ContradictionLines({
   container: React.MutableRefObject<HTMLDivElement | null>;
   lines: ContradictionLine[];
 }) {
-  const [geometry, setGeometry] = useState<{ id: string; number: number; own: boolean; x1: number; y1: number; x2: number; y2: number }[]>([]);
+  const [geometry, setGeometry] = useState<(ContradictionLine & { key: string; x1: number; y1: number; x2: number; y2: number })[]>([]);
   const measure = () => {
     const root = container.current;
     if (!root) return;
     const box = root.getBoundingClientRect();
-    const center = (anchor: string) => {
-      const element = root.querySelector(`[data-anchor="${CSS.escape(anchor)}"]`);
+    const center = (group: string, anchor: string) => {
+      const element = root.querySelector(`[data-group="${CSS.escape(group)}"] [data-anchor="${CSS.escape(anchor)}"]`);
       if (!element) return null;
       const rect = element.getBoundingClientRect();
       return { x: rect.left - box.left + rect.width / 2, y: rect.top - box.top + rect.height / 2 };
     };
     const next = lines.flatMap((line) => {
-      const a = center(line.from);
-      const b = center(line.to);
+      const a = center(line.group, line.from);
+      const b = center(line.group, line.to);
       return a && b
-        ? [{ id: line.findingId, number: line.number, own: Boolean(line.own), x1: Math.round(a.x), y1: Math.round(a.y), x2: Math.round(b.x), y2: Math.round(b.y) }]
+        ? [{ ...line, key: `${line.findingId}|${line.group}|${line.from}`, x1: Math.round(a.x), y1: Math.round(a.y), x2: Math.round(b.x), y2: Math.round(b.y) }]
         : [];
     });
     // Only a real change re-renders (measuring after every render would never end)
@@ -548,7 +603,7 @@ function ContradictionLines({
       <svg className="pointer-events-none absolute inset-0 z-[5] h-full w-full overflow-visible" aria-hidden="true">
         {geometry.map((line) => (
           <line
-            key={line.id}
+            key={line.key}
             x1={line.x1}
             y1={line.y1}
             x2={line.x2}
@@ -562,24 +617,63 @@ function ContradictionLines({
         ))}
       </svg>
       {geometry.map((line) => (
-        <span
-          key={line.id}
-          data-anchor={`contradiction:${line.id}`}
-          className="absolute z-20 -translate-x-1/2 -translate-y-1/2"
-          style={{ left: (line.x1 + line.x2) / 2, top: (line.y1 + line.y2) / 2 }}
-        >
-          <ContradictionButton findingId={line.id} number={line.number} own={line.own} />
+        <span key={line.key} className="absolute z-20 -translate-x-1/2 -translate-y-1/2" style={{ left: (line.x1 + line.x2) / 2, top: (line.y1 + line.y2) / 2 }}>
+          <ContradictionChip findingId={line.findingId} number={line.number} own={line.own} lead={line.lead} between={line.between} topic={line.topic} />
         </span>
       ))}
     </>
   );
 }
 
-function ContradictionButton({ findingId, number, own }: { findingId: string; number: number; own: boolean }) {
-  const { ref, ringing } = useFocusRing<HTMLSpanElement>("anchor", `contradiction:${findingId}`);
+/**
+ * The numbered ⚡ of a contradiction: on a line between its two sides, or on a balloon with who it
+ * contradicts ("⚡14 ≠ NOS"). A tap opens the finding.
+ */
+function ContradictionChip({
+  findingId,
+  number,
+  own = false,
+  lead,
+  against,
+  between,
+  topic,
+}: {
+  findingId: string;
+  number: number;
+  own?: boolean;
+  lead: boolean;
+  against?: string[];
+  between?: [string, string];
+  topic: string;
+}) {
+  const { toFinding } = useExplore();
+  const id = `contradiction:${findingId}`;
+  const { ref, ringing } = useFocusRing<HTMLSpanElement>("anchor", id, undefined, lead ? [] : [id]);
+  const style = MARKER_STYLE.contradiction;
+  const who = against?.length ? `${against[0]}${against.length > 1 ? ` +${against.length - 1}` : ""}` : null;
+  const sides = between ? ` tussen ${between[0]} en ${between[1]}` : against?.length ? ` met ${against.join(", ")}` : "";
+  const label = `${own ? style.ownLabel : style.label} ${number}${sides}: ${topic}`;
   return (
-    <span ref={ref} className={`inline-block rounded-full ${ringing ? RING : ""}`}>
-      <MarkerButton marker={{ findingId, number, type: "contradiction", ...(own ? { own } : {}) }} />
+    <span ref={ref} data-anchor={id} className={`inline-block rounded-full ${ringing ? RING : ""}`}>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          toFinding(findingId);
+        }}
+        title={label}
+        aria-label={label}
+        className="-m-1 inline-flex h-8 min-w-[32px] items-center justify-center"
+      >
+        <span
+          className={`inline-flex h-5 min-w-[20px] items-center whitespace-nowrap rounded-full px-1.5 text-[10px] font-bold shadow ring-2 ring-white ${own ? "border-2 bg-white" : "text-white"}`}
+          style={own ? { borderColor: style.color, color: style.color } : { backgroundColor: style.color }}
+        >
+          <span className="mr-0.5">{style.sign}</span>
+          {number}
+          {who ? <span className="ml-1 max-w-[7.5rem] truncate font-semibold">≠ {who}</span> : null}
+        </span>
+      </button>
     </span>
   );
 }

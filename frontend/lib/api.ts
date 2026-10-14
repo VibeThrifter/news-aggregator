@@ -21,6 +21,7 @@ import type {
   RelationResearch,
   EventListItem,
   EventSourceBreakdownEntry,
+  ListClaim,
 } from "@/lib/types";
 import { getSupabase } from "@/lib/supabase";
 import type { RawExploration, RawExploreArticle } from "@/lib/explore/input";
@@ -200,12 +201,12 @@ export async function listEvents(
       archived_at,
       llm_insights${includeWithoutInsights ? '' : '!inner'} (
         summary,
-        gap0:coverage_gaps->0->>perspective,
-        gap1:coverage_gaps->1->>perspective,
-        gap2:coverage_gaps->2->>perspective,
-        gap3:coverage_gaps->3->>perspective,
-        gap4:coverage_gaps->4->>perspective,
-        gap5:coverage_gaps->5->>perspective
+        claim0:unsubstantiated_claims->0->>claim,
+        claim0_by:unsubstantiated_claims->0->>source_in_article,
+        claim0_question:unsubstantiated_claims->0->critical_questions->>0,
+        claim1:unsubstantiated_claims->1->>claim,
+        claim1_by:unsubstantiated_claims->1->>source_in_article,
+        claim1_question:unsubstantiated_claims->1->critical_questions->>0
       ),
       ${hasAnySourcesConfigured ? 'main:event_articles!inner ( articles!inner ( source_name ) ),' : ''}
       event_articles (
@@ -285,11 +286,13 @@ export async function listEvents(
     const insight = event.llm_insights?.[0];
     const insightSummary = insight?.summary;
     const { title: llmTitle, description: llmDescription } = extractTitleFromSummary(insightSummary);
-    // "Niet aan het woord": the missing voices of the analysis (JSON paths, a few bytes each; hardly
-    // any analysis has more than six)
-    const missingVoices = [insight?.gap0, insight?.gap1, insight?.gap2, insight?.gap3, insight?.gap4, insight?.gap5].filter(
-      (voice: unknown): voice is string => typeof voice === "string" && voice.trim().length > 0,
-    );
+    // "Klopt het?" on the front page: the first claims without evidence, who makes them and the first
+    // question to ask (JSON paths, a few hundred bytes per news item)
+    const text = (value: unknown): string | null => (typeof value === "string" && value.trim() ? value.trim() : null);
+    const claims: ListClaim[] = [0, 1].flatMap((i) => {
+      const claim = text(insight?.[`claim${i}`]);
+      return claim ? [{ claim, by: text(insight[`claim${i}_by`]), question: text(insight[`claim${i}_question`]) }] : [];
+    });
 
     // Build source_breakdown from event_articles and find first image + latest article date
     const sourceBreakdownMap = new Map<string, { source: string; article_count: number; spectrum: string | number | null; is_international: boolean }>();
@@ -347,7 +350,7 @@ export async function listEvents(
       source_breakdown,
       event_type: event.event_type || null,
       featured_image_url,
-      missing_voices: missingVoices,
+      claims,
     };
   });
 

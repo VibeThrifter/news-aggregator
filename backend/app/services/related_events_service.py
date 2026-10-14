@@ -542,9 +542,9 @@ class RelationRefreshResult:
 
 
 def _default_read_factory() -> AbstractAsyncContextManager[AsyncSession]:
-    from backend.app.db.dual_write import get_read_session
+    from backend.app.db.session import get_sessionmaker
 
-    return get_read_session()
+    return get_sessionmaker()()
 
 
 def _default_write_factory() -> AbstractAsyncContextManager[AsyncSession]:

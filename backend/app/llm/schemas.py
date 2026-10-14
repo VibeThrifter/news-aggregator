@@ -101,6 +101,21 @@ class CoverageGap(BaseModel):
     description: str = Field(..., min_length=1, description="Explanation of what viewpoint or context is missing")
     relevance: str = Field(..., min_length=1, description="Why this perspective matters for understanding the event")
     potential_sources: list[str] = Field(default_factory=list, description="Types of sources that might provide this perspective")
+    kind: Literal["stem", "context"] | None = Field(
+        default=None,
+        description="stem = a voice that does not get the word; context = facts or background that are missing",
+    )
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _normalize_kind(cls, value: object) -> str | None:
+        """Anything but a clear stem or context leaves the kind open (the app then reads the label)."""
+        text = str(value or "").strip().lower()
+        if text.startswith(("stem", "voice")):
+            return "stem"
+        if text.startswith("context"):
+            return "context"
+        return None
 
 
 # === NIEUWE KRITISCHE ANALYSE SECTIES ===

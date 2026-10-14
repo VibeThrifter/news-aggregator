@@ -13,6 +13,7 @@ import { newsStart } from "./chronology";
 import { GROUP_COLORS } from "./colors";
 import type { Exploration } from "./exploration";
 import { frameLabel, toneLabel } from "./labels";
+import { isContextGap } from "./missing";
 import { perspectiveEstimates } from "./nearest";
 import { outletSentences } from "./outlet-sentences";
 import { OWN_KINDS, ownEntryOf, resolveOwnAgainst, resolveOwnAnchor, sourceOutletKey } from "./own";
@@ -78,16 +79,61 @@ export interface FigureModel {
   markers: Map<string, Marker[]>;
   /** Finding id → anchor (claims, statistics, fallacies, missing voices) */
   anchorOf: Map<string, string>;
-  /** Lines between two sides that contradict each other (`own`: the reader's) */
+  /** Lines between two sides that contradict each other and stand right next to each other */
   contradictions: ContradictionLine[];
+  /** Place (`placeKey`) → the contradictions on that balloon whose other side is not right next to it */
+  contradictionNotes: Map<string, ContradictionNote[]>;
 }
 
+/**
+ * A contradiction between two balloons of one group that stand side by side or one under the other:
+ * a line between them crosses no other balloon, so it never suggests a link with an outlet that has
+ * nothing to do with it (`own`: the reader's).
+ */
 export interface ContradictionLine {
   findingId: string;
   number: number;
+  group: string;
   from: string;
   to: string;
+  /** Names of the two ends */
+  between: [string, string];
+  /** What they contradict each other about */
+  topic: string;
   own?: boolean;
+  /** The first place of this contradiction: the picture scrolls there when it is shown in it */
+  lead: boolean;
+}
+
+/** A contradiction on a balloon whose other side stands elsewhere: who it contradicts. */
+export interface ContradictionNote {
+  findingId: string;
+  number: number;
+  /** Names of the other side */
+  against: string[];
+  topic: string;
+  own?: boolean;
+  lead: boolean;
+}
+
+/** A balloon in one group: an outlet can stand in more than one perspective. */
+export const placeKey = (group: string, anchor: string) => `${group}|${anchor}`;
+
+interface Place {
+  anchor: string;
+  group: string;
+  index: number;
+  /** Columns of the group's grid; 0: not in a grid (speakers, one outlet per group) */
+  cols: number;
+}
+
+/** Side by side (1) or one under the other (2); null when other balloons stand between them. */
+function neighbours(a: Place, b: Place): number | null {
+  if (a.group !== b.group || a.cols === 0 || b.cols === 0) return null;
+  const apart = Math.abs(a.index - b.index);
+  if (a.cols === 1) return apart === 1 ? 2 : null;
+  if (apart === 1 && Math.floor(a.index / a.cols) === Math.floor(b.index / b.cols)) return 1;
+  return apart === a.cols ? 2 : null;
 }
 
 export interface FoundSpeakerRef {
@@ -135,7 +181,8 @@ export function markerTypeOf(finding: Finding): MarkerType | null {
     case "contradiction":
       return "contradiction";
     case "gap":
-      return "gap";
+      // Missing context is not a voice: no empty balloon, no number
+      return isContextGap(finding.body.gap) ? null : "gap";
     case "own":
       return OWN_KINDS[finding.body.entry.kind].marker;
     default:
@@ -372,7 +419,7 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
       const found = foundVoicesFor(speakers, finding.id, label);
       return [{ anchor: gapAnchor(finding.id), findingId: finding.id, label, ...(own ? { own } : {}), ...(found.length ? { found } : {}) }];
     };
-    if (finding.body.type === "gap") return ghost(finding.body.gap.perspective, false);
+    if (finding.body.type === "gap") return isContextGap(finding.body.gap) ? [] : ghost(finding.body.gap.perspective, false);
     if (finding.body.type === "own" && finding.body.entry.kind === "gap") return ghost(finding.body.entry.text, true);
     return [];
   });
@@ -388,15 +435,79 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
     ghosts,
   });
 
-  // Contradiction lines between two outlets that are both in the picture
+  // Where each balloon stands: an outlet can be in more than one perspective
+  const places = new Map<string, Place[]>();
+  const place = (anchor: string, group: string, index: number, cols: number) =>
+    places.set(anchor, [...(places.get(anchor) ?? []), { anchor, group, index, cols }]);
+  for (const group of groups) {
+    const cols = group.kind === "perspective" || group.kind === "unclassified" || group.kind === "own" ? 2 : group.kind === "foreign" ? 1 : 0;
+    group.outlets.forEach((item, index) => place(item.anchor, group.key, index, cols));
+    // Speakers with a balloon or pill of their own
+    if (group.kind === "outlet") for (const speaker of group.speakers) place(speakerAnchor(speaker.id), group.key, -1, 0);
+    if (group.kind === "foreign") {
+      for (const speaker of group.outlets.flatMap((item) => item.speakers.filter((one) => one.found))) place(speakerAnchor(speaker.id), group.key, -1, 0);
+    }
+  }
+  const nameOf = (anchor: string) =>
+    anchor.startsWith("outlet:")
+      ? (exploration.index.outlet(anchor.slice("outlet:".length))?.name ?? anchor.slice("outlet:".length))
+      : (speakers.byId.get(anchor.slice("speaker:".length))?.name ?? anchor.slice("speaker:".length));
+
+  // A contradiction: a line between two sides that stand right next to each other; every other
+  // balloon of it says who it contradicts. Never a line across balloons that have nothing to do with it.
+  const contradictions: ContradictionLine[] = [];
+  const contradictionNotes = new Map<string, ContradictionNote[]>();
+  const placeContradiction = (findingId: string, number: number, topic: string, sideA: string[], sideB: string[], own: boolean) => {
+    const at = (anchors: string[]) => anchors.flatMap((anchor) => places.get(anchor) ?? []);
+    const a = at(sideA);
+    const b = at(sideB);
+    const pairs = a
+      .flatMap((x) => b.map((y) => ({ x, y, distance: neighbours(x, y) })))
+      .filter((pair): pair is { x: Place; y: Place; distance: number } => pair.distance !== null)
+      .sort((p, q) => p.distance - q.distance);
+    const joined = new Set<string>();
+    let lead = true;
+    for (const { x, y } of pairs) {
+      const kx = placeKey(x.group, x.anchor);
+      const ky = placeKey(y.group, y.anchor);
+      if (joined.has(kx) || joined.has(ky)) continue;
+      joined.add(kx);
+      joined.add(ky);
+      contradictions.push({
+        findingId,
+        number,
+        group: x.group,
+        from: x.anchor,
+        to: y.anchor,
+        between: [nameOf(x.anchor), nameOf(y.anchor)],
+        topic,
+        ...(own ? { own } : {}),
+        lead,
+      });
+      lead = false;
+    }
+    const note = (item: Place, other: string[]) => {
+      const key = placeKey(item.group, item.anchor);
+      if (joined.has(key)) return;
+      const against = Array.from(new Set(other.map(nameOf)));
+      contradictionNotes.set(key, [...(contradictionNotes.get(key) ?? []), { findingId, number, against, topic, ...(own ? { own } : {}), lead }]);
+      lead = false;
+    };
+    for (const item of a) note(item, sideB);
+    for (const item of b) note(item, sideA);
+  };
+
+  // The analysis: between outlets that are both in the picture
   const visible = new Set([...dutch, ...ownDutch, ...foreign].map((outlet) => outlet.key));
-  const contradictions: ContradictionLine[] = findings.flatMap((finding) => {
-    if (finding.body.type !== "contradiction") return [];
-    const a = finding.body.outletsA.find((key) => visible.has(key));
-    const b = finding.body.outletsB.find((key) => visible.has(key) && key !== a);
+  for (const finding of findings) {
+    if (finding.body.type !== "contradiction") continue;
+    const sideA = finding.body.outletsA.filter((key) => visible.has(key));
+    const sideB = finding.body.outletsB.filter((key) => visible.has(key) && !sideA.includes(key));
     const number = numbered.numbers.get(finding.id);
-    return a && b && number ? [{ findingId: finding.id, number, from: outletAnchor(a), to: outletAnchor(b) }] : [];
-  });
+    if (sideA.length && sideB.length && number) {
+      placeContradiction(finding.id, number, finding.body.contradiction.topic, sideA.map(outletAnchor), sideB.map(outletAnchor), false);
+    }
+  }
 
   // With groups per perspective the speakers are avatars in their outlet's balloon: their markers too
   let markers = numbered.markers;
@@ -411,8 +522,8 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
     }
   }
 
-  // The reader's contradictions: a line between the two balloons as drawn (a speaker without a
-  // balloon of their own is in their outlet's), else the number on the one side that is there
+  // The reader's contradictions: between the two balloons as drawn (a speaker without a balloon of
+  // their own is in their outlet's), else the number on the one side that is there
   const drawn = (anchor: string | null): string | null => {
     if (!anchor) return null;
     if (anchor.startsWith("outlet:")) return visible.has(anchor.slice("outlet:".length)) ? anchor : null;
@@ -428,7 +539,7 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
     const from = drawn(resolveOwnAnchor(entry, exploration));
     const to = drawn(resolveOwnAgainst(entry, exploration));
     if (from && to && from !== to) {
-      contradictions.push({ findingId: finding.id, number, from, to, own: true });
+      placeContradiction(finding.id, number, entry.text, [from], [to], true);
     } else if (from ?? to) {
       if (markers === numbered.markers) markers = new Map(numbered.markers);
       const anchor = (from ?? to) as string;
@@ -436,5 +547,5 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
     }
   }
 
-  return { mode, groups, ...numbered, markers, contradictions };
+  return { mode, groups, ...numbered, markers, contradictions, contradictionNotes };
 }

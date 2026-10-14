@@ -110,7 +110,9 @@ def decide(
     if category == PRIVE:
         return Decision(SKIP, 0.0, "Privépersoon — wordt niet uitgezocht")
     if non_actor:
-        return Decision(SKIP, 0.0, "Geen actor (fotocredit of naslagwerk) — wordt niet uitgezocht")
+        return Decision(
+            SKIP, 0.0, "Geen actor (fotocredit, naslagwerk of los woord) — wordt niet uitgezocht"
+        )
     if kind == "person" and single_name:
         return Decision(
             SKIP, 0.0, "Alleen een voor- of achternaam — te onduidelijk om uit te zoeken"

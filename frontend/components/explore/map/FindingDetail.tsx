@@ -6,6 +6,7 @@ import { ExternalLink, ScanText, UserSearch } from "lucide-react";
 import { objectivity } from "@/lib/explore/bias";
 import { findingTitle } from "@/lib/explore/findings";
 import { FRAME_DESCRIPTIONS, VERIFICATION_LABELS, biasTypeLabel, fallacyLabel, frameLabel } from "@/lib/explore/labels";
+import { isContextGap } from "@/lib/explore/missing";
 import { actorKeys } from "@/lib/explore/normalize";
 import { truncate } from "@/lib/explore/summary";
 import { formatLag } from "@/lib/explore/timeline";
@@ -269,7 +270,7 @@ export function FindingDetail({ finding }: { finding: Finding }) {
           </p>
           <Row label="Waarom dit ertoe doet">{body.gap.relevance}</Row>
           {body.gap.potential_sources?.length ? (
-            <Row label="Wie had het kunnen zeggen">
+            <Row label={isContextGap(body.gap) ? "Waar het te vinden is" : "Wie had het kunnen zeggen"}>
               <div className="flex flex-wrap gap-1.5">
                 {body.gap.potential_sources.map((source) => (
                   <Tag key={source}>{source}</Tag>
@@ -287,22 +288,9 @@ export function FindingDetail({ finding }: { finding: Finding }) {
         </div>
       );
 
-    case "questions":
-      return (
-        <div className="space-y-3">
-          {body.analysis.questions_not_asked?.length ? (
-            <Row label="Niet gesteld">
-              <List items={body.analysis.questions_not_asked} />
-            </Row>
-          ) : null}
-          {body.analysis.perspectives_omitted?.length ? (
-            <Row label="Weggelaten perspectieven">
-              <List items={body.analysis.perspectives_omitted} />
-            </Row>
-          ) : null}
-          <Row label="Framing door weglating">{body.analysis.framing_by_omission}</Row>
-        </div>
-      );
+    case "question":
+      // The row is the question itself
+      return null;
 
     case "science":
       return (
@@ -449,11 +437,9 @@ export function findingHeadline(finding: Finding): { title: string; meta: string
       return { title: `${body.sentenceCount} gekleurde ${body.sentenceCount === 1 ? "zin" : "zinnen"}`, meta: null };
     case "gap":
       return { title: body.gap.perspective, meta: null };
-    case "questions":
-      return {
-        title: `${body.analysis.questions_not_asked?.length ?? 0} niet gestelde vragen`,
-        meta: body.analysis.perspectives_omitted?.length ? `${body.analysis.perspectives_omitted.length} weggelaten perspectieven` : null,
-      };
+    case "question":
+      // An outlet the picture does not know: by the name the analysis gave
+      return { title: body.question, meta: body.outletKey ? null : body.analysis.source };
     case "science":
       return { title: body.plurality.topic, meta: body.plurality.alternative_views_mentioned ? null : "andere visies niet genoemd" };
     case "first":
@@ -475,6 +461,14 @@ export function findingHeadline(finding: Finding): { title: string; meta: string
     default:
       return { title: "", meta: null };
   }
+}
+
+/** What a closed row shows under its title: what is missing about a missing voice or context. */
+export function findingPreview(finding: Finding): string | null {
+  const body = finding.body;
+  if (body.type === "gap") return body.gap.description?.trim() || null;
+  if (body.type === "own" && body.entry.kind === "gap") return body.entry.detail?.trim() || null;
+  return null;
 }
 
 function fallacyLabelText(type: string): string {

@@ -4,24 +4,29 @@ import { useMemo } from "react";
 import Link from "next/link";
 
 import { resolveEventSlug } from "@/lib/format";
-import { fullTitle, LEAD_QUOTES, LEAD_TEASER, outletQuotes, teaserOf } from "@/lib/front-page";
+import { frontClaim, fullTitle, LEAD_QUOTES, LEAD_TEASER, outletQuotes, storyHook, storySection, teaserOf } from "@/lib/front-page";
 import type { EventListItem } from "@/lib/types";
 
-import { Conversation, MissingVoicePill, MissingVoices, OutletPills, StoryImage, StoryMeta } from "./StoryParts";
+import { ClaimRow, Conversation, HookBox, OutletPills, StoryImage, StoryMeta } from "./StoryParts";
 
 const CARD =
   "group border border-paper-300 bg-paper-50 transition-shadow hover:shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue";
 const TITLE = "font-serif font-bold text-ink-900 decoration-1 underline-offset-4 group-hover:underline";
 
 /**
- * The lead (see `pickTopStories`), and next to it a small "Wie zegt wat?": what each outlet
- * reported and who is not given the word.
+ * The lead (see `pickTopStories`), and next to it the event page in small: "Wie zegt wat?" (what
+ * each outlet reported) and "Klopt het?" (a claim without evidence and the question to ask), else
+ * the next part of the story.
  */
 export function LeadStory({ event }: { event: EventListItem }) {
   const teaser = useMemo(() => teaserOf(event.summary, LEAD_TEASER), [event.summary]);
   const quotes = useMemo(() => outletQuotes(event, { max: LEAD_QUOTES, teaser }), [event, teaser]);
-  const voices = event.missing_voices ?? [];
-  const figure = quotes.length > 0 || voices.length > 0;
+  const claim = useMemo(() => frontClaim(event), [event]);
+  const section = useMemo(
+    () => (claim ? null : storySection(event.summary, [teaser, ...quotes.map((quote) => quote.text)])),
+    [claim, event.summary, teaser, quotes],
+  );
+  const figure = quotes.length > 0 || claim !== null || section !== null;
 
   return (
     <Link href={resolveEventSlug(event)} className={`${CARD} block rounded-3xl p-3 sm:p-4 lg:p-5`}>
@@ -44,7 +49,13 @@ export function LeadStory({ event }: { event: EventListItem }) {
                 </div>
               </>
             ) : null}
-            <MissingVoices voices={voices} />
+            {claim ? (
+              <>
+                <h3 className="font-serif text-xl font-bold text-ink-900">Klopt het?</h3>
+                <ClaimRow claim={claim} />
+              </>
+            ) : null}
+            {section ? <HookBox hook={{ kind: "section", section }} /> : null}
           </div>
         ) : null}
       </article>
@@ -52,10 +63,17 @@ export function LeadStory({ event }: { event: EventListItem }) {
   );
 }
 
-/** A top story next to the lead: photo and headline, then what two outlets reported. */
+/**
+ * A top story next to the lead: photo and headline, then what two outlets reported; with fewer, the
+ * start of the story and what makes you read on.
+ */
 export function TopStory({ event }: { event: EventListItem }) {
   const teaser = useMemo(() => teaserOf(event.summary, 200), [event.summary]);
   const quotes = useMemo(() => outletQuotes(event, { max: 2, length: 150, teaser }), [event, teaser]);
+  const hook = useMemo(
+    () => (quotes.length < 2 ? storyHook(event, [teaser, ...quotes.map((quote) => quote.text)]) : null),
+    [quotes, event, teaser],
+  );
 
   return (
     <Link href={resolveEventSlug(event)} className={`${CARD} flex h-full flex-col gap-4 rounded-3xl p-4 sm:p-5`}>
@@ -73,17 +91,18 @@ export function TopStory({ event }: { event: EventListItem }) {
           <Conversation quotes={quotes} />
         </div>
       ) : null}
+      <HookBox hook={hook} />
       <div className="mt-auto flex flex-wrap items-center gap-1.5">
         <OutletPills event={event} />
-        <MissingVoicePill voices={event.missing_voices} />
       </div>
     </Link>
   );
 }
 
-/** A news item under its day: photo, headline, the start of the story, who brought it, who is missing. */
+/** A news item under its day: photo, headline, the start of the story, what makes you read on, who brought it. */
 export function StoryCard({ event }: { event: EventListItem }) {
   const teaser = useMemo(() => teaserOf(event.summary, 220), [event.summary]);
+  const hook = useMemo(() => storyHook(event, [teaser]), [event, teaser]);
   const analysed = event.has_llm_insights !== false;
 
   return (
@@ -105,9 +124,9 @@ export function StoryCard({ event }: { event: EventListItem }) {
           <StoryImage src={event.featured_image_url} sizes="96px" className="h-[72px] w-24 shrink-0 rounded-xl sm:hidden" />
         </div>
         {teaser ? <p className="line-clamp-3 font-serif text-[15px] leading-relaxed text-ink-700">{teaser}</p> : null}
+        <HookBox hook={hook} />
         <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
           <OutletPills event={event} />
-          <MissingVoicePill voices={event.missing_voices} />
         </div>
       </article>
     </Link>

@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
-from backend.app.db.dual_write import get_read_session
 from backend.app.db.models import Article, Event, EventArticle
 from backend.app.db.session import get_sessionmaker
 from backend.app.services.llm_config_service import get_llm_config_service
@@ -122,11 +121,12 @@ class PromptBuilder:
         session_factory: async_sessionmaker[AsyncSession] | None = None,
         settings: Settings | None = None,
     ) -> None:
-        # session_factory is kept for backwards compatibility / testing
-        # but read operations now use get_read_session() for SQLite cache support
-        self._legacy_session_factory = session_factory
+        self._session_factory = session_factory
         self.settings = settings or get_settings()
         self.template = PROMPT_TEMPLATE
+
+    def _sessions(self) -> async_sessionmaker[AsyncSession]:
+        return self._session_factory or get_sessionmaker()
 
     async def build_prompt(self, event_id: int, *, max_articles: int | None = None) -> str:
         """Compose a deterministic prompt string for the provided event identifier."""
@@ -146,7 +146,7 @@ class PromptBuilder:
         if limit <= 0:
             raise PromptBuilderError("Article cap must be positive")
 
-        async with get_read_session() as session:
+        async with self._sessions()() as session:
             event = await self._fetch_event(session, event_id)
             articles = await self._fetch_articles(session, event_id)
 
@@ -428,7 +428,7 @@ class PromptBuilder:
         if limit <= 0:
             raise PromptBuilderError("Article cap must be positive")
 
-        async with get_read_session() as session:
+        async with self._sessions()() as session:
             event = await self._fetch_event(session, event_id)
             articles = await self._fetch_articles(session, event_id)
 
@@ -479,7 +479,7 @@ class PromptBuilder:
         if limit <= 0:
             raise PromptBuilderError("Article cap must be positive")
 
-        async with get_read_session() as session:
+        async with self._sessions()() as session:
             event = await self._fetch_event(session, event_id)
             articles = await self._fetch_articles(session, event_id)
 
@@ -529,7 +529,7 @@ class PromptBuilder:
         full article content, making it much cheaper to run. Used to extract search
         keywords before fetching international articles.
         """
-        async with get_read_session() as session:
+        async with self._sessions()() as session:
             event = await self._fetch_event(session, event_id)
 
         # Build minimal context for keyword extraction

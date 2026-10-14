@@ -1,13 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import useSWR, { mutate as revalidate } from "swr";
 import { Check, ChevronRight, ExternalLink, Loader2, Sparkles, Undo2, X } from "lucide-react";
 
 import { useAccess } from "@/lib/explore/access";
+import {
+  earlierFromAdmin,
+  earlierFromPublic,
+  inPicture,
+  missingVoicesInPicture,
+  rankEarlier,
+  type EarlierSearch,
+} from "@/lib/explore/earlier-searches";
 import { foundVoicesFor } from "@/lib/explore/figure";
 import { truncate } from "@/lib/explore/summary";
 import {
+  publicVoiceSearches,
   requestVoiceSearch,
   reviewVoiceCandidate,
   voiceSearchesForEvent,
@@ -46,7 +55,8 @@ export function useVoiceSearches() {
     access.canSearch && access.code ? ["voice-searches", eventId, access.code, demo] : null,
     () => voiceSearchesForEvent(access.code as string, eventId, { demo }),
     {
-      refreshInterval: (data) => (data?.some((search) => search.status === "wachtrij" || search.status === "bezig") ? 2500 : 0),
+      // Finds show while the search goes on (Story 14.10): look often while one runs
+      refreshInterval: (data) => (data?.some((search) => search.status === "wachtrij" || search.status === "bezig") ? 1500 : 0),
       revalidateOnFocus: false,
     },
   );
@@ -60,6 +70,25 @@ function latestFor(searches: VoiceSearch[], findingId: string, perspective: stri
 /** Reload the news: an approved source is now one of its articles. */
 function reloadNews() {
   return revalidate((key) => Array.isArray(key) && key[0] === "explore");
+}
+
+/**
+ * The backend makes an approved find an article of the news, or takes it out again (Story
+ * INFRA-2): wait for that a little (up to 15 s), then reload the news. When the backend does not
+ * run, the find shows as approved and joins the news once it runs.
+ */
+async function afterReview(
+  refresh: () => Promise<VoiceSearch[] | undefined>,
+  searchId: number,
+  candidateId: string,
+) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const searches = await refresh();
+    const candidate = searches?.find((search) => search.id === searchId)?.candidates.find((c) => c.id === candidateId);
+    if (!candidate || (candidate.verdict === "goedgekeurd") === (candidate.article_id != null)) break;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  await reloadNews();
 }
 
 export interface VoiceTarget {
@@ -156,8 +185,7 @@ function CandidateRow({ search, candidate, demo }: { search: VoiceSearch; candid
     try {
       const result = await reviewVoiceCandidate(access.code, search.id, candidate.id, verdict, { demo });
       if (!result.ok) setError(result.reason === "geen_toegang" ? "Deze code mag niet goedkeuren." : "Dat lukte niet.");
-      await refresh();
-      await reloadNews();
+      await afterReview(refresh, search.id, candidate.id);
     } catch {
       setError("Dat lukte niet.");
     } finally {
@@ -251,7 +279,7 @@ export function VoiceSearchPanel(target: VoiceTarget) {
         <Sparkles size={14} aria-hidden="true" /> Zoeken met AI · admin
       </SubHeading>
       {search ? <StatusLine search={search} /> : null}
-      {search?.status === "klaar" && search.candidates.length ? (
+      {(search?.status === "klaar" || search?.status === "bezig") && search.candidates.length ? (
         <ul className="space-y-2">
           {search.candidates.map((candidate) => (
             <CandidateRow key={candidate.id} search={search} candidate={candidate} demo={demo} />
@@ -341,5 +369,99 @@ export function FoundVoices({ findingId, label, onNavigate }: { findingId: strin
         })}
       </ul>
     </div>
+  );
+}
+
+/** The voices of this news already searched with AI: readers get what was approved, the admin all. */
+function useEarlierSearches(): EarlierSearch[] {
+  const { eventId } = useExplore();
+  const { access, demo, searches } = useVoiceSearches();
+  const readers = useSWR(
+    access.canSearch || access.checking ? null : ["voice-searches-public", eventId, demo],
+    () => publicVoiceSearches(eventId, { demo }),
+    { revalidateOnFocus: false },
+  );
+  return useMemo(
+    () => (access.canSearch ? earlierFromAdmin(searches) : earlierFromPublic(readers.data ?? [])),
+    [access.canSearch, searches, readers.data],
+  );
+}
+
+const MAX_EARLIER = 5;
+
+function EarlierRow({ search, place, onTake, onOpen }: { search: EarlierSearch; place: string | null; onTake: () => void; onOpen: () => void }) {
+  return (
+    <li className="flex items-start gap-2 rounded-xl border border-teal-200 bg-white p-2.5">
+      <div className="min-w-0 flex-1 space-y-1">
+        <p className="text-sm font-semibold text-ink-900">{search.perspective}</p>
+        {search.state === "bezig" ? (
+          <p className="flex items-center gap-1.5 text-xs text-ink-700">
+            <Loader2 size={12} className="animate-spin" aria-hidden="true" /> Wordt gezocht
+          </p>
+        ) : search.found.length ? (
+          <ul className="space-y-1">
+            {search.found.map((find) => (
+              <li key={find.url} className="text-xs leading-relaxed text-ink-700">
+                {find.who ? <strong className="font-semibold text-ink-900">{truncate(find.who, 80)} </strong> : null}
+                <span className="inline-flex items-center gap-1 align-middle text-ink-500">
+                  {find.who ? "bij " : null}
+                  <Favicon name={find.outlet ?? "?"} domain={find.domain} size={12} />
+                  {find.outlet ?? find.domain}
+                </span>
+                {find.gist ? <span className="block">{truncate(find.gist, 140)}</span> : null}
+              </li>
+            ))}
+          </ul>
+        ) : search.open === 0 ? (
+          <p className="text-xs text-ink-500">Nog geen bron</p>
+        ) : null}
+        {search.open > 0 ? <p className="text-xs font-semibold text-teal-800">{search.open} te beoordelen</p> : null}
+      </div>
+      <button
+        type="button"
+        onClick={place ? onOpen : onTake}
+        className="inline-flex min-h-[36px] shrink-0 items-center gap-1 rounded-full border border-paper-300 px-3 text-xs font-semibold text-ink-800 hover:bg-paper-100"
+      >
+        {place ? "Bekijk" : "Neem over"}
+      </button>
+    </li>
+  );
+}
+
+/**
+ * "Al gezocht met AI" in the form for a missing voice (Story 14.22): the voices of this news that
+ * were searched already, those like what you type first. Take one over, or go to it when it is in
+ * the picture already. Readers see only what the admin approved.
+ */
+export function EarlierSearches({ typed, onTake, onClose }: { typed: string; onTake: (perspective: string) => void; onClose: () => void }) {
+  const { exploration, toFinding } = useExplore();
+  const earlier = useEarlierSearches();
+  const ranked = useMemo(() => rankEarlier(earlier, typed).slice(0, MAX_EARLIER), [earlier, typed]);
+  const voices = useMemo(() => missingVoicesInPicture(exploration.findings), [exploration.findings]);
+  if (ranked.length === 0) return null;
+  return (
+    <section aria-label="Al gezocht met AI" className="space-y-1.5">
+      <SubHeading className="flex items-center gap-1.5" tone="text-teal-800">
+        <Sparkles size={14} aria-hidden="true" /> Al gezocht met AI
+      </SubHeading>
+      <ul className="space-y-1.5">
+        {ranked.map((search) => {
+          const place = inPicture(search, exploration.findingById, voices);
+          return (
+            <EarlierRow
+              key={search.key}
+              search={search}
+              place={place}
+              onTake={() => onTake(search.perspective)}
+              onOpen={() => {
+                if (!place) return;
+                onClose();
+                toFinding(place);
+              }}
+            />
+          );
+        })}
+      </ul>
+    </section>
   );
 }

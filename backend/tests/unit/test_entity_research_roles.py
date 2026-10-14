@@ -28,6 +28,8 @@ from backend.app.services.entity_research.roles import (
     cues_from_authority,
     fold,
     infer_kind,
+    is_foreign_head,
+    is_foreign_head_label,
     is_non_actor,
 )
 
@@ -80,6 +82,13 @@ def test_title_before_name_is_domestic_politician() -> None:
 def test_demonym_marks_a_foreign_politician() -> None:
     cue = cue_from_before(ctx("Volgens de Amerikaanse president ", span="Donald Trump"))
     assert cue is not None and cue.category == POLITICUS and cue.foreign is True
+
+
+def test_former_foreign_head_is_foreign() -> None:
+    assert is_foreign_head("ex-president") and is_foreign_head("oud-president")
+    assert not is_foreign_head("cornell-president") and not is_foreign_head("president-directeur")
+    assert is_foreign_head_label("ex-president") and not is_foreign_head_label("burgemeester")
+    assert assess_person([ctx("zei ex-president ", span="Bolsonaro")]).is_foreign is True
 
 
 def test_president_without_demonym_is_foreign() -> None:
@@ -393,5 +402,9 @@ def test_clean_person_name(name: str, cleaned: str) -> None:
 def test_non_actor_names() -> None:
     assert is_non_actor("Wikimedia Commons") and is_non_actor("Getty Images")
     assert not is_non_actor("ANP") and not is_non_actor("NordVind")
+    # loose words and names without a capital are no actor either
+    assert is_non_actor("KIJK OOK") and is_non_actor("Gisteren") and is_non_actor("Wij")
+    assert is_non_actor("bond") and is_non_actor("senaat")
+    assert not is_non_actor("Ook Dit BV") and not is_non_actor("de Volkskrant")
     decision = _decide(kind="org", category=ORGANISATIE, non_actor=True)
     assert decision.decision == prio.SKIP and "Geen actor" in decision.reason

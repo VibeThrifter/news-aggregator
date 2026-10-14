@@ -36,7 +36,18 @@ export function EntityInline({ link, text }: { link: EntityLink; text: string })
 }
 
 /** An outlet name in running text: same balloon as the outlet chips, as an inline link. */
-export function OutletInline({ outletKey, text }: { outletKey: string; text?: string }) {
+export function OutletInline({
+  outletKey,
+  text,
+  className = "font-semibold",
+  iconSize = 14,
+}: {
+  outletKey: string;
+  text?: string;
+  /** The weight (and font) of the name; it takes the size of the text around it */
+  className?: string;
+  iconSize?: number;
+}) {
   const { exploration } = useExplore();
   const outlet = exploration.index.outlet(outletKey);
   if (!outlet) return <>{text ?? outletKey}</>;
@@ -49,9 +60,9 @@ export function OutletInline({ outletKey, text }: { outletKey: string; text?: st
             ref={ref}
             {...props}
             type="button"
-            className={`${INLINE_TARGET} font-semibold text-ink-900 underline decoration-paper-300 decoration-2 underline-offset-4`}
+            className={`${INLINE_TARGET} ${className} text-ink-900 underline decoration-paper-300 decoration-2 underline-offset-4`}
           >
-            <Favicon name={outlet.name} domain={outlet.domain} size={14} className="mr-1 inline-block align-[-2px]" />
+            <Favicon name={outlet.name} domain={outlet.domain} size={iconSize} className="mr-1 inline-block align-[-2px]" />
             {text ?? outlet.name}
           </button>
         )}

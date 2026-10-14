@@ -63,6 +63,21 @@ export interface VoiceSearchRequest {
   gapKey?: string | null;
 }
 
+/**
+ * A search as every reader sees it (Story 14.22, migration 015): per missing voice whether it was
+ * searched, with only the sources the admin approved. One per voice, over all its searches.
+ */
+export interface PublicVoiceSearch {
+  /** Its latest search */
+  id: number;
+  perspective: string;
+  gap_key: string | null;
+  state: "bezig" | "gezocht";
+  found: Pick<VoiceCandidate, "url" | "title" | "outlet" | "domain" | "who" | "gist" | "article_id">[];
+  created_at: string;
+  finished_at: string | null;
+}
+
 export type VoiceRequestResult =
   | { ok: true; search: VoiceSearch }
   | { ok: false; reason: 'geen_toegang' | 'ongeldig' | 'onbekend_event' | 'limiet' | 'druk' | 'niet_beschikbaar' };
@@ -103,6 +118,12 @@ export async function requestVoiceSearch(
 export async function voiceSearchesForEvent(code: string, eventId: number, options: { demo?: boolean } = {}): Promise<VoiceSearch[]> {
   if (DEMO_ENABLED && options.demo) return (await demo()).demoVoiceSearches(eventId);
   return (await rpc<VoiceSearch[]>('voice_searches_for_event', { p_code: code, p_event_id: eventId })) ?? [];
+}
+
+/** What was searched for this news, for every reader; [] when the database does not know it yet. */
+export async function publicVoiceSearches(eventId: number, options: { demo?: boolean } = {}): Promise<PublicVoiceSearch[]> {
+  if (DEMO_ENABLED && options.demo) return (await demo()).demoPublicVoiceSearches(eventId);
+  return (await rpc<PublicVoiceSearch[]>('voice_searches_public', { p_event_id: eventId })) ?? [];
 }
 
 export async function reviewVoiceCandidate(

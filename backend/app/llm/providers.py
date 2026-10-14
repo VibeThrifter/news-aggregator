@@ -29,6 +29,7 @@ from backend.app.llm.client import (
     LLMResult,
     MistralClient,
 )
+from backend.app.llm.gemini_fast import GeminiFastClient, fast_model, is_gemini_fast
 
 logger = get_logger(__name__).bind(component="LLMProviders")
 
@@ -40,7 +41,8 @@ def build_llm_client(
 ) -> BaseLLMClient:
     """The client for a provider name from llm_config.
 
-    mistral, deepseek, deepseek-r1, gemini, or claude-code[:model] (the local Claude Code CLI).
+    mistral, deepseek, deepseek-r1, gemini, gemini-fast[:model] (Gemini without thinking, for
+    short judgments), or claude-code[:model] (the local Claude Code CLI).
     ``priority`` orders the calls waiting for a Claude Code slot (``NEWS_PIPELINE_PRIORITY`` first).
     """
 
@@ -53,6 +55,8 @@ def build_llm_client(
         return DeepSeekClient(settings=settings, use_reasoner=True)
     if name == "gemini":
         return GeminiClient(settings=settings)
+    if is_gemini_fast(name):
+        return GeminiFastClient(settings=settings, model=fast_model(name))
     return MistralClient(settings=settings)
 
 
@@ -94,8 +98,13 @@ class StepLLMClient(BaseLLMClient):
     def provider(self) -> str:  # type: ignore[override]
         return f"step:{self.keys[0]}"
 
+    async def resolved(self) -> str:
+        """The provider this step uses now (llm_config, the fallback keys, else the settings)."""
+
+        return (await resolve_provider(self.keys, default=self.default) or "mistral").lower()
+
     async def client(self) -> BaseLLMClient:
-        name = (await resolve_provider(self.keys, default=self.default) or "mistral").lower()
+        name = await self.resolved()
         if name not in self._clients:
             self._clients[name] = build_llm_client(name, self.settings, priority=self.priority)
         return self._clients[name]

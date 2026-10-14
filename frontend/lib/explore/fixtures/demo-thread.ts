@@ -1,9 +1,9 @@
 /**
  * The rest of the demo story (behind NEXT_PUBLIC_ENABLE_DEMO): an earlier and a later episode of the
  * Dijkerhoven wind park, and other news with the same alderman. Together with /event/demo they show
- * every part of the event page: "Eerder/Later in dit verhaal", "Dezelfde mensen in ander nieuws",
- * and — in the later episode — the usual case of one Dutch outlet with its speakers, missing voices
- * and foreign coverage (one of it old).
+ * every part of the event page: the story before and after this news on the Tijdlijn, and — in the
+ * later episode — the usual case of one Dutch outlet with its speakers, missing voices and foreign
+ * coverage (one of it old).
  *
  * FICTIONAL, like /event/demo: Dijkerhoven, its people, NordVind, Stichting Stille Polder and all
  * quotes are made up. Outlet names and national institutions (RIVM, ANP, Ipsos I&O) are real; their

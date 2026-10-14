@@ -11,17 +11,19 @@ import type { Finding, TabId } from "@/lib/explore/types";
 
 import { useExplore } from "../ExploreContext";
 import { FindingRow } from "./FindingRow";
+import { OntbreektTab } from "./OntbreektTab";
 import { OthersSection, useSharedGroups } from "./Others";
 import { OwnAdd } from "./OwnForm";
 import { StemmenTab } from "./StemmenTab";
 import { TijdlijnTab } from "./TijdlijnTab";
+import { VragenTab } from "./VragenTab";
 import { ScrollRow } from "../ui/ScrollRow";
 
 const NONE: never[] = [];
 
 const ROW_ORDER: Partial<Record<TabId, Finding["type"][]>> = {
   klopt: ["claim", "statistic", "fallacy", "contradiction"],
-  ontbreekt: ["gap", "questions", "science"],
+  ontbreekt: ["gap", "science"],
   gebracht: ["frame", "tone", "bias"],
   invalshoeken: ["perspective"],
 };
@@ -55,13 +57,17 @@ export function FindingsTabs() {
       // Who speaks, and the sources you added
       ["stemmen", new Set(speakers.speakers.map((speaker) => speaker.slug)).size + (byTab.get("stemmen") ?? []).filter((f) => f.body.type === "own" && f.body.entry.kind === "source").length],
       ["ontbreekt", of("ontbreekt")],
+      ["vragen", of("vragen")],
       ["gebracht", (byTab.get("gebracht") ?? []).filter((finding) => finding.type !== "tone" || finding.outletKeys.length > 0).length],
       [
         "tijdlijn",
         thread.earlier.length + thread.alongside.length + thread.later.length + (byTab.get("tijdlijn") ?? []).filter((f) => f.type !== "first").length,
       ],
     ]);
-    if ((map.get("stemmen") ?? 0) === 0 && (byTab.get("stemmen") ?? []).some((finding) => finding.type === "voices")) map.set("stemmen", 1);
+    // No speakers, but how an outlet sources the news
+    if ((map.get("stemmen") ?? 0) === 0 && (byTab.get("stemmen") ?? []).some((finding) => finding.body.type === "voices" && finding.body.sourcingPattern)) {
+      map.set("stemmen", 1);
+    }
     return map;
   }, [byTab, input, speakers]);
 
@@ -127,6 +133,10 @@ export function FindingsTabs() {
           <StemmenTab />
         ) : current === "tijdlijn" ? (
           <TijdlijnTab />
+        ) : current === "ontbreekt" ? (
+          <OntbreektTab rows={rows("ontbreekt")} />
+        ) : current === "vragen" ? (
+          <VragenTab rows={rows("vragen")} />
         ) : (
           <ul className="divide-y divide-paper-200">
             {rows(current)

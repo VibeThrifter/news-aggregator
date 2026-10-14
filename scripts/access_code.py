@@ -4,7 +4,8 @@
 A code unlocks options in the app on the device where it is entered (/admin → Toegangscode). Only
 the sha256 of a code is stored; the code itself is printed once, here. For now only role "admin"
 may search and approve (voice_search_role_allowed in migration 009); "pro" is ready for paying
-users.
+users. The codes are kept in Supabase, where the website checks them (SUPABASE_DATABASE_URL, Story
+INFRA-2).
 
 Usage (from the repo root):
   PYTHONPATH=. .venv/bin/python scripts/access_code.py create --role admin --label Eigenaar
@@ -22,7 +23,7 @@ import sys
 
 from sqlalchemy import text
 
-from backend.app.db.session import get_sessionmaker
+from backend.app.db.supabase import get_frontend_sessionmaker
 
 
 def new_code(role: str) -> str:
@@ -35,7 +36,7 @@ def code_hash(code: str) -> str:
 
 async def create(role: str, label: str | None, limit: int) -> None:
     code = new_code(role)
-    async with get_sessionmaker()() as session:
+    async with get_frontend_sessionmaker()() as session:
         row = (
             await session.execute(
                 text(
@@ -52,7 +53,7 @@ async def create(role: str, label: str | None, limit: int) -> None:
 
 
 async def list_codes() -> None:
-    async with get_sessionmaker()() as session:
+    async with get_frontend_sessionmaker()() as session:
         rows = (
             await session.execute(
                 text(
@@ -78,7 +79,7 @@ async def list_codes() -> None:
 
 
 async def revoke(code_id: int) -> None:
-    async with get_sessionmaker()() as session:
+    async with get_frontend_sessionmaker()() as session:
         result = await session.execute(
             text(
                 "UPDATE access_codes SET revoked_at = now() WHERE id = :id AND revoked_at IS NULL"

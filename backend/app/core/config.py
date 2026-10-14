@@ -204,11 +204,38 @@ class Settings(BaseSettings):
         default=True,
         description="Scheduled job that runs the AI searches for missing voices queued in the app"
     )
-    voice_search_interval_minutes: int = Field(
-        default=1,
-        ge=1,
-        le=60,
-        description="Interval in minutes for the voice search job (it only works when a search is queued)"
+    voice_search_interval_seconds: int = Field(
+        default=5,
+        ge=2,
+        le=3600,
+        description=(
+            "How often the voice search job looks at its queue, in seconds: the app cannot reach "
+            "the backend, so a queued search waits this long at most"
+        )
+    )
+    voice_search_fallback_seconds: int = Field(
+        default=300,
+        ge=10,
+        le=3600,
+        description=(
+            "While the backend listens to Supabase for new searches and reviews (Story INFRA-2), "
+            "it looks at the queue in Supabase only this often (a missed signal)"
+        ),
+    )
+    voice_search_web_timeout_seconds: float = Field(
+        default=60.0,
+        ge=5.0,
+        le=300.0,
+        description="Timeout of one call to the search model (llm_config provider_voice_web)"
+    )
+    voice_search_web_thinking_budget: Optional[int] = Field(
+        default=1024,
+        ge=0,
+        le=24576,
+        description=(
+            "Thinking tokens of the Gemini search model (empty = the model decides: 15-25 s; "
+            "1024: 5-17 s and as many finds in the test of 2026-10-08; 0: 2-6 s, fewer finds)"
+        ),
     )
     voice_search_batch_size: int = Field(
         default=2,
@@ -259,7 +286,8 @@ class Settings(BaseSettings):
     # The Supabase pooler in session mode allows 15 clients for the whole project. Beyond that it
     # refuses new ones (EMAXCONNSESSION) and work that needs the database, such as an analysis,
     # fails within seconds. Pool size + overflow stays below 15; a busy moment waits for a free
-    # connection (pool timeout) instead.
+    # connection (pool timeout) instead. With the local database (INFRA-2) the limit is that of
+    # the Supabase pool (SUPABASE_POOL_SIZE) instead.
     database_pool_size: int = Field(
         default=6,
         description="Connections the backend keeps open to the database",
@@ -269,14 +297,62 @@ class Settings(BaseSettings):
         description="Extra connections at busy moments (pool size + overflow < 15)",
     )
 
-    # Local SQLite Cache Configuration (Story INFRA-1: Egress Optimization)
-    backend_read_source: str = Field(
-        default="supabase",
-        description="Where backend reads data from: 'sqlite' (local cache) or 'supabase' (cloud)"
+    # Local working database (Story INFRA-2). With SUPABASE_DATABASE_URL set, DATABASE_URL is a local
+    # Postgres with everything and Supabase holds only what the website shows. The backend
+    # publishes changes there (writing costs no egress) and reads only what the website writes
+    # there (voice searches, access codes, shared entries, research requests).
+    supabase_database_url: str = Field(
+        default="",
+        description="Supabase PostgreSQL that the website reads; empty = DATABASE_URL is Supabase",
     )
-    sqlite_cache_path: str = Field(
-        default="data/local_cache.db",
-        description="Path to local SQLite cache database for backend reads"
+    supabase_pool_size: int = Field(
+        default=2,
+        ge=1,
+        le=6,
+        description="Connections the backend keeps open to Supabase (the pooler allows 15 in all)",
+    )
+    supabase_max_overflow: int = Field(
+        default=2,
+        ge=0,
+        le=6,
+        description="Extra connections to Supabase at busy moments",
+    )
+    publish_enabled: bool = Field(
+        default=True,
+        description="Publish changes of the local database to Supabase (needs SUPABASE_DATABASE_URL)",
+    )
+    publish_interval_seconds: int = Field(
+        default=10,
+        ge=2,
+        le=3600,
+        description=(
+            "How often the backend looks for changes to publish, in seconds (a local check; "
+            "Supabase is only written when something changed)"
+        ),
+    )
+    publish_batch_rows: int = Field(
+        default=500,
+        ge=10,
+        le=5000,
+        description="Rows per statement when publishing to Supabase",
+    )
+    local_backup_enabled: bool = Field(
+        default=True,
+        description="Event maintenance makes a daily pg_dump of the local working database",
+    )
+    local_backup_dir: str = Field(
+        default="data/local-db/backups",
+        description="Where the daily backups of the local working database go",
+    )
+    local_backup_keep: int = Field(
+        default=7,
+        ge=1,
+        le=60,
+        description="Daily backups kept",
+    )
+    pg_dump_path: str = Field(
+        default=str(Path.home() / ".local/share/news-aggregator/postgres17/bin/pg_dump"),
+        description="pg_dump of the local Postgres (the same major version as the server)",
     )
 
     # ML and AI Configuration
@@ -805,10 +881,6 @@ class Settings(BaseSettings):
         """Check if Gemini API key is available."""
         return bool(self.gemini_api_key)
 
-    @property
-    def use_sqlite_cache(self) -> bool:
-        """Check if backend should read from local SQLite cache."""
-        return self.backend_read_source.lower() == "sqlite"
 
 
 def get_settings() -> Settings:

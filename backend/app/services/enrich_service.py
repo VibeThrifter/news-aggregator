@@ -10,7 +10,6 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.logging import get_logger
-from backend.app.db.dual_write import sync_entities_to_cache
 from backend.app.db.models import Article, Event, EventArticle
 from backend.app.db.session import get_sessionmaker
 from backend.app.nlp.embeddings import EmbeddingService
@@ -231,9 +230,6 @@ class ArticleEnrichmentService:
                 enriched_articles.append(enriched_article)
 
             await session.commit()
-            # Sync enriched articles to SQLite cache (INFRA-1: dual-write)
-            if enriched_articles:
-                await sync_entities_to_cache(enriched_articles, "articles")
             processed_count += len(chunk)
 
         self.log.info(

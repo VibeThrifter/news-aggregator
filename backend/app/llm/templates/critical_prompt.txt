@@ -94,7 +94,7 @@ JSON OUTPUT SCHEMA:
 {
   "fallacies": [{"type": "string - wees specifiek: stroman|ad_hominem|vals_dilemma|cirkelredenering|slippery_slope|andere", "description": "string - leg uit WAAROM dit een logische fout is, niet alleen een meningsverschil", "sources": ["url"], "spectrum": "mainstream"}],
   "frames": [{"frame_type": "conflict|human_interest|economisch|moraliteit|verantwoordelijkheid|veiligheid|metafoor|eufemisme|hyperbool|strategisch|consensus|inevitability|authority_deference|fear|progress|nostalgia", "technique": "specific technique used", "description": "2-4 sentences explaining the framing effect", "sources": ["url - ALLEEN bronnen die dit frame ZELF hanteren, niet bronnen die het CITEREN"], "spectrum": "mainstream", "attribution": "eigen_framing|geciteerd - is dit het perspectief van het medium zelf, of rapporteren ze wat anderen zeggen?"}],
-  "coverage_gaps": [{"perspective": "string", "description": "string", "relevance": "why this matters", "potential_sources": ["who could provide this perspective"]}],
+  "coverage_gaps": [{"kind": "stem|context - stem: a person, group or organisation that does not get the word; context: facts, figures, background or an explanation that is missing", "perspective": "string - for stem: who (e.g. 'Omwonenden'); for context: what (e.g. 'Herkomst van de cijfers')", "description": "string", "relevance": "why this matters", "potential_sources": ["who could provide this perspective"]}],
   "unsubstantiated_claims": [{"claim": "literal claim from article", "presented_as": "feit|advies|mening|voorspelling", "source_in_article": "who made this claim", "article_url": "REQUIRED - exact URL of the article containing this claim", "evidence_provided": "what evidence given, or 'geen'", "missing_context": ["what's left out"], "critical_questions": ["questions that should be asked"]}],
   "authority_analysis": [{
     "authority": "name",
@@ -115,12 +115,6 @@ JSON OUTPUT SCHEMA:
     "article_url": "REQUIRED - exact URL of the article being analyzed",
     "tone": "feitelijk|kritisch|sensationeel|alarmerend|geruststellend|activistisch",
     "sourcing_pattern": "who do they quote? who not?",
-    "quote_analysis": {
-      "balance": "gebalanceerd|scheef_naar_X - welke kant krijgt meer/prominentere quotes?",
-      "intro_framing": "hoe worden quotes ingeleid? bijv. 'beweert' vs 'stelt' vs 'waarschuwt' vs 'erkent'",
-      "selection_bias": "welke uitspraken zijn gekozen, welke waarschijnlijk weggelaten?",
-      "editorial_position": "welk standpunt ontstaat uit de COMBINATIE van: titel + quote-selectie + inleidende tekst?"
-    },
     "questions_not_asked": ["important questions the journalist didn't ask"],
     "perspectives_omitted": ["viewpoints or stakeholders not represented"],
     "framing_by_omission": "how the omission shapes the narrative",
@@ -167,18 +161,6 @@ ANALYSIS INSTRUCTIONS:
    - Who is NOT quoted that should be?
    - Does the coverage feel like independent journalism or reliance on press releases?
 
-   **QUOTE_ANALYSIS - Sturing door quote-selectie:**
-   Een medium kan "neutraal citeren" maar toch sturen door:
-   - SELECTIE: Welke quotes worden gekozen? Wat wordt weggelaten?
-   - BALANS: Krijgt kant A meer/prominentere quotes dan kant B?
-   - INLEIDING: "beweert" (twijfel) vs "stelt" (neutraal) vs "waarschuwt" (urgentie) vs "geeft toe" (schuld)
-   - COMBINATIE: Wat is het TOTAALBEELD van titel + inleiding + quote-selectie?
-
-   Voorbeeld nieuwrechts.nl:
-   - Titel: "opleggers van online censuur" → Amerikaans frame
-   - Citeert kritiek van GDI/HateAid → maar met neutrale inleiding
-   - Editorial position: neigt naar VS-standpunt ondanks citeren van critici
-
 5. **STATISTICAL_ISSUES and TIMING_ANALYSIS** - Only include if genuinely relevant to this story.
    Many stories don't have statistical claims or suspicious timing. That's fine - leave these null.
 
@@ -190,6 +172,8 @@ ANALYSIS INSTRUCTIONS:
 
 7. **COVERAGE_GAPS** - What perspectives are missing? Who wasn't interviewed?
    Consider: affected parties, critics, independent experts, historical context, international comparison.
+   Give every gap a kind: "stem" when a person, group or organisation does not get the word, "context" when
+   facts, figures, background or an explanation are missing. Never mix both in one gap: split them.
 
 8. **FRAMES - STRIKTE BRONATTRIBUTIE**
    Voordat je een bron toevoegt aan een frame, vraag jezelf af:

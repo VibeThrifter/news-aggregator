@@ -26,11 +26,16 @@ async def seed(
     analysed: int | None,
     generated_ago: timedelta,
     foreign: int = 0,
+    first_seen_ago: timedelta = timedelta(0),
 ) -> int:
     """One article per outlet (linked that long ago); the analysis read the first `analysed`."""
     async with factory() as session:
         event = Event(
-            slug=slug, title=slug, first_seen_at=NOW, last_updated_at=NOW, article_count=1
+            slug=slug,
+            title=slug,
+            first_seen_at=NOW - first_seen_ago,
+            last_updated_at=NOW,
+            article_count=1,
         )
         session.add(event)
         await session.flush()
@@ -124,7 +129,7 @@ async def test_finds_an_outlet_that_joined_while_the_analysis_ran() -> None:
 
 
 @pytest.mark.asyncio
-async def test_backfill_does_missing_analyses_first_then_outdated_ones() -> None:
+async def test_backfill_redoes_outdated_analyses_before_missing_ones() -> None:
     factory, engine = await make_session_factory()
     outdated = await seed(
         factory,
@@ -140,6 +145,18 @@ async def test_backfill_does_missing_analyses_first_then_outdated_ones() -> None
         analysed=None,
         generated_ago=timedelta(0),
     )
+    # Caught up tonight (last_updated_at now) but news of two days ago: after today's news
+    caught_up = await seed(
+        factory,
+        "caught-up",
+        outlets=[("de Volkskrant", timedelta(minutes=5))],
+        analysed=None,
+        generated_ago=timedelta(0),
+        first_seen_ago=timedelta(days=2),
+    )
+    async with factory() as session:
+        (await session.get(Event, caught_up)).last_updated_at = NOW + timedelta(minutes=1)
+        await session.commit()
     service = make_service(factory)
     calls: list[int] = []
 
@@ -150,11 +167,11 @@ async def test_backfill_does_missing_analyses_first_then_outdated_ones() -> None
 
     stats = await service.backfill_missing_insights(limit=5)
 
-    assert calls == [missing, outdated]
-    assert stats["events_found"] == 2
+    assert calls == [outdated, missing, caught_up]
+    assert stats["events_found"] == 3
     assert stats["events_outdated"] == 1
 
     calls.clear()
     await service.backfill_missing_insights(limit=1)
-    assert calls == [missing]
+    assert calls == [outdated]
     await engine.dispose()

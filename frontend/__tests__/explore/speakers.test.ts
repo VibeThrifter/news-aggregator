@@ -1,4 +1,20 @@
+import { buildExploration } from "@/lib/explore/exploration";
+import { DEMO_EVENT } from "@/lib/explore/fixtures/demo-event";
+import type { RawExploration } from "@/lib/explore/input";
 import { initials, parseSourcePart } from "@/lib/explore/speakers";
+
+describe("speaker roles", () => {
+  it("take the title before the name, never the article the entity is named without", () => {
+    const raw: RawExploration = JSON.parse(JSON.stringify(DEMO_EVENT));
+    const claim = raw.insight?.unsubstantiated_claims?.find((item) => item.source_in_article?.startsWith("Planbureau"));
+    claim!.source_in_article = "Het Planbureau voor de Leefomgeving, via de Volkskrant";
+    const { speakers } = buildExploration(raw);
+    const pbl = speakers.speakers.find((speaker) => speaker.name === "Planbureau voor de Leefomgeving");
+    expect(pbl).toBeDefined();
+    expect(pbl?.role).toBeNull();
+    expect(speakers.speakers.find((speaker) => speaker.name === "Anouk Verbeek")?.role).toBe("wethouder");
+  });
+});
 
 describe("parseSourcePart (real source_in_article strings)", () => {
   const cases: [string, Partial<ReturnType<typeof parseSourcePart> & object> | null][] = [

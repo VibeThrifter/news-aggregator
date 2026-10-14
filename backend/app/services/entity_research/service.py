@@ -54,6 +54,7 @@ from backend.app.services.entity_research.pm_coverage import (
 )
 from backend.app.services.entity_research.roles import (
     ORGANISATIE,
+    POLITICUS,
     MentionContext,
     RoleAssessment,
     assess_organisation,
@@ -61,9 +62,11 @@ from backend.app.services.entity_research.roles import (
     classify_word,
     clean_person_name,
     infer_kind,
+    is_foreign_head_label,
     is_non_actor,
 )
 from backend.app.services.entity_research.runner import PmAgentConfig, PmAgentRuns
+from backend.app.services.website_requests import pull_requests
 
 logger = get_logger(__name__).bind(component="EntityResearchService")
 
@@ -96,9 +99,9 @@ SUMMARY_LIMIT = 2000
 
 
 def _default_read_factory() -> AbstractAsyncContextManager[AsyncSession]:
-    from backend.app.db.dual_write import get_read_session
+    from backend.app.db.session import get_sessionmaker
 
-    return get_read_session()
+    return get_sessionmaker()()
 
 
 def _default_write_factory() -> AbstractAsyncContextManager[AsyncSession]:
@@ -400,10 +403,19 @@ class EntityResearchService:
             return {"skipped": True, "reason": "disabled"}
         started, started_at = time.monotonic(), datetime.now(timezone.utc)
         async with self._lock:
+            requests = await self.pull_requests()
             status = await self.sync_status()
             triage = await self.triage()
+            queue = await self.tidy_queue()
             enqueue = await self.enqueue()
-        outcome = {"skipped": False, "status": status, "triage": triage, "enqueue": enqueue}
+        outcome = {
+            "skipped": False,
+            "requests": requests,
+            "status": status,
+            "triage": triage,
+            "queue": queue,
+            "enqueue": enqueue,
+        }
         self.last_runs["cycle"] = {
             "started_at": started_at.isoformat(),
             "duration_seconds": round(time.monotonic() - started, 3),
@@ -411,6 +423,17 @@ class EntityResearchService:
         }
         logger.info("entity_research_cycle", correlation_id=correlation_id, **outcome)
         return outcome
+
+    async def pull_requests(self) -> dict[str, Any]:
+        """Story INFRA-2: the names readers tapped (written in Supabase) into the local database."""
+
+        if not self.settings.supabase_database_url:
+            return {"skipped": "one database"}
+        try:
+            return await pull_requests("entity_research")
+        except Exception as exc:  # the next cycle tries again
+            logger.warning("entity_research_pull_failed", error=str(exc)[:300])
+            return {"error": str(exc)[:300]}
 
     # ------------------------------------------------------------------ triage
     async def _load_candidates(
@@ -729,6 +752,86 @@ class EntityResearchService:
             ),
             "triaged_at": now,
         }
+
+    # ------------------------------------------------------------------ queue
+    async def tidy_queue(self) -> dict[str, int]:
+        """Queued targets the scout did not pick up yet, against the model as it is now (the
+        registers add names every week). Withdrawn when no longer needed: the model has the name
+        with enough relations, or it is no actor ("KIJK OOK", "bond") or a foreign head of state;
+        scout rounds are scarce. A name the model has with few relations gets its node on the
+        target, so the scout adds to it instead of making a second one."""
+
+        coverage = self.coverage()
+        minimum = self.settings.entity_research_min_pm_relations
+        counts: dict[str, int] = defaultdict(int)
+        async with self._write() as session:
+            repo = EntityResearchRepository(session)
+            for row in await repo.by_status(("wachtrij",)):
+                if row.pm_doel_id is None:
+                    continue
+                kind = row.kind if row.kind in ("person", "org") else None
+                info = None
+                if coverage:
+                    names = {row.name, clean_person_name(row.name), key_slug(row.entity_key)}
+                    info = coverage.lookup(names, kind)
+                    if info is None and kind == "person":
+                        context = (row.prominence or {}).get("context") or {}
+                        info = coverage.lookup_official(
+                            row.name, row.role_label, context.get("organisaties") or []
+                        )
+                if info is not None and info.degree >= minimum:
+                    pm_status, status = "klaar", "niet_nodig"
+                    reason = f"Staat al in het propagandamodel met {info.degree} verbanden"
+                elif is_non_actor(row.name):
+                    pm_status, status = "overgeslagen", "overgeslagen"
+                    reason = "Geen actor (fotocredit, naslagwerk of los woord)"
+                elif kind == "person" and (
+                    row.is_foreign
+                    or (row.role_category == POLITICUS and is_foreign_head_label(row.role_label))
+                ):
+                    pm_status, status = "overgeslagen", "overgeslagen"
+                    reason = "Buitenlandse persoon — valt buiten het Nederlandse propagandamodel"
+                elif info is not None and row.pm_entity_id != info.id:
+                    row.pm_entity_id, row.pm_degree = info.id, info.degree
+                    try:
+                        await self.pm_client.enqueue(doel_payload(row))
+                    except PmApiUnavailableError as exc:
+                        logger.warning("entity_research_pm_unavailable", error=str(exc))
+                        counts["pm_unavailable"] += 1
+                        break
+                    except PmApiError as exc:
+                        logger.info(
+                            "entity_research_link_failed", key=row.entity_key, error=str(exc)
+                        )
+                        counts["refused"] += 1
+                        continue
+                    counts["linked"] += 1
+                    continue
+                else:
+                    continue
+                try:
+                    await self.pm_client.withdraw(
+                        row.pm_doel_id,
+                        pm_status,
+                        f"Ingetrokken door de nieuws-app: {reason}.",
+                        info.id if pm_status == "klaar" and info is not None else None,
+                    )
+                except PmApiUnavailableError as exc:
+                    logger.warning("entity_research_pm_unavailable", error=str(exc))
+                    counts["pm_unavailable"] += 1
+                    break
+                except PmApiError as exc:  # claimed by the scout in the meantime
+                    logger.info(
+                        "entity_research_withdraw_refused", key=row.entity_key, error=str(exc)
+                    )
+                    counts["refused"] += 1
+                    continue
+                row.status, row.status_reason = status, reason
+                if pm_status == "klaar" and info is not None:
+                    row.pm_entity_id, row.pm_degree = info.id, info.degree
+                counts[status] += 1
+            await session.commit()
+        return dict(counts)
 
     # ------------------------------------------------------------------ enqueue
     async def enqueue(self, only_key: str | None = None, *, force: bool = False) -> dict[str, Any]:

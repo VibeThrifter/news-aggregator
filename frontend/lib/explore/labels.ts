@@ -20,6 +20,7 @@ export const TABS: TabDefinition[] = [
   { id: "klopt", label: "Klopt het?", color: "#E30613" },
   { id: "stemmen", label: "Wie praat?", color: "#b7791f" },
   { id: "ontbreekt", label: "Wat ontbreekt?", color: "#0f766e" },
+  { id: "vragen", label: "Niet gevraagd", color: "#be185d" },
   { id: "gebracht", label: "Hoe gebracht?", color: "#7c3aed" },
   { id: "tijdlijn", label: "Tijdlijn", color: "#475569" },
 ];

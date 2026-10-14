@@ -1,4 +1,4 @@
-import { dayLabel, groupByDay, outletQuotes, pickTopStories, sortByNews, teaserOf } from "@/lib/front-page";
+import { dayLabel, frontClaim, groupByDay, outletQuotes, pickTopStories, sortByNews, storyHook, storySection, teaserOf } from "@/lib/front-page";
 import type { EventListItem } from "@/lib/types";
 
 const SUMMARY = `Premier Kulbergs wint verkiezingen in Letland ruim
@@ -114,10 +114,34 @@ describe("top stories", () => {
     expect(pickTopStories([single, many, unquoted], 3).map((item) => item.id)).toEqual([2, 3, 1]);
   });
 
+  it("leads with news several Dutch outlets brought in the last day, also when it is not among the newest", () => {
+    const fresh = Array.from({ length: 15 }, (_, i) =>
+      event(10 + i, {
+        last_updated_at: `2026-10-07T${String(4 + i).padStart(2, "0")}:00:00.000Z`,
+        summary: "Titel\n\nDe NOS meldt iets.",
+        source_breakdown: [...outlets("NOS"), { source: "Reuters", article_count: 10, is_international: true }],
+        claims: [{ claim: "Het is belangrijk", by: "NOS", question: "Waarom?" }],
+      }),
+    );
+    const broad = event(1, { last_updated_at: "2026-10-06T22:00:00.000Z", summary: SUMMARY, source_breakdown: outlets("NOS", "RTL Nieuws") });
+    const stale = event(2, { last_updated_at: "2026-10-05T22:00:00.000Z", summary: SUMMARY, source_breakdown: outlets("NOS", "RTL Nieuws", "NU.nl") });
+    expect(pickTopStories([...fresh, broad, stale], 1).map((item) => item.id)).toEqual([1]);
+  });
+
   it("only looks at the newest news", () => {
     const old = event(1, { last_updated_at: "2026-09-20T08:00:00.000Z", summary: SUMMARY, source_breakdown: outlets("NOS", "RTL Nieuws", "NU.nl") });
     const recent = Array.from({ length: 15 }, (_, i) => event(10 + i, { last_updated_at: `2026-10-0${1 + (i % 6)}T0${i % 10}:00:00.000Z` }));
     expect(pickTopStories([old, ...recent], 1)[0].id).not.toBe(1);
+  });
+
+  it("prefers news with a claim without evidence when as many outlets are quoted", () => {
+    const plain = event(1, { last_updated_at: "2026-10-06T20:00:00.000Z", summary: "Titel\n\nDe NOS meldt iets." });
+    const claimed = event(2, {
+      last_updated_at: "2026-10-05T08:00:00.000Z",
+      summary: "Titel\n\nDe NOS meldt iets.",
+      claims: [{ claim: "Heel Europa krijgt er last van", by: "Jan-Willem van den Beukel (Vemobin)", question: null }],
+    });
+    expect(pickTopStories([plain, claimed], 1).map((item) => item.id)).toEqual([2]);
   });
 
   it("puts news without an analysis last", () => {
@@ -129,5 +153,86 @@ describe("top stories", () => {
   it("sorts by the time of the news", () => {
     const ids = sortByNews([event(1, { last_updated_at: "2026-10-01T08:00:00Z" }), event(2, { last_updated_at: "2026-10-03T08:00:00Z" })]).map((item) => item.id);
     expect(ids).toEqual([2, 1]);
+  });
+});
+
+describe("Klopt het? on the front page", () => {
+  it("takes a named speaker with their organisation and the question to ask", () => {
+    const claim = frontClaim({
+      claims: [
+        { claim: "De dieselprijs stijgt hard", by: "NOS (eigen bewering)", question: "Met hoeveel?" },
+        {
+          claim: "Als het tot een exportverbod komt, dan zullen wij daar in heel Europa veel last van hebben",
+          by: "Jan-Willem van den Beukel (Vemobin)",
+          question: "Hoeveel procent van de Europese diesel komt uit de VS?",
+        },
+      ],
+    });
+    expect(claim).toEqual({
+      claim: "Als het tot een exportverbod komt, dan zullen wij daar in heel Europa veel last van hebben",
+      speaker: "Jan-Willem van den Beukel",
+      role: "Vemobin",
+      question: "Hoeveel procent van de Europese diesel komt uit de VS?",
+      named: true,
+    });
+  });
+
+  it("names the outlet when it makes the claim itself, and leaves out how it is quoted", () => {
+    expect(frontClaim({ claims: [{ claim: "'Oorlogachtig'", by: "GeenStijl (auteur)", question: null }] })).toEqual({
+      claim: "Oorlogachtig",
+      speaker: "GeenStijl",
+      role: null,
+      question: null,
+      named: false,
+    });
+    expect(frontClaim({ claims: [{ claim: "Er loopt een onderzoek", by: "Kommersant, via de NOS", question: null }] })?.speaker).toBe("Kommersant");
+    expect(frontClaim({ claims: [{ claim: "Er komt een wet", by: "bronnen rond het kabinet (anoniem)", question: null }] })?.speaker).toBe("Anonieme bron");
+    expect(frontClaim({ claims: [{ claim: "Er zijn twee inbrekers", by: "Niet-genoemde Franse media", question: null }] })?.named).toBe(false);
+  });
+
+  it("is empty without claims", () => {
+    expect(frontClaim({ claims: [] })).toBeNull();
+    expect(frontClaim({})).toBeNull();
+  });
+});
+
+describe("what makes you read on", () => {
+  const STORY = `Russische aanvallen op Oekraïne
+
+Bij Russische aanvallen zijn negentien burgers omgekomen, meldt NU.nl.
+
+**Reactie van Zelensky**
+
+Volgens NU.nl noemt president Volodymyr Zelensky de aanvallen "een van de gemeenste aanvallen" door de Russen. Hij vraagt om meer luchtafweer.
+
+**Beperkte bronbasis**
+
+NU.nl is de enige Nederlandse bron.`;
+
+  it("takes the first heading about the news with the first sentence under it", () => {
+    expect(storySection(STORY)).toEqual({
+      heading: "Reactie van Zelensky",
+      text: 'Volgens NU.nl noemt president Volodymyr Zelensky de aanvallen "een van de gemeenste aanvallen" door de Russen.',
+    });
+  });
+
+  it("skips what the card already shows", () => {
+    const shown = ['Volgens NU.nl noemt president Volodymyr Zelensky de aanvallen "een van de gemeenste aanvallen" door de Russen.'];
+    expect(storySection(STORY, shown)?.text).toBe("Hij vraagt om meer luchtafweer.");
+  });
+
+  it("skips headings about the sources or the coverage", () => {
+    const about = "Titel\n\nIets gebeurde.\n\n**Duiding**\n\nDe NOS kiest een toon.\n\n**Internationale perspectieven**\n\nReuters ook.";
+    expect(storySection(about)).toBeNull();
+    expect(storySection("Titel\n\nIets.\n\n**Wat bekend is**\n\nHet bericht van NU.nl is kort en bevat weinig details.")).toBeNull();
+    expect(storySection(null)).toBeNull();
+  });
+
+  it("shows a claim someone with a name makes, else the next part of the story", () => {
+    const named = [{ claim: "Heel Europa krijgt er last van", by: "Jan-Willem van den Beukel (Vemobin)", question: null }];
+    const own = [{ claim: "De dieven leken goed voorbereid", by: "NOS (eigen duiding)", question: null }];
+    expect(storyHook({ summary: STORY, claims: named })?.kind).toBe("claim");
+    expect(storyHook({ summary: STORY, claims: own })).toEqual({ kind: "section", section: storySection(STORY) });
+    expect(storyHook({ summary: "Titel\n\nIets.", claims: own })).toBeNull();
   });
 });

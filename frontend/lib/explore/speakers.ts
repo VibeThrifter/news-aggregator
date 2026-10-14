@@ -235,8 +235,10 @@ export function buildSpeakers(input: ExploreInput, findings: Finding[], index: A
               : parsed.name.trim().split(/\s+/).length >= 2
                 ? "person"
                 : "org";
-      // The role prefix actorKeys strips ("Minister", "Wethouder") is the role
-      const removed = parsed.name.slice(0, Math.max(0, parsed.name.length - keys.display.length)).trim();
+      // The role prefix actorKeys strips ("Minister", "Wethouder") is the role. Measured on the name as
+      // written: the entity can be named without its article ("Het Vaticaan" is "Vaticaan")
+      const plain = actorKeys(parsed.name).display;
+      const removed = parsed.name.endsWith(plain) ? parsed.name.slice(0, parsed.name.length - plain.length).trim() : "";
       speaker = {
         id,
         slug,

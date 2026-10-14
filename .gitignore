@@ -71,3 +71,4 @@ data/cookies/
 data/vector_index.bin
 data/vector_index.meta.json
 data/scheduler_state.json
+data/local-db/

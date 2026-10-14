@@ -78,6 +78,7 @@ class CoverageGap(BaseModel):
     description: str
     relevance: str
     potential_sources: List[str]
+    kind: Optional[str] = None
 
 
 # Kritische analyse types

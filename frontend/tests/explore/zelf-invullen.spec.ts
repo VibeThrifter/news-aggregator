@@ -81,7 +81,7 @@ test("doubts what a speaker says from their balloon: the doubt hangs on them, wi
 
 test("changes and removes an entry of your own, with undo, and saves it", async ({ page }) => {
   await open(page, "/event/demo-vervolg", /Dijkerhoven/);
-  await page.getByRole("tab", { name: /^Wat ontbreekt\?/ }).click();
+  await page.getByRole("tab", { name: /^Niet gevraagd/ }).click();
   await page.getByRole("button", { name: "Vraag", exact: true }).click();
   const form = page.getByRole("form", { name: "Vraag toevoegen" });
   await form.getByLabel("Welke vraag is niet gesteld?").fill("Wie betaalt de netaansluiting?");

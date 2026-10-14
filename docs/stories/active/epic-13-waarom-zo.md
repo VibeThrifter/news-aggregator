@@ -247,12 +247,15 @@ tegen gevalideerd op het echte model.
 - [x] Gebruiker: migratie `007_waarom_zo.sql` in Supabase draaien (na 004 → 005 → 006) — gedraaid 2026-10-01,
       verificatieblok geslaagd; als `anon` geeft Marjolein Moorman (505) → NOS (11) 2 routes van 3 stappen
       (via Tweede Kamer → CIDI en via Tweede Kamer → Radboud Universiteit); `pm_*`-tabellen blijven dicht voor `anon`
-- [ ] Gebruiker: migratie `008_invloed_richting.sql` in Supabase draaien (na 007). Tot die tijd toont het netwerk de
-      vragen zonder richting (zoals voorheen); de demo heeft de richting al
+- [x] Migratie `008_invloed_richting.sql` in Supabase gedraaid (2026-10-04, na akkoord gebruiker).
+  - Het verificatieblok is geslaagd; alleen `pm_neighborhood(integer, integer, text[], text)` bestaat nog.
+  - Als `anon`: DPG Media (1) via eigendom, invloed op 11 (Epifin, DPG Media Group NV, bestuurders), invloed van 21
+    (RTL Nederland, Sanoma, Het Parool, …).
+  - Aanroepen zonder `p_direction` werken zoals voorheen; `pm_*`-tabellen blijven dicht voor `anon` (401).
 
 ## Story 13.10: Kiezen wat blijft, alle namen, invloed per richting
 
-**Status**: ✅ Done (2026-10-03, wacht op migratie 008 in Supabase) · **Prioriteit**: Must Have · **Depends on**: 13.2
+**Status**: ✅ Done (2026-10-03; migratie 008 live sinds 2026-10-04) · **Prioriteit**: Must Have · **Depends on**: 13.2
 
 Wensen van de gebruiker (2026-10-03):
 - "Maak de nieuwe dingen doorzichtig en dan klik je de gene aan die blijven en de nodes weg die weer weg mogen,

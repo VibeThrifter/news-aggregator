@@ -66,6 +66,8 @@ export type CoverageGap = {
   description: string;
   relevance: string;
   potential_sources: string[];
+  /** A voice that does not speak, or context that is missing (since 2026-10-14; older analyses lack it) */
+  kind?: "stem" | "context" | null;
 };
 
 // Nieuwe kritische analyse types
@@ -178,8 +180,16 @@ export interface EventListItem {
   llm_provider?: string | null;
   event_type?: string | null;
   featured_image_url?: string | null;
-  /** "Niet aan het woord": the first missing voices of the analysis */
-  missing_voices?: string[] | null;
+  /** "Klopt het?": the first claims without evidence of the analysis */
+  claims?: ListClaim[] | null;
+}
+
+/** A claim without evidence in the news list: who makes it, and the first question to ask */
+export interface ListClaim {
+  claim: string;
+  /** `source_in_article` of the analysis ("Jan-Willem van den Beukel (Vemobin)", "NOS") */
+  by: string | null;
+  question: string | null;
 }
 
 export interface EventFeedMeta extends Record<string, unknown> {

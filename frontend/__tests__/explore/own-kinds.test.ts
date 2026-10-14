@@ -36,16 +36,20 @@ describe("a fallacy, a contradiction and an error of your own", () => {
     // The claim it corrects hangs on De Telegraaf: the error too
     expect(after.anchorOf.get("own:e")).toBe(before.anchorOf.get("claim:kfkq1g"));
     expect(after.markers.get("outlet:telegraaf")?.find((marker) => marker.findingId === "own:e")).toMatchObject({ type: "error", own: true });
-    // A contradiction is drawn as a line, not on a balloon
+    // A contradiction is drawn between its sides (buildFigure), not as one of the markers
     expect(after.anchorOf.has("own:c")).toBe(false);
     expect(view.findingById.get("own:c")?.outletKeys).toEqual(["telegraaf", "ad"]);
   });
 
   it("draw a contradiction between the two balloons as they are drawn", () => {
-    // Per perspective a speaker is an avatar in their outlet's balloon: the line runs between the outlets
+    // Per perspective a speaker is an avatar in their outlet's balloon: the contradiction is between the
+    // outlets, which stand in different perspectives: no line across the others, each says who
     const figure = buildFigure(view, shownByDefault);
     expect(figure.mode).toBe("perInvalshoek");
-    expect(figure.contradictions.find((line) => line.findingId === "own:c")).toMatchObject({ from: "outlet:telegraaf", to: "outlet:ad", own: true });
+    expect(figure.contradictions.some((line) => line.findingId === "own:c")).toBe(false);
+    const note = (key: string) => figure.contradictionNotes.get(key)?.find((item) => item.findingId === "own:c");
+    expect(note("p:0|outlet:telegraaf")).toMatchObject({ against: ["AD"], topic: "Of het dorp inspraak had", own: true, lead: true });
+    expect(note("p:1|outlet:ad")).toMatchObject({ against: ["De Telegraaf"], own: true, lead: false });
 
     // One side left out of the picture: the number goes on the other side
     const withoutAd = buildFigure(view, (outlet) => outlet.key !== "ad" && isOutletShown(outlet));
@@ -58,10 +62,8 @@ describe("a fallacy, a contradiction and an error of your own", () => {
     ]);
     const perBron = buildFigure(vervolg, shownByDefault);
     expect(perBron.mode).toBe("perBron");
-    expect(perBron.contradictions.find((line) => line.findingId === "own:c2")).toMatchObject({
-      from: "speaker:nos:nordvind",
-      to: "speaker:nos:joost-ravenhorst",
-    });
+    const notes = Array.from(perBron.contradictionNotes.entries()).filter(([, list]) => list.some((item) => item.findingId === "own:c2"));
+    expect(notes.map(([key]) => key).sort()).toEqual(["o:nos|speaker:nos:joost-ravenhorst", "o:nos|speaker:nos:nordvind"]);
   });
 
   it("offer two sides only when there are two to choose", () => {

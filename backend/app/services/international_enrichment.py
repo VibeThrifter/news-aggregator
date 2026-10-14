@@ -16,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
-from backend.app.db.dual_write import sync_entities_to_cache
 from backend.app.db.models import Article, Event, EventArticle, LLMInsight
 from backend.app.db.session import get_sessionmaker
 from backend.app.feeds.google_news import (
@@ -462,12 +461,6 @@ class InternationalEnrichmentService:
 
             await session.commit()
 
-            # Sync new entities to SQLite cache (INFRA-1: dual-write)
-            if new_articles:
-                await sync_entities_to_cache(new_articles, "articles")
-            if new_links:
-                await sync_entities_to_cache(new_links, "event_articles")
-            await sync_entities_to_cache([event], "events")
 
             log.info(
                 "enrichment_complete",

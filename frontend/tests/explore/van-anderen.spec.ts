@@ -139,8 +139,10 @@ test("adds a fallacy and a contradiction, and says an analysis claim is wrong", 
   await contradiction.getByRole("radiogroup", { name: "Wie zegt het andere?" }).getByRole("radio", { name: /Joost Ravenhorst/ }).click();
   await contradiction.getByRole("button", { name: "Toevoegen" }).click();
   await expect(page.locator("li[id^='finding-own:']").filter({ hasText: "mocht beginnen" })).toContainText("Joost Ravenhorst");
-  // A line between the two in the picture, with its number
-  await expect(figure(page).locator('[data-anchor^="contradiction:own:"]').getByRole("button", { name: /^Tegenspraak van jou \d+$/ })).toBeVisible();
+  // In the picture each side has its number and says whom it contradicts
+  const sides = figure(page).locator('[data-anchor^="contradiction:own:"]');
+  await expect(sides.getByRole("button", { name: /^Tegenspraak van jou \d+ met Joost Ravenhorst: Of de bouw al mocht beginnen$/ })).toBeVisible();
+  await expect(sides.getByRole("button", { name: /^Tegenspraak van jou \d+ met NordVind: / })).toBeVisible();
 
   // "Klopt niet" on a claim of the analysis: an error about it
   const claim = page.locator('li[id="finding-claim:s4w911"]');

@@ -43,7 +43,6 @@ from backend.app.ingestion import (
     naive_extract_text,
     parse_article_html,
 )
-from backend.app.db.dual_write import sync_entities_to_cache
 from backend.app.db.models import Article
 from backend.app.repositories import ArticleRepository, NewsSourceRepository
 from backend.app.services.event_service import EventService
@@ -439,9 +438,6 @@ class IngestService:
 
             try:
                 await session.commit()
-                # Sync newly created articles to SQLite cache (INFRA-1: dual-write)
-                if new_articles:
-                    await sync_entities_to_cache(new_articles, "articles")
             except SQLAlchemyError as exc:  # pragma: no cover - defensive
                 logger_ctx.error("article_commit_failed", error=str(exc))
                 await session.rollback()

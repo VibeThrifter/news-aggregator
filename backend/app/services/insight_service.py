@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
-from backend.app.db.dual_write import sync_entities_to_cache
 from backend.app.db.models import Article, Event, EventArticle, LLMInsight
 from backend.app.db.session import get_sessionmaker
 from backend.app.llm.claude_code import is_claude_code
@@ -431,11 +430,6 @@ class InsightService:
 
             await session.commit()
 
-            # Sync insight and event to SQLite cache (INFRA-1: dual-write)
-            await sync_entities_to_cache([persistence.insight], "llm_insights")
-            if event:
-                await sync_entities_to_cache([event], "events")
-
         # Story 11.8: precompute entities + related events (never fails insight generation)
         await self._refresh_exploration(event_id, merged_payload.summary, correlation_id)
 
@@ -589,8 +583,11 @@ class InsightService:
 
         This method is designed to be called periodically by a scheduler job
         to catch up on events that didn't get insights due to server restarts
-        or other failures. With room left in `limit` it then redoes analyses that
-        leave out a Dutch outlet of the event (`_events_missing_dutch_outlets`).
+        or other failures. Analyses that leave out a Dutch outlet of the event
+        (`_events_missing_dutch_outlets`) go first: they are few and about recent news,
+        while a run times out after about 7 and the events without one were 996 on
+        2026-10-07. Those then go newest news first (`first_seen_at`, as the feed sorts):
+        `last_updated_at` is moved by maintenance and catch-ups, so old news went first.
 
         Args:
             limit: Maximum number of events to process per run (rate limiting)
@@ -601,7 +598,9 @@ class InsightService:
         """
         log = logger.bind(correlation_id=correlation_id, component="backfill")
 
-        # Find active events without insights, ordered by most recently updated first
+        outdated = await self._events_missing_dutch_outlets(limit=limit)
+
+        # Find active events without insights, newest news first
         async with self.session_factory() as session:
             # Subquery to find event_ids that have insights
             insight_subq = select(LLMInsight.event_id).distinct().subquery()
@@ -614,16 +613,11 @@ class InsightService:
                     Event.archived_at.is_(None),  # Only active events
                     insight_subq.c.event_id.is_(None),  # No insight exists
                 )
-                .order_by(Event.last_updated_at.desc())  # Most recent first
-                .limit(limit)
+                .order_by(Event.first_seen_at.desc())
+                .limit(limit - len(outdated))
             )
             result = await session.execute(stmt)
-            event_ids: list[int] = [row[0] for row in result.fetchall()]
-
-        outdated: list[int] = []
-        if len(event_ids) < limit:
-            outdated = await self._events_missing_dutch_outlets(limit=limit - len(event_ids))
-            event_ids += outdated
+            event_ids: list[int] = outdated + [row[0] for row in result.fetchall()]
 
         if not event_ids:
             log.info("backfill_no_events_needed")

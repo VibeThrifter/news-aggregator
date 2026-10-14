@@ -1,18 +1,18 @@
 "use client";
 
 import Image from "next/image";
-import { Globe, MicOff } from "lucide-react";
+import { Globe } from "lucide-react";
 
 import { eventCategory, newsTime, plural } from "@/components/EventMeta";
 import { Favicon } from "@/components/explore/ui/primitives";
 import { GROUP_COLORS } from "@/lib/explore/colors";
 import { outletsLine, parseIsoDate } from "@/lib/format";
-import { dutchOutletNames, foreignOutletCount, type OutletQuote } from "@/lib/front-page";
+import { dutchOutletNames, foreignOutletCount, type FrontClaim, type OutletQuote, type StoryHook } from "@/lib/front-page";
 import type { EventListItem } from "@/lib/types";
 
-/** The colours of "Niet aan het woord" on the event page */
-const MISSING_BORDER = "#0f766e88";
-const MISSING_BACKGROUND = "#0f766e0d";
+/** The colours of the markers on the event page: a claim without evidence, a question */
+const CLAIM_COLOR = "#E30613";
+const QUESTION_COLOR = "#0f766e";
 
 const clock = new Intl.DateTimeFormat("nl-NL", { hour: "2-digit", minute: "2-digit" });
 
@@ -82,41 +82,70 @@ export function OutletPills({ event, max = 3 }: { event: EventListItem; max?: nu
   );
 }
 
-/** The first missing voice as a dashed pill, as on the event page. */
-export function MissingVoicePill({ voices }: { voices?: string[] | null }) {
-  if (!voices?.length) return null;
+/** The sign of a marker of the event page ("!" a claim, "?" a question), without its number. */
+function Sign({ sign, color }: { sign: string; color: string }) {
   return (
     <span
-      title={`Niet aan het woord: ${voices.join(", ")}`}
-      className="inline-flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-full border-2 border-dashed border-teal-600/50 bg-white/70 px-2.5 text-xs text-ink-700"
+      aria-hidden="true"
+      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white shadow ring-2 ring-white"
+      style={{ backgroundColor: color }}
     >
-      <MicOff size={13} aria-hidden="true" className="shrink-0 text-teal-700" />
-      <span className="sr-only">Niet aan het woord:</span>
-      <span className="truncate">{voices[0]}</span>
-      {voices.length > 1 ? <span className="shrink-0 font-semibold text-teal-800">+{voices.length - 1}</span> : null}
+      {sign}
     </span>
   );
 }
 
-/** "Niet aan het woord" with every missing voice, as on the event page. */
-export function MissingVoices({ voices }: { voices?: string[] | null }) {
-  if (!voices?.length) return null;
+/**
+ * "Klopt het?": a claim without evidence, who makes it and the question to ask, as a row of the
+ * event page. `compact` (a card): with its heading, without the question.
+ */
+export function ClaimRow({ claim, compact = false }: { claim: FrontClaim; compact?: boolean }) {
   return (
-    <div className="rounded-3xl border-2 border-dashed p-3" style={{ borderColor: MISSING_BORDER, backgroundColor: MISSING_BACKGROUND }}>
-      <p className="flex items-center gap-1.5 text-sm font-semibold text-teal-800">
-        <MicOff size={14} aria-hidden="true" /> Niet aan het woord
-      </p>
-      <ul className="mt-2 flex flex-wrap gap-2">
-        {voices.map((voice) => (
-          <li
-            key={voice}
-            className="flex min-h-[32px] max-w-full items-center gap-1.5 rounded-2xl border-2 border-dashed border-teal-600/50 bg-white/70 py-1 pl-2 pr-2.5 text-[12px] leading-snug text-ink-800"
-          >
-            <MicOff size={13} aria-hidden="true" className="shrink-0 text-teal-700" />
-            <span className="line-clamp-2">{voice}</span>
-          </li>
-        ))}
-      </ul>
+    <div className={`border border-paper-300 bg-white ${compact ? "rounded-2xl p-3" : "rounded-3xl p-3 sm:p-4"}`}>
+      {compact ? <p className="mb-1.5 font-serif text-[15px] font-bold text-ink-900">Klopt het?</p> : null}
+      <div className="flex items-start gap-2.5">
+        <span className="pt-0.5">
+          <Sign sign="!" color={CLAIM_COLOR} />
+        </span>
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className={`${compact ? "line-clamp-3 text-[13px]" : "line-clamp-4 text-sm"} italic leading-snug text-ink-900`}>{claim.claim}</p>
+          <p className="text-xs text-ink-500">
+            {claim.speaker ? (
+              <>
+                <span className="font-semibold text-ink-700">{claim.speaker}</span>
+                {claim.role ? ` (${claim.role})` : ""}
+                <span aria-hidden="true"> · </span>
+              </>
+            ) : null}
+            <span className="font-semibold" style={{ color: CLAIM_COLOR }}>
+              zonder bewijs
+            </span>
+          </p>
+        </div>
+      </div>
+      {claim.question && !compact ? (
+        <p className="mt-3 flex items-start gap-2.5 border-t border-paper-200 pt-3 text-sm leading-snug text-ink-800">
+          <span className="pt-px">
+            <Sign sign="?" color={QUESTION_COLOR} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="sr-only">Vraag die je kunt stellen: </span>
+            {claim.question}
+          </span>
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** What makes you read on: a claim someone makes ("Klopt het?"), or the next part of the story under its heading. */
+export function HookBox({ hook }: { hook: StoryHook | null }) {
+  if (!hook) return null;
+  if (hook.kind === "claim") return <ClaimRow claim={hook.claim} compact />;
+  return (
+    <div className="rounded-2xl bg-paper-100 p-3">
+      <p className="font-serif text-[15px] font-bold leading-snug text-ink-900">{hook.section.heading}</p>
+      <p className="mt-1 line-clamp-3 text-[13px] leading-snug text-ink-700">{hook.section.text}</p>
     </div>
   );
 }

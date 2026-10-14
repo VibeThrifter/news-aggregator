@@ -7,8 +7,8 @@ events with reasons) up to date:
 - ``refresh_active``: after the daily event maintenance (stale entities + all active events)
 - ``backfill``: paged recomputation for existing events (admin endpoint)
 
-Inputs are read via ``get_read_session()`` (SQLite cache when enabled); the derived tables are
-written to the primary database only. The ``events`` table is never written.
+Inputs are read from and the derived tables written to the backend's database. The ``events``
+table is never written.
 """
 
 from __future__ import annotations
@@ -49,9 +49,9 @@ class EventNotFoundError(ValueError):
 
 
 def _default_read_factory() -> AbstractAsyncContextManager[AsyncSession]:
-    from backend.app.db.dual_write import get_read_session
+    from backend.app.db.session import get_sessionmaker
 
-    return get_read_session()
+    return get_sessionmaker()()
 
 
 def _default_write_factory() -> AbstractAsyncContextManager[AsyncSession]:

@@ -90,10 +90,8 @@ export function outletProfileView(
           view.findingIds.push(finding.id);
         }
         break;
-      case "questions":
-        if (body.outletKey === outletKey) {
-          view.questionsNotAsked = body.analysis.questions_not_asked ?? [];
-        }
+      case "question":
+        if (body.outletKey === outletKey) view.questionsNotAsked.push(body.question);
         break;
       case "claim":
         if (body.outletKey === outletKey) view.claimCount += 1;

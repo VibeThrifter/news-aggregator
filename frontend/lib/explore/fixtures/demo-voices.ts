@@ -9,7 +9,8 @@
  */
 
 import type { RawExploration, RawExploreArticle } from "../input";
-import type { VoiceCandidate, VoiceRequestResult, VoiceSearch, VoiceSearchRequest, VoiceVerdict } from "@/lib/voice-search";
+import { publicSearches } from "../earlier-searches";
+import type { PublicVoiceSearch, VoiceCandidate, VoiceRequestResult, VoiceSearch, VoiceSearchRequest, VoiceVerdict } from "@/lib/voice-search";
 
 const STORAGE_KEY = "pluriformiteit:demo-stemmen";
 /** A simulated search: queued, then searching, then done */
@@ -147,6 +148,11 @@ export async function demoVoiceSearches(eventId: number): Promise<VoiceSearch[]>
     .searches.filter((search) => search.event_id === eventId)
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
     .map(withStatus);
+}
+
+/** What every reader sees of the demo searches: only what was approved on this device. */
+export async function demoPublicVoiceSearches(eventId: number): Promise<PublicVoiceSearch[]> {
+  return publicSearches(await demoVoiceSearches(eventId));
 }
 
 export async function demoReviewVoiceCandidate(searchId: number, candidateId: string, verdict: VoiceVerdict): Promise<{ ok: boolean; reason: string | null }> {

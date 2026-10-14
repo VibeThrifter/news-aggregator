@@ -27,10 +27,6 @@ const configTypeColors: Record<string, string> = {
   provider: "border-orange-200 bg-orange-50 text-orange-800",
 };
 
-// Available LLM providers. claude-code[:model] runs the Claude Code CLI on the backend machine
-// (the owner's subscription, no API key): selectable per step like the others.
-const LLM_PROVIDERS = ["mistral", "gemini", "deepseek", "deepseek-r1", "claude-code:haiku", "claude-code:sonnet", "claude-code:opus"];
-
 // Provider display info: the short name is the button, the rest says what it is
 const PROVIDER_INFO: Record<string, { label: string; short: string; description: string }> = {
   mistral: { label: "Mistral", short: "Mistral", description: "Gratis, snel" },
@@ -40,13 +36,33 @@ const PROVIDER_INFO: Record<string, { label: string; short: string; description:
   "claude-code:haiku": { label: "Claude Code · Haiku", short: "Haiku", description: "Lokaal, snel" },
   "claude-code:sonnet": { label: "Claude Code · Sonnet", short: "Sonnet", description: "Lokaal, sterk" },
   "claude-code:opus": { label: "Claude Code · Opus", short: "Opus", description: "Lokaal, sterkst, traag" },
+  "gemini-fast": { label: "Gemini Flash (snel)", short: "Gemini Flash", description: "Zonder nadenken, ±2 s per stap" },
+  "gemini-search": { label: "Google (Gemini)", short: "Google", description: "Gemini zoekt met Google Search, ±10 s" },
+  "google-news": { label: "Google News", short: "Google News", description: "Zelf de pagina's lezen, ±1 min" },
 };
 
-// The buttons per step, in two rows
+// The buttons per step, in two rows. claude-code[:model] runs the Claude Code CLI on the backend
+// machine (the owner's subscription, no API key): selectable per step like the others.
 const PROVIDER_GROUPS: { label: string; providers: string[] }[] = [
   { label: "Lokaal (Claude Code)", providers: ["claude-code:haiku", "claude-code:sonnet", "claude-code:opus"] },
   { label: "API", providers: ["mistral", "gemini", "deepseek", "deepseek-r1"] },
 ];
+
+// Steps that are not an LLM choice have their own buttons
+const STEP_GROUPS: Record<string, { label: string; providers: string[] }[]> = {
+  provider_voice_web: [{ label: "Zoeken op het web", providers: ["gemini-search", "google-news"] }],
+  // The admin waits for this step: Gemini Flash answers in seconds (Claude does it when Gemini fails)
+  provider_voice_search: [...PROVIDER_GROUPS, { label: "Snel", providers: ["gemini-fast"] }],
+};
+
+function groupsFor(key: string) {
+  return STEP_GROUPS[key] ?? PROVIDER_GROUPS;
+}
+
+function optionsFor(key: string, current: string) {
+  const options = groupsFor(key).flatMap((group) => group.providers);
+  return options.includes(current) ? options : [...options, current];
+}
 
 /** A value that is not in the list (e.g. "claude-code" without a model) still shows. */
 function providerInfo(provider: string) {
@@ -61,6 +77,7 @@ const PHASE_LABELS: Record<string, string> = {
   provider_critical: "Fase 2: Kritisch",
   provider_digest: "Kern buitenlandse artikelen",
   provider_voice_search: "Zoek met AI (ontbrekende stemmen)",
+  provider_voice_web: "Zoek met AI: zoeken op het web",
   provider_bias: "Bias per zin",
 };
 const PHASE_ORDER = Object.keys(PHASE_LABELS);
@@ -84,7 +101,9 @@ function ProviderToggle({
   const phaseLabel = PHASE_LABELS[config.key] || config.key;
   const current = providerInfo(currentProvider);
   // A value outside the list (e.g. "claude-code" without a model) still shows as chosen
-  const groups = LLM_PROVIDERS.includes(currentProvider) ? PROVIDER_GROUPS : [...PROVIDER_GROUPS, { label: "Anders", providers: [currentProvider] }];
+  const base = groupsFor(config.key);
+  const known = base.some((group) => group.providers.includes(currentProvider));
+  const groups = known ? base : [...base, { label: "Anders", providers: [currentProvider] }];
 
   return (
     <div className="space-y-3 rounded-2xl border border-paper-300 bg-paper-50 p-4">
@@ -165,7 +184,7 @@ function ConfigEditor({
         />
       ) : isProvider ? (
         <select value={value} onChange={(e) => setValue(e.target.value)} disabled={saving} className={INPUT}>
-          {LLM_PROVIDERS.map((provider) => {
+          {optionsFor(config.key, config.value).map((provider) => {
             const info = PROVIDER_INFO[provider];
             return (
               <option key={provider} value={provider}>
