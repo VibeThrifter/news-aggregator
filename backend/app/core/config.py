@@ -165,6 +165,33 @@ class Settings(BaseSettings):
         le=50,
         description="Maximum number of articles to analyze per scheduled run"
     )
+    # Gekleurde zinnen op verzoek (Story 10.7): a paying user or the admin starts the bias
+    # analysis of one news item in the app (table bias_requests, migration 019)
+    bias_request_enabled: bool = Field(
+        default=True,
+        description="Scheduled job that runs the bias analyses requested in the app"
+    )
+    bias_request_interval_seconds: int = Field(
+        default=5,
+        ge=2,
+        le=3600,
+        description="How often the bias request job looks whether the website signalled a request"
+    )
+    bias_request_fallback_seconds: int = Field(
+        default=300,
+        ge=10,
+        le=3600,
+        description="While the backend listens to Supabase, it looks at the queue only this often"
+    )
+    bias_request_article_cap: int = Field(
+        default=16,
+        ge=1,
+        le=50,
+        description=(
+            "Articles analysed per request (one LLM call each): the newest of every Dutch outlet "
+            "first, articles that have an analysis are skipped"
+        ),
+    )
 
     # Foreign article digest (Epic 11, "Wat schreef …?"): Google News only gives the headline,
     # so the text is fetched from the publisher and the LLM stores a Dutch gist
@@ -275,6 +302,29 @@ class Settings(BaseSettings):
         description=(
             "Effort of every Claude Code call (owner 2026-10-09: medium on all steps); empty = the "
             "model's default, which may be high for Haiku"
+        ),
+    )
+
+    # AI-gebruik on the admin dashboard: every LLM call (tokens per provider, model and step) is
+    # kept in the local database (llm_usage), with Claude's subscription limits
+    llm_usage_flush_seconds: int = Field(
+        default=60,
+        ge=5,
+        le=3600,
+        description="Seconds between writes of the noted LLM calls to the local database"
+    )
+    llm_usage_retention_days: int = Field(
+        default=90,
+        ge=1,
+        le=3650,
+        description="Days the noted LLM calls are kept"
+    )
+    gemini_free_daily_requests: int = Field(
+        default=20,
+        ge=0,
+        description=(
+            "Requests a day per model in Gemini's free tier (resets at midnight Pacific time); "
+            "0 = no limit shown"
         ),
     )
 

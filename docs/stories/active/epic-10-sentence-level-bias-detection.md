@@ -958,3 +958,57 @@ Dit zorgt ervoor dat de bias provider als 4e toggle verschijnt in het admin pane
 - [ ] Unit tests met ≥80% coverage
 - [ ] Integration test met echte LLM call
 - [ ] Documentatie bijgewerkt (CLAUDE.md, API docs)
+
+---
+
+## Story 10.7: Gekleurde zinnen op verzoek (betalende gebruikers en admin)
+
+**Status:** gebouwd 2026-10-14 · migratie 019 live op Supabase · backend-job draait na een herstart
+
+### Beschrijving
+
+De bias per zin kost één LLM-aanroep per artikel (ongeveer 3.000 tokens). Voor alle Nederlandse artikelen
+(ruim 400 per dag) is dat te veel, dus de job "Bias Analysis" blijft uit. De eigenaar (2026-10-14): maak er een
+optie van voor betalende gebruikers en de admin. Zij starten het met een knop, en wat het vindt is voor iedereen.
+
+### Wat er gebouwd is
+
+- **Toegang:** een toegangscode met rol `admin` of `pro` (`bias_role_allowed`, migratie 019). Er zijn geen accounts
+  of betalingen: de eigenaar maakt een pro-code met `scripts/access_code.py create --role pro --label …` en geeft
+  die aan wie betaalt. De code gaat in Beheer → Toegangscode. "Zoek met AI" blijft alleen voor de admin.
+- **Knop:** onder "Hoe gebracht?" staat "Zoek gekleurde zinnen met AI" (`components/explore/map/BiasRequest.tsx`).
+  Hij staat er als de code het mag en er Nederlandse artikelen zonder analyse zijn. Na een verzoek dat alles las,
+  tellen alleen artikelen die later verschenen; wat dan nog over is, heeft geen tekst.
+- **Wachtrij:** `request_bias_analysis(code, event)` zet een rij in `bias_requests` (alleen in Supabase) en
+  seint de backend (`pg_notify('bias_request')`). Een tweede klik, ook van iemand anders, krijgt hetzelfde verzoek
+  terug zolang het loopt of minder dan 10 minuten klaar is. Grenzen: 20 nieuwsitems per code per dag, 100 in totaal.
+- **Backend:** de job "Bias Requests" luistert (`SupabaseListener`, kijkt anders elke 5 minuten) en analyseert de
+  Nederlandse artikelen van het nieuws met tekst en zonder analyse: van elke bron eerst de nieuwste, hoogstens
+  `BIAS_REQUEST_ARTICLE_CAP` (16). Het gebruikt de bestaande `BiasDetectionService` (provider `provider_bias`).
+  Na elk artikel noteert het de voortgang; mislukt alles, dan wordt het verzoek `fout`
+  (`backend/app/services/bias_requests.py`).
+- **Voor iedereen:** de analyses komen lokaal in `article_bias_analyses` en worden gepubliceerd. Anon mag die lezen,
+  dus elke lezer ziet de badge per bron, de rij "n gekleurde zinnen" en de zinnen zelf. Elke lezer ziet ook dat het
+  loopt ("Gekleurde zinnen zoeken: 1 van 3 artikelen", `bias_request_for_event`, zonder wie het vroeg). De pagina
+  laadt het nieuws opnieuw zodra Supabase meer analyses heeft (`analysed`).
+- **Niets gevonden:** zijn er analyses maar geen gekleurde zinnen, dan staat er "Geen gekleurde zinnen in n artikelen".
+
+### Praktijktest (2026-10-14)
+
+Nieuwsitem 9474 (Albert Heijn, drie artikelen, drie bronnen): 29 s voor drie artikelen (6–10 s per aanroep, Claude
+Code Haiku). Trouw: twee zinnen met een vage bronvermelding ("volgens experts zeker 10 miljoen euro"), objectiviteit
+71%. De Telegraaf en RTL Nieuws: geen. Na de publisher (≤ 10 s) zag de publieke sleutel alle drie.
+
+### Acceptatiecriteria
+
+- [x] Alleen een code met rol admin of pro kan een analyse starten; de database beslist (`geen_toegang`)
+- [x] Wat gevonden is, ziet elke lezer; wie het vroeg ziet niemand
+- [x] Geen dubbele analyses: artikelen met een analyse worden overgeslagen, een tweede klik geeft hetzelfde verzoek
+- [x] Grenzen per code en in totaal; hoogstens 16 artikelen per verzoek
+- [x] De backend leest Supabase alleen na een signaal (of elke 5 minuten), conform INFRA-2
+- [x] Tests: `backend/tests/integration/test_bias_requests.py` (migratie 009 + 019 op een wegwerpdatabase, de service)
+
+### Open
+
+- Accounts en betalingen bestaan niet; een pro-code geeft de eigenaar met de hand uit.
+- `BiasDetectionService` valt bij een limiet nog terug op Mistral (hard gecodeerd, van Epic 10).

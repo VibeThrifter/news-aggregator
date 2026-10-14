@@ -30,6 +30,7 @@ from backend.app.llm.client import (
     MistralClient,
 )
 from backend.app.llm.gemini_fast import GeminiFastClient, fast_model, is_gemini_fast
+from backend.app.llm.usage import llm_step
 
 logger = get_logger(__name__).bind(component="LLMProviders")
 
@@ -77,7 +78,10 @@ async def resolve_provider(keys: Sequence[str], *, default: str | None) -> str |
 
 
 class StepLLMClient(BaseLLMClient):
-    """Resolves its provider from ``llm_config`` per call (e.g. ``provider_classification``)."""
+    """Resolves its provider from ``llm_config`` per call (e.g. ``provider_classification``).
+
+    Its calls count under ``step`` in "AI-gebruik" (default: the key without ``provider_``).
+    """
 
     def __init__(
         self,
@@ -87,11 +91,13 @@ class StepLLMClient(BaseLLMClient):
         settings: Settings | None = None,
         default: str | None = None,
         priority: int = DEFAULT_PRIORITY,
+        step: str | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.keys = (key, *fallback_keys)
         self.default = default or self.settings.llm_provider
         self.priority = priority
+        self.step = step or key.removeprefix("provider_")
         self._clients: dict[str, BaseLLMClient] = {}
 
     @property
@@ -110,7 +116,8 @@ class StepLLMClient(BaseLLMClient):
         return self._clients[name]
 
     async def generate(self, prompt: str, *, correlation_id: str | None = None) -> LLMResult:
-        return await (await self.client()).generate(prompt, correlation_id=correlation_id)
+        with llm_step(self.step):
+            return await (await self.client()).generate(prompt, correlation_id=correlation_id)
 
     async def generate_text(
         self,
@@ -120,9 +127,13 @@ class StepLLMClient(BaseLLMClient):
         max_tokens: int | None = None,
         correlation_id: str | None = None,
     ) -> LLMResponse:
-        return await (await self.client()).generate_text(
-            prompt, temperature=temperature, max_tokens=max_tokens, correlation_id=correlation_id
-        )
+        with llm_step(self.step):
+            return await (await self.client()).generate_text(
+                prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                correlation_id=correlation_id,
+            )
 
     async def generate_json(
         self,
@@ -131,9 +142,10 @@ class StepLLMClient(BaseLLMClient):
         *,
         correlation_id: str | None = None,
     ) -> LLMGenericResult:
-        return await (await self.client()).generate_json(
-            prompt, schema_class, correlation_id=correlation_id
-        )
+        with llm_step(self.step):
+            return await (await self.client()).generate_json(
+                prompt, schema_class, correlation_id=correlation_id
+            )
 
 
 __all__ = [

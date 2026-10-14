@@ -205,7 +205,9 @@ make clean             # Clean up generated files
 | Event Maintenance | daily | Refreshes centroids, archives stale events, then clears working data of archived news (storage rule, see Rules). Every hour (first 5 min after the start) it checks whether the last run is 24 h ago; that moment is kept in `data/scheduler_state.json`, so restarts and a sleeping Mac do not reset it (a 24 h interval never ran from 2026-10-02 to 10-08). |
 | Local Database Backup | hourly check | A `pg_dump` of the local working database when the newest one in `data/local-db/backups/` is a day old (it holds what Supabase does not; the age comes from the files, so restarts and a sleeping Mac do not skip it; 7 kept, `LOCAL_BACKUP_*`, INFRA-2) |
 | Publish to Supabase | 10 s | Sends the rows of the local database that changed to Supabase, without the columns that stay local (INFRA-2, `PUBLISH_*`); nothing to send = no Supabase traffic |
+| LLM Usage | 60 s | "AI-gebruik" in Beheer: every LLM call is noted (provider, model, step, tokens; `backend/app/llm/usage.py`) and written to the local table `llm_usage` (local only, migration 020, kept 90 days; `LLM_USAGE_*`). Claude Code runs with `--output-format stream-json` and reports the subscription's limits with every call (share of the 5-hour window and the week, reset times); Gemini's free tier counts requests per model per day (`GEMINI_FREE_DAILY_REQUESTS`). `GET /admin/llm-usage` |
 | Bias Analysis | 6 hours | Per-sentence bias detection (Epic 10, disabled by default) |
+| Bias Requests | 5 s | Gekleurde zinnen op verzoek (Story 10.7): a code with role admin or pro starts the per-sentence bias of one news item under "Hoe gebracht?" (`bias_requests`, migration 019, Supabase only; 20 per code a day, 100 in all). The job listens (`LISTEN bias_request`, else every 5 minutes) and analyses the Dutch articles with text and no analysis, the newest of every outlet first, at most `BIAS_REQUEST_ARTICLE_CAP` (16). The analyses are published, so every reader sees them (`backend/app/services/bias_requests.py`) |
 | Exploration Refresh | 24 hours (na Event Maintenance) | Event Maintenance → daarna Exploration refresh (entiteiten + gerelateerde events, Epic 11) |
 | Entity Research | 15 min | Wie is dit? (Epic 12): triage van namen in het nieuws (rol + belang), onderzoeksdoelen naar het propagandamodel en resultaten ophalen. De rondes van de pm-agent `nieuws-scout` plant het propagandamodel zelf (launchd, elke 2 uur, max 6/dag, 08–22); de nieuws-app start ze niet (sinds 2026-10-09 is die code weg) en toont in de status alleen wat de pm-runs melden. `ENTITY_RESEARCH_ENABLED`, `ENTITY_RESEARCH_*`; vereist migratie 006 + draaiende pm-server |
 | Article Digest | 15 min | "Wat schreef …?": haalt de tekst van nieuwe buitenlandse artikelen op (Google News geeft alleen de kop) en laat de LLM een Nederlandse kern van hoogstens twee zinnen schrijven in `source_metadata.digest`; de tekst zelf wordt niet opgeslagen. Alleen artikelen van de laatste 72 uur, oudere via de admin-backfill (`ARTICLE_DIGEST_*`; provider: `llm_config.provider_digest`, anders die van de feitenanalyse) |
@@ -213,7 +215,7 @@ make clean             # Clean up generated files
 | Propagandamodel Sync | 60 min | Synct het goedgekeurde propagandamodel (alleen-lezen) naar de `pm_*`-tabellen, alleen als het DB-bestand gewijzigd is (Epic 11, Story 11.17; `PROPAGANDA_SYNC_ENABLED`, `PROPAGANDA_SYNC_INTERVAL_MINUTES`, vereist migratie 005). Sinds format 5 ook de argumenten achter elke relatie (voor/tegen/nuance, status, bronnen) en de uitleg per mechanisme: vereist migratie 010 (Story 14.12). Sinds format 8 (Epic 15) ook de besluitvorming (`bestuurslaag`, `functie`, vijf categorieën): vereist migratie 016 |
 | Evidence Research | 15 min | Dun bewijs (Story 14.13): verbanden onder "Wie zit erachter?" die op dun bewijs rusten (de eventpagina meldt ze aan via `request_relation_research`) gaan als onderzoeksdoel naar het propagandamodel (`nieuws_doelen`, soort `relatie`, max 6/dag) en de uitkomst komt terug (`relation_research`). De rondes van de pm-agent `nieuws-bewijs` (bewijs vóór én tegen) plant het propagandamodel zelf (launchd, elke 2 uur, max 3/dag = 6 verbanden, 08–22; de nieuws-app start ze niet); daarna beslist de automatische beoordeling van het propagandamodel, elk uur (bronzoeker, bronchecker, smaadtoets, aanklager, immuunpoort, bronklassen, opruimen; niemand beoordeelt met de hand). Elke cyclus meldt alle aangevraagde verbanden ook als voorrang (`POST /api/nieuws/voorrang`, zonder budget): het propagandamodel controleert hun bronnen eerst en zijn bronzoeker zoekt een bron waar die ontbreekt (agents doen alles, Story 14.17). `EVIDENCE_RESEARCH_*`; vereist migratie 011 |
 
-**Note:** Bias Analysis is disabled by default to save LLM costs. Enable with `BIAS_ANALYSIS_SCHEDULER_ENABLED=true`.
+**Note:** Bias Analysis is disabled by default to save LLM costs (one call per article). Enable with `BIAS_ANALYSIS_SCHEDULER_ENABLED=true`. Paying users (an access code with role `pro`, made with `scripts/access_code.py create --role pro`) and the admin start it per news item instead (Bias Requests).
 
 **Note:** Exploration refresh draait direct na een geslaagde Event Maintenance (eigen timeout `EXPLORATION_REFRESH_TIMEOUT_SECONDS`) en na elke insight-generatie per event. Uitzetten met `EXPLORATION_ENABLED=false`. Vereist migratie `database/migrations/004_explore_entities_relations.sql`.
 
@@ -328,6 +330,9 @@ curl -X POST "http://localhost:8000/admin/trigger/analyze-bias/{article_id}"
 # Batch bias analysis (articles without analysis)
 curl -X POST "http://localhost:8000/admin/trigger/analyze-bias-batch?limit=10"
 
+# Gekleurde zinnen op verzoek (Story 10.7): run the requested bias analyses now (the job does this after a signal)
+curl -X POST "http://localhost:8000/admin/trigger/bias-requests?limit=1"
+
 # Exploration (Epic 11): recompute entities + related events for one event
 curl -X POST "http://localhost:8000/admin/trigger/exploration/{event_id}"
 
@@ -375,6 +380,9 @@ curl -X POST "http://localhost:8000/admin/trigger/article-digests?limit=50"
 curl -X POST "http://localhost:8000/admin/trigger/voice-search?limit=2"
 # Access codes for it (admin only for now): create / list / revoke; the code is printed once
 PYTHONPATH=. .venv/bin/python scripts/access_code.py create --role admin --label Eigenaar
+
+# AI-gebruik: Claude subscription (5-hour window, week), Gemini free tier, tokens per model and step
+curl "http://localhost:8000/admin/llm-usage"
 
 # Check scheduler status (includes exploration_last_run, propagandamodel_last_run and article_digest_last_run)
 curl "http://localhost:8000/admin/scheduler/status"

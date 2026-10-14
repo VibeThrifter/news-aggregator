@@ -19,11 +19,13 @@ from backend.app.services.international_enrichment import (
     get_international_enrichment_service,
 )
 from backend.app.services.bias_service import BiasAnalysisOutcome, get_bias_detection_service
+from backend.app.services.bias_requests import get_bias_request_service
 from backend.app.services.exploration_service import (
     EventNotFoundError,
     get_exploration_service,
 )
 from backend.app.services.llm_config_service import get_llm_config_service
+from backend.app.services.llm_usage import get_llm_usage_service
 from backend.app.services.propaganda_model_sync import (
     UnsecuredTargetError,
     get_propaganda_sync_service,
@@ -368,6 +370,13 @@ async def update_llm_config(key: str, update: LlmConfigUpdateRequest):
     return _config_to_response(config)
 
 
+@router.get("/llm-usage")
+async def llm_usage() -> dict[str, Any]:
+    """AI-gebruik: tokens per provider, model and step, and the Claude subscription's limits."""
+
+    return await get_llm_usage_service().summary()
+
+
 @router.post("/llm-config/seed")
 async def seed_llm_config(overwrite: bool = False):
     """Seed default LLM configuration values.
@@ -700,6 +709,19 @@ async def trigger_voice_search(limit: int = 2):
     if limit < 1 or limit > 10:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 10")
     return await get_voice_search_service().run_pending(limit=limit)
+
+
+# Gekleurde zinnen op verzoek (Story 10.7): bias analyses a paying user or the admin requested
+@router.post("/trigger/bias-requests")
+async def trigger_bias_requests(limit: int = 1):
+    """Run the bias analyses requested in the app now (the job does this after every signal).
+
+    Args:
+        limit: Maximum number of queued requests (1-5, default 1)
+    """
+    if limit < 1 or limit > 5:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 5")
+    return await get_bias_request_service().run_pending(limit=limit)
 
 
 # Exploration endpoints (Epic 11, Story 11.8)

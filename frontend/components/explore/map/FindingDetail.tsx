@@ -215,8 +215,7 @@ export function FindingDetail({ finding }: { finding: Finding }) {
       return (
         <div className="space-y-3">
           <Row label="Waarom nu?">{body.timing.why_now}</Row>
-          <Row label="Wie heeft er baat bij?">{body.timing.cui_bono}</Row>
-          <Row label="Wat komt eraan">{body.timing.upcoming_events}</Row>
+          <Row label="Wat komt eraan?">{body.timing.upcoming_events}</Row>
         </div>
       );
 

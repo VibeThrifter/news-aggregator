@@ -282,6 +282,37 @@ class LlmConfig(Base):
         return f"<LlmConfig key={self.key!r} type={self.config_type!r}>"
 
 
+class LlmUsage(Base):
+    """One LLM call: provider, model, pipeline step and tokens ("AI-gebruik" in Beheer).
+
+    Local only (the admin page asks the backend). ``rate_limit``: the subscription's limits Claude
+    Code reported with the call (5-hour window, week). ``cost_usd``: Claude Code's API list price.
+    """
+
+    __tablename__ = "llm_usage"
+    __table_args__ = (Index("idx_llm_usage_created_at", "created_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    model: Mapped[str] = mapped_column(String(80), nullable=False)
+    step: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cache_read_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cache_write_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # None is SQL NULL (not JSON null): "the newest limits" asks for rate_limit IS NOT NULL
+    rate_limit: Mapped[Dict[str, Any] | None] = mapped_column(
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"),
+        nullable=True,
+    )
+
+
 class EventEntity(Base):
     """Canonical entities per event with counts (Epic 11, Story 11.8).
 

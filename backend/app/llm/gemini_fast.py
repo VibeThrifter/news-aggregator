@@ -36,6 +36,7 @@ from backend.app.llm.client import (
     _strip_markdown_fences,
 )
 from backend.app.llm.schemas import InsightsPayload
+from backend.app.llm.usage import note_llm_call
 
 logger = get_logger(__name__).bind(component="GeminiFastClient")
 
@@ -125,6 +126,8 @@ class GeminiFastClient(BaseLLMClient):
             raise LLMResponseError(f"Gemini: {type(exc).__name__}", retryable=True) from exc
         status = response.status_code
         if status == 429:
+            # Counted too: the free tier's daily limit shows on the admin dashboard
+            note_llm_call(provider=GEMINI_FAST, model=self.model, ok=False)
             raise LLMRateLimitError("Gemini: limiet bereikt (429)", provider=GEMINI_FAST)
         if status in (401, 403):
             raise LLMAuthenticationError(f"Gemini weigert de sleutel ({status})")
@@ -147,11 +150,13 @@ class GeminiFastClient(BaseLLMClient):
             "completion_tokens": meta.get("candidatesTokenCount"),
             "total_tokens": meta.get("totalTokenCount"),
         }
+        duration_ms = int((time.monotonic() - started) * 1000)
+        note_llm_call(provider=GEMINI_FAST, model=self.model, usage=meta, duration_ms=duration_ms)
         logger.info(
             "llm_call_succeeded",
             provider=GEMINI_FAST,
             model=self.model_name,
-            duration_ms=int((time.monotonic() - started) * 1000),
+            duration_ms=duration_ms,
             prompt_length=len(prompt),
             correlation_id=correlation_id,
         )

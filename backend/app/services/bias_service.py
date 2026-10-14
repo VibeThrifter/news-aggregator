@@ -25,6 +25,7 @@ from backend.app.llm.client import (
 )
 from backend.app.llm.providers import build_llm_client
 from backend.app.llm.schemas import BiasAnalysisPayload
+from backend.app.llm.usage import llm_step
 from backend.app.repositories.bias_repo import BiasRepository
 from backend.app.services.llm_config_service import get_llm_config_service
 
@@ -91,28 +92,29 @@ class BiasDetectionService:
         correlation_id: str | None = None,
     ) -> LLMGenericResult:
         """Call LLM with automatic Mistral fallback on rate limit or quota errors."""
-        try:
-            return await client.generate_json(
-                prompt, BiasAnalysisPayload, correlation_id=correlation_id
-            )
-        except (LLMRateLimitError, LLMQuotaExhaustedError, LLMTimeoutError) as exc:
-            if client.provider == "mistral":
-                raise
+        with llm_step("bias"):
+            try:
+                return await client.generate_json(
+                    prompt, BiasAnalysisPayload, correlation_id=correlation_id
+                )
+            except (LLMRateLimitError, LLMQuotaExhaustedError, LLMTimeoutError) as exc:
+                if client.provider == "mistral":
+                    raise
 
-            logger.warning(
-                "llm_fallback_triggered",
-                phase="bias_detection",
-                original_provider=client.provider,
-                fallback_provider="mistral",
-                error_type=type(exc).__name__,
-                error=str(exc),
-                correlation_id=correlation_id,
-            )
+                logger.warning(
+                    "llm_fallback_triggered",
+                    phase="bias_detection",
+                    original_provider=client.provider,
+                    fallback_provider="mistral",
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                    correlation_id=correlation_id,
+                )
 
-            fallback_client = MistralClient(settings=self.settings)
-            return await fallback_client.generate_json(
-                prompt, BiasAnalysisPayload, correlation_id=correlation_id
-            )
+                fallback_client = MistralClient(settings=self.settings)
+                return await fallback_client.generate_json(
+                    prompt, BiasAnalysisPayload, correlation_id=correlation_id
+                )
 
     def _compute_summary_stats(
         self, payload: BiasAnalysisPayload

@@ -35,6 +35,7 @@ from backend.app.llm.client import (
 )
 from backend.app.llm.providers import build_llm_client
 from backend.app.llm.schemas import ArticleDigestPayload
+from backend.app.llm.usage import llm_step
 from backend.app.services.llm_config_service import get_llm_config_service
 
 logger = get_logger(__name__).bind(component="ArticleDigestService")
@@ -176,9 +177,10 @@ class ArticleDigestService:
             await self._template(), source_name=source_name, title=title, text=text
         )
         try:
-            result = await (await self._llm_client()).generate_json(
-                prompt, ArticleDigestPayload, correlation_id=correlation_id
-            )
+            with llm_step("digest"):
+                result = await (await self._llm_client()).generate_json(
+                    prompt, ArticleDigestPayload, correlation_id=correlation_id
+                )
         except Exception as exc:
             # Only an answer that is unusable counts against the article (Mistral 429 does not)
             if not is_provider_problem(exc):

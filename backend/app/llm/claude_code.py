@@ -1,9 +1,11 @@
 """Claude Code as an LLM provider: the ``claude`` command on this machine, not an API key.
 
 Owner's request (2026-10-03): let Claude Code do the AI work instead of DeepSeek, selectable per
-pipeline step. Every call starts ``claude -p`` with the prompt on stdin and reads the JSON result
-(``--output-format json``). The call uses the login of the user running the backend (their Claude
-subscription): ``ANTHROPIC_API_KEY`` is removed from its environment.
+pipeline step. Every call starts ``claude -p`` with the prompt on stdin and reads its events
+(``--output-format stream-json``): the answer, and the subscription's limits (how much of the
+5-hour window and of the week is used), noted for the admin dashboard (``llm/usage.py``). The call
+uses the login of the user running the backend (their Claude subscription): ``ANTHROPIC_API_KEY``
+is removed from its environment.
 
 - No tools, no MCP servers, no settings or project context (``CLAUDE.md``): it runs in its own
   empty working directory with its own system prompt, so it only answers the prompt.
@@ -45,6 +47,7 @@ from backend.app.llm.client import (
     _strip_markdown_fences,
 )
 from backend.app.llm.schemas import InsightsPayload
+from backend.app.llm.usage import note_llm_call
 
 logger = get_logger(__name__).bind(component="ClaudeCodeClient")
 
@@ -57,7 +60,14 @@ SYSTEM_PROMPT = (
 )
 JSON_ONLY = "\n\nAntwoord uitsluitend met één JSON-object, zonder uitleg en zonder codeblok."
 # Errors in the answer that mean the subscription limit is reached for now
-LIMIT_WORDS = ("usage limit", "rate limit", "limit reached", "too many requests", "overloaded")
+LIMIT_WORDS = (
+    "usage limit",
+    "rate limit",
+    "limit reached",
+    "hit your limit",
+    "too many requests",
+    "overloaded",
+)
 
 # Who waits for a slot first: the news pipeline's short calls (Haiku, ±7 s) go before the
 # analyses that every link starts and the backfill (Sonnet, up to two minutes a call). Those used
@@ -168,7 +178,8 @@ class ClaudeCodeClient(BaseLLMClient):
             self.settings.claude_code_bin,
             "-p",
             "--output-format",
-            "json",
+            "stream-json",
+            "--verbose",
             "--tools",
             "",
             "--strict-mcp-config",
@@ -186,10 +197,56 @@ class ClaudeCodeClient(BaseLLMClient):
             command += ["--json-schema", json.dumps(schema, ensure_ascii=False)]
         return command
 
+    @staticmethod
+    def _events(text: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        """The result envelope and the subscription's limits in the CLI's output.
+
+        stream-json prints one event per line: the limits in ``rate_limit_event``, the answer in
+        ``result``. A single JSON object (``--output-format json``) is the envelope itself.
+        """
+
+        envelope: dict[str, Any] = {}
+        limits: dict[str, Any] | None = None
+        for line in text.splitlines():
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            if event.get("type") == "rate_limit_event":
+                info = event.get("rate_limit_info")
+                limits = info if isinstance(info, dict) else limits
+            elif event.get("type") == "result":
+                envelope = event
+        if not envelope and text:
+            try:
+                whole = json.loads(text)
+            except json.JSONDecodeError:
+                whole = None
+            envelope = whole if isinstance(whole, dict) else {}
+        return envelope, limits
+
+    def _used_model(self, envelope: dict[str, Any]) -> str:
+        """The model that answered (``claude-haiku-5-5``), else the one asked for."""
+
+        models = envelope.get("modelUsage")
+        if not isinstance(models, dict) or not models:
+            return self.model or PROVIDER
+
+        def cost(name: str) -> float:
+            entry = models[name]
+            return float(entry.get("costUSD") or 0) if isinstance(entry, dict) else 0.0
+
+        return max(models, key=cost)
+
     async def _run(
         self, prompt: str, *, schema: dict[str, Any] | None, correlation_id: str | None
     ) -> dict[str, Any]:
-        """Start ``claude -p`` and return its JSON result envelope."""
+        """Start ``claude -p`` and return its result envelope."""
 
         env = {key: value for key, value in os.environ.items() if key != "ANTHROPIC_API_KEY"}
         timeout = self.settings.claude_code_timeout_seconds
@@ -220,16 +277,25 @@ class ClaudeCodeClient(BaseLLMClient):
                 ) from exc
 
         text = stdout.decode("utf-8", errors="replace").strip()
-        try:
-            envelope = json.loads(text) if text else {}
-        except json.JSONDecodeError:
-            envelope = {}
-        message = str(envelope.get("result") or stderr.decode("utf-8", errors="replace") or text)[
-            :300
-        ]
-        if process.returncode != 0 or envelope.get("is_error") or not envelope:
+        envelope, limits = self._events(text)
+        failed = process.returncode != 0 or bool(envelope.get("is_error")) or not envelope
+        if envelope or limits:
+            note_llm_call(
+                provider=PROVIDER,
+                model=self._used_model(envelope),
+                usage=envelope.get("usage"),
+                ok=not failed,
+                cost_usd=envelope.get("total_cost_usd"),
+                duration_ms=envelope.get("duration_ms"),
+                rate_limit=limits,
+            )
+        message = str(
+            envelope.get("result") or stderr.decode("utf-8", errors="replace") or text[-300:]
+        )[:300]
+        if failed:
             lowered = message.lower()
-            if any(word in lowered for word in LIMIT_WORDS):
+            rejected = (limits or {}).get("status") == "rejected"
+            if rejected or any(word in lowered for word in LIMIT_WORDS):
                 raise LLMQuotaExhaustedError(f"Claude Code: {message}", provider=PROVIDER)
             if "login" in lowered or "authenticat" in lowered or "api key" in lowered:
                 raise LLMAuthenticationError(f"Claude Code is niet ingelogd: {message}")

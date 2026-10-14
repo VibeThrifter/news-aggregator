@@ -1702,7 +1702,9 @@ Wat er veranderd is (`components/explore/map/TijdlijnTab.tsx`, `lib/explore/chro
 - Een vol punt is berichtgeving (artikel, nieuwsitem), een open punt is iets dat gebeurde. Zwart is dit nieuws,
   grijs het verhaal eromheen, gestippeld is van jou.
 - Meer dan drie dingen ervóór: de oudste vouwen weg achter "Nog n eerder"; je eigen momenten blijven staan.
-- "Waarom nu?" is een eigen kaart: waarom nu, wie heeft er baat bij, wat komt eraan, met Klopt niet en Bewaar.
+- "Waarom nu?" is een eigen kaart: waarom nu en wat komt eraan, met Klopt niet en Bewaar. "Wie heeft er baat bij?"
+  (`cui_bono`) toont de app niet meer: het past niet bij de tijdlijn (eigenaar, 2026-10-14) en is vaak een gok ("Uit
+  de tekst niet vast te stellen …"). De analyse levert het nog wel.
 - "Dezelfde mensen in ander nieuws" is weg. Elke naam is aantikbaar en toont "Ook in ander nieuws". Een relatie
   met één gedeelde naam hoort niet bij het verhaal (`storyThread` heeft geen `people` meer).
 - Een moment hoort bij dit nieuws als het tot een dag voor het eerste of na het laatste artikel valt (`partOf`).

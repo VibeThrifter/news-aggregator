@@ -583,7 +583,9 @@ class VoiceSearchService:
         # analyses (provider_factual) does the step again
         if llm is None:
             llm = StepLLMClient("provider_voice_search", fallback_keys=("provider_factual",))
-            backup_llm = backup_llm or StepLLMClient("provider_factual", fallback_keys=())
+            backup_llm = backup_llm or StepLLMClient(
+                "provider_factual", fallback_keys=(), step="voice_search"
+            )
         self.llm = llm
         self.backup_llm = backup_llm
         self._web_search = web_search

@@ -11,6 +11,7 @@ import httpx
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
 from backend.app.llm.schemas import CriticalPayload, FactualPayload, InsightsPayload
+from backend.app.llm.usage import note_llm_call
 from typing import TypeVar, Type
 from pydantic import BaseModel
 
@@ -117,6 +118,16 @@ class BaseLLMClient:
     ) -> LLMGenericResult:
         """Generate structured JSON response validated against a Pydantic schema."""
         raise NotImplementedError
+
+
+R = TypeVar("R", LLMResult, LLMResponse, LLMGenericResult)
+
+
+def _noted(result: R) -> R:
+    """Note a successful call for "AI-gebruik" (tokens per provider, model and step)."""
+
+    note_llm_call(provider=result.provider, model=result.model, usage=result.usage)
+    return result
 
 
 def _strip_markdown_fences(content: str) -> str:
@@ -296,13 +307,13 @@ class DeepSeekClient(BaseLLMClient):
                     prompt_length=len(prompt),
                     attempt=attempt,
                 )
-                return LLMResult(
+                return _noted(LLMResult(
                     provider=self.provider,
                     model=model_name,
                     payload=payload_model,
                     raw_content=json_content,
                     usage=usage if isinstance(usage, dict) else None,
-                )
+                ))
             except LLMAuthenticationError:
                 raise
             except LLMTimeoutError as exc:
@@ -420,12 +431,12 @@ class DeepSeekClient(BaseLLMClient):
                     prompt_length=len(prompt),
                     attempt=attempt,
                 )
-                return LLMResponse(
+                return _noted(LLMResponse(
                     provider=self.provider,
                     model=model_name,
                     content=choice,
                     usage=usage if isinstance(usage, dict) else None,
-                )
+                ))
             except LLMAuthenticationError:
                 raise
             except LLMTimeoutError as exc:
@@ -567,13 +578,13 @@ class DeepSeekClient(BaseLLMClient):
                     prompt_length=len(prompt),
                     attempt=attempt,
                 )
-                return LLMGenericResult(
+                return _noted(LLMGenericResult(
                     provider=self.provider,
                     model=model_name,
                     payload=payload_model,
                     raw_content=json_content,
                     usage=usage if isinstance(usage, dict) else None,
-                )
+                ))
             except LLMAuthenticationError:
                 raise
             except LLMQuotaExhaustedError:
@@ -706,13 +717,13 @@ class GeminiClient(BaseLLMClient):
                     prompt_length=len(prompt),
                     attempt=attempt,
                 )
-                return LLMResult(
+                return _noted(LLMResult(
                     provider=self.provider,
                     model=self.settings.gemini_model_name,
                     payload=payload_model,
                     raw_content=json_content,
                     usage=usage,
-                )
+                ))
             except LLMAuthenticationError:
                 raise
             except LLMResponseError as exc:
@@ -798,12 +809,12 @@ class GeminiClient(BaseLLMClient):
                     prompt_length=len(prompt),
                     attempt=attempt,
                 )
-                return LLMResponse(
+                return _noted(LLMResponse(
                     provider=self.provider,
                     model=self.settings.gemini_model_name,
                     content=response.text,
                     usage=usage,
-                )
+                ))
             except LLMAuthenticationError:
                 raise
             except LLMResponseError as exc:
@@ -908,13 +919,13 @@ class GeminiClient(BaseLLMClient):
                     prompt_length=len(prompt),
                     attempt=attempt,
                 )
-                return LLMGenericResult(
+                return _noted(LLMGenericResult(
                     provider=self.provider,
                     model=self.settings.gemini_model_name,
                     payload=payload_model,
                     raw_content=json_content,
                     usage=usage,
-                )
+                ))
             except LLMAuthenticationError:
                 raise
             except LLMResponseError as exc:
@@ -1054,13 +1065,13 @@ class MistralClient(BaseLLMClient):
                     prompt_length=len(prompt),
                     attempt=attempt,
                 )
-                return LLMResult(
+                return _noted(LLMResult(
                     provider=self.provider,
                     model=model_name,
                     payload=payload_model,
                     raw_content=json_content,
                     usage=usage if isinstance(usage, dict) else None,
-                )
+                ))
             except LLMAuthenticationError:
                 raise
             except LLMTimeoutError as exc:
@@ -1171,12 +1182,12 @@ class MistralClient(BaseLLMClient):
                     prompt_length=len(prompt),
                     attempt=attempt,
                 )
-                return LLMResponse(
+                return _noted(LLMResponse(
                     provider=self.provider,
                     model=model_name,
                     content=choice,
                     usage=usage if isinstance(usage, dict) else None,
-                )
+                ))
             except LLMAuthenticationError:
                 raise
             except LLMTimeoutError as exc:
@@ -1304,13 +1315,13 @@ class MistralClient(BaseLLMClient):
                     prompt_length=len(prompt),
                     attempt=attempt,
                 )
-                return LLMGenericResult(
+                return _noted(LLMGenericResult(
                     provider=self.provider,
                     model=model_name,
                     payload=payload_model,
                     raw_content=json_content,
                     usage=usage if isinstance(usage, dict) else None,
-                )
+                ))
             except LLMAuthenticationError:
                 raise
             except LLMTimeoutError as exc:

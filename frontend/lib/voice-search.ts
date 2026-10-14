@@ -17,6 +17,8 @@ export interface AccessInfo {
   role: AccessRole | null;
   /** This role may search and approve (now: admin) */
   can_search: boolean;
+  /** This role may let AI look for coloured sentences (admin, pro; migration 019) */
+  can_analyze_bias?: boolean;
 }
 
 export type VoiceSearchStatus = 'wachtrij' | 'bezig' | 'klaar' | 'niets_gevonden' | 'fout';
@@ -90,7 +92,7 @@ async function demo() {
 
 /** What a code may do; null when the database does not know codes yet. */
 export async function accessCodeRole(code: string): Promise<AccessInfo | null> {
-  if (!code.trim()) return { role: null, can_search: false };
+  if (!code.trim()) return { role: null, can_search: false, can_analyze_bias: false };
   return rpc<AccessInfo>('access_code_role', { p_code: code.trim() });
 }
 

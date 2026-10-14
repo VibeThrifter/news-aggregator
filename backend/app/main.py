@@ -10,6 +10,7 @@ from backend.app.core.logging import configure_logging, get_logger
 from backend.app.core.scheduler import get_scheduler
 from backend.app.db.session import init_db
 from backend.app.db.supabase import supabase_configured
+from backend.app.services.llm_usage import get_llm_usage_service
 from backend.app.services.publish_service import get_publish_service
 from backend.app.routers import (
     aggregate_router,
@@ -49,6 +50,10 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown
     scheduler.shutdown()
+    try:  # AI-gebruik: the calls noted since the last write
+        await get_llm_usage_service().flush()
+    except Exception as exc:
+        get_logger(__name__).warning("llm_usage_flush_failed", error=str(exc)[:300])
     await scheduler.close_connections()
 
 

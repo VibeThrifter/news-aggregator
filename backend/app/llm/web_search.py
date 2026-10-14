@@ -25,6 +25,7 @@ import httpx
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
 from backend.app.llm.providers import resolve_provider
+from backend.app.llm.usage import note_llm_call
 
 logger = get_logger(__name__).bind(component="WebSearch")
 
@@ -116,6 +117,8 @@ class GeminiWebSearch:
         except httpx.HTTPError as exc:
             raise WebSearchError(f"Google zoeken mislukte ({type(exc).__name__})") from exc
         if response.status_code == 429:
+            # Counted too: the free tier's daily limit shows on the admin dashboard
+            note_llm_call(provider=GEMINI_SEARCH, model=self.model, step="voice_web", ok=False)
             raise WebSearchError("Gemini: limiet bereikt (429)")
         if response.status_code >= 400:
             raise WebSearchError(f"Gemini: HTTP {response.status_code}")
@@ -123,6 +126,14 @@ class GeminiWebSearch:
             data = response.json()
         except ValueError as exc:
             raise WebSearchError("Gemini gaf geen JSON") from exc
+        ms = int((time.monotonic() - started) * 1000)
+        note_llm_call(
+            provider=GEMINI_SEARCH,
+            model=self.model,
+            usage=data.get("usageMetadata"),
+            step="voice_web",
+            duration_ms=ms,
+        )
         candidates = data.get("candidates") or []
         if not candidates:
             raise WebSearchError("Gemini gaf geen antwoord")
@@ -139,7 +150,7 @@ class GeminiWebSearch:
             text=text,
             queries=[str(q) for q in meta.get("webSearchQueries") or []],
             links=[link for link in links if link],
-            ms=int((time.monotonic() - started) * 1000),
+            ms=ms,
             usage=data.get("usageMetadata") or {},
         )
 

@@ -10,6 +10,7 @@ import { useExploreStore } from "@/lib/explore/store";
 import type { Finding, TabId } from "@/lib/explore/types";
 
 import { useExplore } from "../ExploreContext";
+import { BiasRequestPanel, useBiasRequest } from "./BiasRequest";
 import { FindingRow } from "./FindingRow";
 import { OntbreektTab } from "./OntbreektTab";
 import { OthersSection, useSharedGroups } from "./Others";
@@ -37,6 +38,8 @@ export function FindingsTabs() {
   const { input, byTab, speakers } = exploration;
   // What others shared can be the only thing in a tab
   const { groups: others } = useSharedGroups();
+  // Coloured sentences on request (Story 10.7): the button, or that it runs, can be all there is
+  const bias = useBiasRequest();
   const chosen = useExploreStore((state) => state.prefs.findingsTab);
   const setPref = useExploreStore((state) => state.setPref);
   // A popover asks for the form of a tab that may still be empty: that tab stays while it is chosen
@@ -76,6 +79,7 @@ export function FindingsTabs() {
       (counts.get(tab.id) ?? 0) > 0 ||
       tab.id === composing ||
       (tab.id === forced && chosen === forced) ||
+      (tab.id === "gebracht" && bias.show) ||
       others.some((group) => OWN_KINDS[group.lead.kind].tab === tab.id),
   );
   const current = visible.find((tab) => tab.id === chosen)?.id ?? visible[0]?.id ?? null;
@@ -146,6 +150,7 @@ export function FindingsTabs() {
               ))}
           </ul>
         )}
+        {current === "gebracht" && bias.show ? <BiasRequestPanel state={bias} /> : null}
         <OwnAdd key={current} kinds={OWN_KINDS_BY_TAB[current] ?? NONE} />
         <OthersSection key={`others-${current}`} tab={current} />
       </div>

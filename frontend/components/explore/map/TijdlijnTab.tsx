@@ -293,12 +293,12 @@ function Part({ label, children }: { label: string; children: string | null | un
   );
 }
 
-/** "Waarom nu?": why this news comes now, who gains by it and what is coming. */
+/** "Waarom nu?": why this news comes now and what is coming. */
 function TimingCard({ finding }: { finding: Finding }) {
   const id = useId();
   const { ref, ringing } = useFocusRing<HTMLElement>("finding", finding.id);
   if (finding.body.type !== "timing") return null;
-  const { why_now, cui_bono, upcoming_events } = finding.body.timing;
+  const { why_now, upcoming_events } = finding.body.timing;
   return (
     <section
       ref={ref}
@@ -315,7 +315,6 @@ function TimingCard({ finding }: { finding: Finding }) {
         </p>
       </div>
       <div className="divide-y divide-paper-200 border-t border-paper-200">
-        <Part label="Wie heeft er baat bij?">{cui_bono}</Part>
         <Part label="Wat komt eraan?">{upcoming_events}</Part>
         <div className="py-3">
           <FindingActions finding={finding} />

@@ -573,6 +573,74 @@ export async function seedLlmConfig(overwrite: boolean = false): Promise<{ messa
   return response.json();
 }
 
+// AI-gebruik: tokens of the app's LLM calls and the Claude subscription's limits (backend only)
+
+export interface LlmUsageTotals {
+  calls: number;
+  failed: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  tokens: number;
+  /** Claude Code's API list price; null when no call reported one */
+  cost_usd: number | null;
+}
+
+export interface LlmUsagePeriod {
+  key: "five_hour" | "today" | "seven_day";
+  since: string;
+  /** True: the period is the subscription's own window (5 hours, the week) */
+  subscription_window: boolean;
+  totals: LlmUsageTotals;
+  models: Array<LlmUsageTotals & { provider: string; model: string }>;
+  steps: Array<LlmUsageTotals & { step: string | null }>;
+}
+
+export interface ClaudeWindow {
+  key: string;
+  /** Share used: 0.24 = 24% */
+  utilization: number | null;
+  resets_at: string | null;
+  started_at: string | null;
+  /** The window reset since the measurement: its share is unknown until the next call */
+  expired: boolean;
+}
+
+export interface LlmUsageSummary {
+  generated_at: string;
+  claude: {
+    measured_at: string;
+    status: "allowed" | "allowed_warning" | "rejected" | string | null;
+    limit_type: string | null;
+    resets_at: string | null;
+    using_overage: boolean;
+    windows: ClaudeWindow[];
+  } | null;
+  periods: LlmUsagePeriod[];
+  gemini: {
+    limit: number | null;
+    resets_at: string;
+    models: Array<{ model: string; requests: number; limited: boolean }>;
+  };
+}
+
+/**
+ * Tokens per provider, model and step, and how much of the Claude subscription is used.
+ */
+export async function getLlmUsage(): Promise<LlmUsageSummary> {
+  const response = await fetch(buildUrl('/admin/llm-usage'), {
+    method: 'GET',
+    headers: { 'Accept': 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new ApiClientError('Failed to load AI usage', response.status);
+  }
+
+  return response.json();
+}
+
 // Bias Analysis API functions (Epic 10)
 //
 // Epic 11 Story 11.1: read article_bias_analyses directly from Supabase. The previous

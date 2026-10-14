@@ -1,7 +1,8 @@
 """Claude Code as LLM provider: the local `claude` CLI, selectable per step in llm_config.
 
-A fake `claude` script plays the CLI: it prints the JSON envelope of `claude -p --output-format
-json` and reports what it was started with (arguments, API key in the environment).
+A fake `claude` script plays the CLI: it prints the events of `claude -p --output-format
+stream-json` (the subscription's limits, then the result envelope) and reports what it was started
+with (arguments, API key in the environment).
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from backend.app.llm.claude_code import (
 )
 from backend.app.llm.client import LLMQuotaExhaustedError, LLMTimeoutError
 from backend.app.llm.providers import build_llm_client
+from backend.app.llm.usage import latest_limits, llm_step, take_pending
 
 FAKE = """#!{python}
 import json, os, sys, time
@@ -40,8 +42,21 @@ if mode == "sleep":
 if mode == "limit":
     print(json.dumps({{"type": "result", "is_error": True, "result": "Claude AI usage limit reached|1759500000"}}))
     sys.exit(1)
+if mode == "rejected":
+    print(json.dumps({{"type": "rate_limit_event", "rate_limit_info": {{"status": "rejected",
+        "resetsAt": 1792016400, "rateLimitType": "five_hour",
+        "unifiedWindows": {{"five_hour": {{"utilization": 1.0, "resetsAt": 1792016400}}}}}}}}))
+    print(json.dumps({{"type": "result", "is_error": True, "result": "Er ging iets mis"}}))
+    sys.exit(1)
+print(json.dumps({{"type": "system", "subtype": "init", "model": "claude-haiku-5-5"}}))
+print(json.dumps({{"type": "rate_limit_event", "rate_limit_info": {{"status": "allowed",
+    "resetsAt": 1792016400, "rateLimitType": "five_hour", "isUsingOverage": False,
+    "unifiedWindows": {{"five_hour": {{"utilization": 0.24, "resetsAt": 1792016400}},
+                       "seven_day": {{"utilization": 0.4, "resetsAt": 1792447200}}}}}}}}))
 envelope = {{"type": "result", "subtype": "success", "is_error": False, "duration_ms": 12,
-            "usage": {{"input_tokens": 10, "output_tokens": 5}}, "total_cost_usd": 0.001}}
+            "usage": {{"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 535,
+                      "cache_creation_input_tokens": 3003}},
+            "modelUsage": {{"claude-haiku-5-5": {{"costUSD": 0.001}}}}, "total_cost_usd": 0.001}}
 if mode == "structured":
     envelope["structured_output"] = {{"category": "politiek", "reason": "kabinet"}}
     envelope["result"] = "zie structured_output"
@@ -93,7 +108,7 @@ async def test_structured_answer_without_tools_context_or_api_key(fake_claude):
     assert result.usage == {"prompt_tokens": 10, "completion_tokens": 5, "cost_usd": 0.001}
     call = seen()
     args = call["args"]
-    assert args[:3] == ["-p", "--output-format", "json"]
+    assert args[:4] == ["-p", "--output-format", "stream-json", "--verbose"]
     assert args[args.index("--tools") + 1] == ""
     assert args[args.index("--model") + 1] == "haiku"
     # Owner 2026-10-09: medium effort on every step (the CLI default may be high)
@@ -120,6 +135,37 @@ async def test_a_reached_limit_is_a_quota_error(fake_claude, monkeypatch):
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "limit")
     with pytest.raises(LLMQuotaExhaustedError):
         await ClaudeCodeClient(settings=settings).generate_json("x", Category)
+
+
+async def test_a_call_noted_with_its_tokens_step_and_the_subscription_limits(fake_claude):
+    """AI-gebruik in Beheer: tokens per step, and how much of the 5-hour window and the week."""
+    settings, _ = fake_claude
+    take_pending()
+    with llm_step("factual"):
+        await ClaudeCodeClient(settings=settings, model="haiku").generate_json("x", Category)
+
+    [call] = take_pending()
+    assert call["provider"] == "claude-code" and call["model"] == "claude-haiku-5-5"
+    assert call["step"] == "factual" and call["ok"] is True
+    assert (call["input_tokens"], call["output_tokens"]) == (10, 5)
+    assert (call["cache_read_tokens"], call["cache_write_tokens"]) == (535, 3003)
+    assert call["cost_usd"] == 0.001 and call["duration_ms"] == 12
+    windows = call["rate_limit"]["unifiedWindows"]
+    assert windows["five_hour"]["utilization"] == 0.24
+    assert windows["seven_day"]["utilization"] == 0.4
+    assert latest_limits()["info"]["status"] == "allowed"
+
+
+async def test_a_rejected_subscription_is_a_quota_error_whatever_the_message(
+    fake_claude, monkeypatch
+):
+    settings, _ = fake_claude
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "rejected")
+    take_pending()
+    with pytest.raises(LLMQuotaExhaustedError):
+        await ClaudeCodeClient(settings=settings).generate_text("x")
+    [call] = take_pending()
+    assert call["ok"] is False and call["rate_limit"]["status"] == "rejected"
 
 
 async def test_a_call_that_takes_too_long_times_out(fake_claude, monkeypatch):

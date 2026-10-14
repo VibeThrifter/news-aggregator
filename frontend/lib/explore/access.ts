@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Access to options for the admin (and later paying users): an access code kept on this device.
+ * Access to options for the admin and paying users (role pro): an access code kept on this device.
  * What it may do is decided by the database (access_code_role, migration 009); the app only hides
  * what the code cannot use.
  */
@@ -37,6 +37,8 @@ export interface Access {
   role: AccessInfo["role"];
   /** May let AI search for missing voices and approve what it finds */
   canSearch: boolean;
+  /** May let AI look for coloured sentences in the articles of a news item (admin, pro) */
+  canAnalyzeBias: boolean;
   checking: boolean;
 }
 
@@ -59,5 +61,11 @@ export function useAccess(): Access {
     dedupingInterval: 10 * 60_000,
     shouldRetryOnError: false,
   });
-  return { code, role: data?.role ?? null, canSearch: Boolean(code && data?.can_search), checking: Boolean(code) && isLoading };
+  return {
+    code,
+    role: data?.role ?? null,
+    canSearch: Boolean(code && data?.can_search),
+    canAnalyzeBias: Boolean(code && data?.can_analyze_bias),
+    checking: Boolean(code) && isLoading,
+  };
 }

@@ -36,6 +36,7 @@ from backend.app.llm.schemas import (
     KeywordExtractionPayload,
 )
 from backend.app.llm.title import extract_title_from_summary
+from backend.app.llm.usage import llm_step
 from backend.app.repositories import InsightRepository
 from backend.app.services.llm_config_service import get_llm_config_service
 
@@ -117,28 +118,31 @@ class InsightService:
         If the primary provider fails due to rate limits, quota exhaustion, or
         timeouts after all retries, automatically falls back to Mistral.
         """
-        try:
-            return await client.generate_json(prompt, schema_class, correlation_id=correlation_id)
-        except (LLMRateLimitError, LLMQuotaExhaustedError, LLMTimeoutError) as exc:
-            # Don't fallback if already using Mistral
-            if client.provider == "mistral":
-                raise
+        with llm_step(phase):
+            try:
+                return await client.generate_json(
+                    prompt, schema_class, correlation_id=correlation_id
+                )
+            except (LLMRateLimitError, LLMQuotaExhaustedError, LLMTimeoutError) as exc:
+                # Don't fallback if already using Mistral
+                if client.provider == "mistral":
+                    raise
 
-            logger.warning(
-                "llm_fallback_triggered",
-                phase=phase,
-                original_provider=client.provider,
-                fallback_provider="mistral",
-                error_type=type(exc).__name__,
-                error=str(exc),
-                correlation_id=correlation_id,
-            )
+                logger.warning(
+                    "llm_fallback_triggered",
+                    phase=phase,
+                    original_provider=client.provider,
+                    fallback_provider="mistral",
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                    correlation_id=correlation_id,
+                )
 
-            # Create Mistral client as fallback
-            fallback_client = MistralClient(settings=self.settings)
-            return await fallback_client.generate_json(
-                prompt, schema_class, correlation_id=correlation_id
-            )
+                # Create Mistral client as fallback
+                fallback_client = MistralClient(settings=self.settings)
+                return await fallback_client.generate_json(
+                    prompt, schema_class, correlation_id=correlation_id
+                )
 
     async def _extract_keywords_and_enrich(
         self,

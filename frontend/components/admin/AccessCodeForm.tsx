@@ -9,8 +9,9 @@ import { AdminCard, BUTTON_PRIMARY, BUTTON_SECONDARY, INPUT } from "./ui";
 const ROLE_LABELS = { admin: "Admin", pro: "Pro" } as const;
 
 /**
- * The access code of this device (Story 14.10): unlocks "Zoek met AI" for missing voices. The
- * database checks the code; it is only kept in this browser.
+ * The access code of this device (Story 14.10): unlocks "Zoek met AI" for missing voices, and
+ * coloured sentences on request (Story 10.7). The database checks the code; it is only kept in
+ * this browser.
  */
 export function AccessCodeForm() {
   const access = useAccess();
@@ -26,7 +27,7 @@ export function AccessCodeForm() {
   };
 
   return (
-    <AdminCard id="access-title" title="Toegangscode" subtitle="Zoeken met AI naar stemmen die niet aan het woord zijn, en gevonden bronnen goedkeuren">
+    <AdminCard id="access-title" title="Toegangscode" subtitle="Zoeken met AI naar stemmen die niet aan het woord zijn (admin) en naar gekleurde zinnen (admin, pro)">
       {hasCode ? (
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <span role="status" className="inline-flex items-center gap-2 font-medium text-ink-800">
@@ -37,7 +38,7 @@ export function AccessCodeForm() {
             {access.checking
               ? "Code controleren…"
               : access.role
-                ? `${ROLE_LABELS[access.role]} op dit apparaat${access.canSearch ? " · mag zoeken" : ""}`
+                ? `${ROLE_LABELS[access.role]} op dit apparaat${access.canSearch ? " · mag zoeken" : ""}${access.canAnalyzeBias ? " · gekleurde zinnen" : ""}`
                 : "Code onbekend of ingetrokken"}
           </span>
           <button type="button" onClick={() => saveAccessCode(null)} className={BUTTON_SECONDARY}>

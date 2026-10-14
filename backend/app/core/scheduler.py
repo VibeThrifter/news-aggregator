@@ -22,6 +22,7 @@ from ..events.maintenance import get_event_maintenance_service
 from ..repositories.event_repo import EventRepository
 from ..services.article_digest import get_article_digest_service
 from ..services.voice_search import get_voice_search_service
+from ..services.bias_requests import get_bias_request_service
 from ..services.bias_service import BiasDetectionService, get_bias_detection_service
 from ..services.exploration_service import get_exploration_service
 from ..services.ingest_service import IngestService
@@ -33,6 +34,7 @@ from ..services.international_enrichment import (
 from ..services.entity_research.service import get_entity_research_service
 from ..services.evidence_research import get_evidence_research_service
 from ..services.propaganda_model_sync import get_propaganda_sync_service
+from ..services.llm_usage import get_llm_usage_service
 from ..services.local_backup import backup_local_database, latest_backup_age
 from ..services.publish_service import get_publish_service
 from .config import get_settings
@@ -60,6 +62,8 @@ BIAS_ANALYSIS_TIMEOUT_SECONDS = 1800
 ARTICLE_DIGEST_TIMEOUT_SECONDS = 900
 # One AI search for a missing voice takes 15 s to a minute; the service times out each one itself
 VOICE_SEARCH_TIMEOUT_SECONDS = 900
+# One bias request: up to BIAS_REQUEST_ARTICLE_CAP LLM calls, behind the news pipeline
+BIAS_REQUEST_TIMEOUT_SECONDS = 1800
 # Maximum time allowed for the propaganda-model sync (Story 11.17)
 PROPAGANDA_SYNC_TIMEOUT_SECONDS = 600
 # Maximum time allowed for one entity research cycle (Epic 12)
@@ -131,6 +135,13 @@ class NewsAggregatorScheduler:
         # few seconds (None: Supabase is the one database, ask as before)
         self._voice_listener: SupabaseListener | None = (
             SupabaseListener("voice_search", self.settings.voice_search_fallback_seconds)
+            if self.settings.supabase_database_url
+            else None
+        )
+        # Story 10.7: bias analyses requested in the app (same way as the voice search)
+        self._bias_request_last_run: dict | None = None
+        self._bias_listener: SupabaseListener | None = (
+            SupabaseListener("bias_request", self.settings.bias_request_fallback_seconds)
             if self.settings.supabase_database_url
             else None
         )
@@ -292,6 +303,25 @@ class NewsAggregatorScheduler:
         else:
             logger.info("Voice search job disabled (set VOICE_SEARCH_ENABLED=true to enable)")
 
+        # Gekleurde zinnen op verzoek (Story 10.7) - bias analyses a paying user or the admin requested
+        if self.settings.bias_request_enabled:
+            self.scheduler.add_job(
+                func=self._bias_request_job,
+                trigger=IntervalTrigger(seconds=self.settings.bias_request_interval_seconds),
+                id="bias_requests",
+                name="Bias Requests",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
+            logger.info(
+                "Bias request job enabled",
+                interval_seconds=self.settings.bias_request_interval_seconds,
+                article_cap=self.settings.bias_request_article_cap,
+            )
+        else:
+            logger.info("Bias request job disabled (set BIAS_REQUEST_ENABLED=true to enable)")
+
         # Story INFRA-2: a daily backup of the local working database (it holds what Supabase does not)
         if self.settings.supabase_database_url and self.settings.local_backup_enabled:
             self.scheduler.add_job(
@@ -326,6 +356,18 @@ class NewsAggregatorScheduler:
             )
         else:
             logger.info("Publish job disabled (no SUPABASE_DATABASE_URL: Supabase is the database)")
+
+        # AI-gebruik in Beheer: the noted LLM calls (tokens, Claude's subscription limits) go to the
+        # local database
+        self.scheduler.add_job(
+            func=self._llm_usage_job,
+            trigger=IntervalTrigger(seconds=self.settings.llm_usage_flush_seconds),
+            id="llm_usage",
+            name="LLM Usage",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
 
         # Propaganda-model sync (Story 11.17) - only writes when the pm database changed
         if self.settings.propaganda_sync_enabled:
@@ -695,6 +737,45 @@ class NewsAggregatorScheduler:
         ):
             self._voice_search_last_run = run
 
+    async def _bias_request_job(self) -> None:
+        """Run the bias analyses requested in the app (Story 10.7). Never raises."""
+
+        correlation_id = str(uuid.uuid4())
+        job_logger = logger.bind(correlation_id=correlation_id, job="bias_requests")
+        run: dict = {"started_at": datetime.now(timezone.utc).isoformat(), "success": False}
+        try:
+            # Only look in Supabase after a signal of the website (or now and then)
+            signals = await self._bias_listener.due() if self._bias_listener else []
+            if signals is None:
+                return
+            if signals:
+                run["signals"] = signals[:10]
+            if not await ensure_healthy_connection():
+                run["error"] = "database connection unhealthy"
+                self._reset_services()
+            else:
+                stats = await asyncio.wait_for(
+                    get_bias_request_service().run_pending(limit=1, correlation_id=correlation_id),
+                    timeout=BIAS_REQUEST_TIMEOUT_SECONDS,
+                )
+                run.update(success=True, result=stats)
+                if stats.get("ran"):
+                    job_logger.info("Bias request job completed", **stats)
+        except asyncio.TimeoutError:
+            run["error"] = f"timed out after {BIAS_REQUEST_TIMEOUT_SECONDS} seconds"
+            job_logger.error("Bias request job timed out")
+        except Exception as exc:
+            run["error"] = str(exc) or type(exc).__name__
+            job_logger.error("Bias request job failed", error=run["error"])
+        run["finished_at"] = datetime.now(timezone.utc).isoformat()
+        # Keep the last run that did something (the job runs every few seconds)
+        if (
+            run.get("error")
+            or (run.get("result") or {}).get("ran")
+            or self._bias_request_last_run is None
+        ):
+            self._bias_request_last_run = run
+
     async def _publish_job(self) -> None:
         """Send what changed in the local database to Supabase (Story INFRA-2). Never raises."""
 
@@ -714,6 +795,14 @@ class NewsAggregatorScheduler:
                 "error": str(exc)[:500] or type(exc).__name__,
             }
             logger.error("Publish job failed", error=self._publish_last_error["error"])
+
+    async def _llm_usage_job(self) -> None:
+        """Write the noted LLM calls to the local database. Never raises."""
+
+        try:
+            await get_llm_usage_service().flush()
+        except Exception as exc:  # they stay noted for the next run
+            logger.warning("LLM usage flush failed", error=str(exc)[:300] or type(exc).__name__)
 
     async def _propaganda_sync_job(self) -> None:
         """Sync the approved propaganda-model graph when its database changed. Never raises."""
@@ -952,6 +1041,8 @@ class NewsAggregatorScheduler:
         """Close the Supabase connections (Story INFRA-2)."""
         if self._voice_listener is not None:
             await self._voice_listener.close()
+        if self._bias_listener is not None:
+            await self._bias_listener.close()
         await dispose_supabase_engine()
 
     def _storage_status(self) -> dict:
@@ -964,6 +1055,7 @@ class NewsAggregatorScheduler:
             "publish_last_change": publish.get("last_change"),
             "publish_last_error": self._publish_last_error,
             "voice_search_listening": bool(self._voice_listener and self._voice_listener.connected),
+            "bias_request_listening": bool(self._bias_listener and self._bias_listener.connected),
             "local_backup_last_run": self._local_backup_last_run,
         }
 
@@ -984,6 +1076,7 @@ class NewsAggregatorScheduler:
                 "evidence_research_last_run": self._evidence_research_last_run,
                 "article_digest_last_run": self._article_digest_last_run,
                 "voice_search_last_run": self._voice_search_last_run,
+                "bias_request_last_run": self._bias_request_last_run,
                 "storage": self._storage_status(),
             }
 
@@ -1008,6 +1101,7 @@ class NewsAggregatorScheduler:
             "evidence_research_last_run": self._evidence_research_last_run,
             "article_digest_last_run": self._article_digest_last_run,
             "voice_search_last_run": self._voice_search_last_run,
+            "bias_request_last_run": self._bias_request_last_run,
             "storage": self._storage_status(),
         }
 
