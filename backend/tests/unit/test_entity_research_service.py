@@ -30,6 +30,7 @@ from backend.app.services.entity_research.service import (
     LINKEDIN_FOLLOW_UP,
     NO_PUBLIC_ROLE,
     NOT_IN_NEWS,
+    TRIAGE_VERSION,
     EntityResearchService,
     aggregate_candidates,
     authority_slugs,
@@ -40,6 +41,10 @@ from backend.app.services.entity_research.service import (
     mention_contexts,
     span_matches,
     status_from_doel,
+)
+from backend.app.services.entity_research.wikidata import (
+    WikidataEntry,
+    WikidataUnavailableError,
 )
 from backend.tests.unit._exploration_fixtures import make_session_factory, make_settings
 from backend.tests.unit._pm_fixtures import create_pm_database
@@ -101,6 +106,21 @@ class FakePmClient:
         if isinstance(response, Exception):
             raise response
         return {"id": doel_id, "status": status}
+
+
+class FakeWikidata:
+    """Wikidata by name; unknown names have no entry."""
+
+    def __init__(self) -> None:
+        self.entries: dict[str, list[WikidataEntry]] = {}
+        self.lookups: list[str] = []
+        self.down = False
+
+    async def lookup(self, name):
+        self.lookups.append(name)
+        if self.down:
+            raise WikidataUnavailableError("429")
+        return self.entries.get(name, [])
 
 
 class FakeRunner:
@@ -275,7 +295,7 @@ async def make_env(tmp_path: Path) -> dict[str, Any]:
         entity_research_daily_targets=2,
         entity_research_daily_requests=5,
     )
-    client, runner = FakePmClient(), FakeRunner()
+    client, runner, wikidata = FakePmClient(), FakeRunner(), FakeWikidata()
     syncs: list[int] = []
     service = EntityResearchService(
         settings=settings,
@@ -284,6 +304,7 @@ async def make_env(tmp_path: Path) -> dict[str, Any]:
         pm_client=client,
         runner=runner,
         pm_sync=lambda: syncs.append(1),
+        wikidata=wikidata,
         clock=lambda: NOW,
     )
     return {
@@ -291,6 +312,7 @@ async def make_env(tmp_path: Path) -> dict[str, Any]:
         "factory": factory,
         "client": client,
         "runner": runner,
+        "wikidata": wikidata,
         "syncs": syncs,
         "ids": ids,
         "settings": settings,
@@ -845,3 +867,230 @@ async def test_coverage_is_cached_until_the_pm_database_changes(tmp_path: Path) 
     assert service.coverage() is first
     service._coverage.fingerprint = "oud"
     assert service.coverage() is not first
+
+
+# ------------------------------------------------------------ no place in the network (2026-10-16)
+SPORTER = "Sporter zonder rol in het netwerk (Wikidata)"
+
+
+async def add_name(
+    env, key: str, name: str, text: str | None = None, outlets=("NOS", "AD", "NU.nl")
+) -> None:
+    """A name in the windpark event; with ``text`` an article that mentions it."""
+
+    async with env["factory"]() as session:
+        article_ids: list[int] = []
+        if text is not None:
+            article = Article(
+                guid=f"g-{key}",
+                url=f"https://nu.nl/{key}",
+                title="kop",
+                content=text,
+                source_name="NU.nl",
+                published_at=UPDATED,
+                entities=spans(text, [(name, "PERSON")]),
+            )
+            session.add(article)
+            await session.flush()
+            session.add(EventArticle(event_id=env["ids"]["event"], article_id=article.id))
+            article_ids = [article.id]
+        session.add(
+            EventEntity(
+                event_id=env["ids"]["event"],
+                entity_key=key,
+                name=name,
+                kind="person",
+                aliases=[key.split(":", 1)[1]],
+                mention_count=3,
+                article_count=len(article_ids),
+                outlet_counts={outlet: 1 for outlet in outlets},
+                article_ids=article_ids,
+                salience=0.05,
+                event_slug="windpark-dijkerhoven",
+                event_title="Windpark",
+                event_last_updated_at=UPDATED,
+            )
+        )
+        await session.commit()
+
+
+async def test_triage_skips_an_artist_named_in_the_text(tmp_path: Path) -> None:
+    env = await make_env(tmp_path)
+    await add_name(
+        env,
+        "person:wassily-kandinsky",
+        "Wassily Kandinsky",
+        "Het doek van de Russisch-Franse schilder Wassily Kandinsky is geveild.",
+    )
+    await env["service"].triage()
+    row = (await rows(env["factory"]))["person:wassily-kandinsky"]
+    assert row.role_category == "overig" and row.status == "overgeslagen"
+    assert row.status_reason == "Kunstenaar zonder rol in het netwerk — wordt niet uitgezocht"
+    assert row.prominence["decision"] == prio.SKIP
+    assert row.prominence["not_in_network"] == "Kunstenaar zonder rol in het netwerk"
+    # only names without any role cue go to Wikidata
+    assert (await env["service"].wikidata_check())["checked"] == 0
+
+
+async def test_wikidata_skips_athletes_and_withdraws_queued_ones(tmp_path: Path) -> None:
+    env = await make_env(tmp_path)
+    service, factory, client, wikidata = (
+        env["service"],
+        env["factory"],
+        env["client"],
+        env["wikidata"],
+    )
+    await add_name(env, "person:virgil-van-dijk", "Virgil van Dijk")
+    await add_name(env, "person:jan-modaal", "Jan Modaal")
+    await service.triage()
+    before = await rows(factory)
+    assert before["person:virgil-van-dijk"].role_category == "onbekend"
+    assert before["person:virgil-van-dijk"].prominence["decision"] == prio.ON_REQUEST
+    async with factory() as session:  # queued before Wikidata was asked
+        session.add(
+            EntityResearch(
+                entity_key="person:tom-renner",
+                name="Tom Renner",
+                kind="person",
+                role_category="onbekend",
+                status="wachtrij",
+                pm_doel_id=9,
+                prominence={"decision": prio.ON_REQUEST},
+            )
+        )
+        await session.commit()
+    athlete = [WikidataEntry(qid="Q1", human=True, occupations=("association football player",))]
+    wikidata.entries = {"Virgil van Dijk": athlete, "Tom Renner": athlete}
+
+    result = await service.wikidata_check()
+
+    assert result == {"not_in_network": 2, "no_verdict": 1, "checked": 3, "waiting": 0}
+    after = await rows(factory)
+    virgil = after["person:virgil-van-dijk"]
+    assert virgil.status == "overgeslagen" and virgil.priority == 0.0
+    assert virgil.status_reason == f"{SPORTER} — wordt niet uitgezocht"
+    assert virgil.prominence["wikidata"]["qid"] == "Q1"
+    jan = after["person:jan-modaal"]
+    assert jan.status == "nieuw" and jan.prominence["wikidata"]["reason"] is None
+    # once per name
+    wikidata.lookups.clear()
+    assert (await service.wikidata_check())["checked"] == 0 and wikidata.lookups == []
+
+    # the queued one is withdrawn before the scout picks it up
+    assert await service.tidy_queue() == {"overgeslagen": 1}
+    assert client.withdrawn == [(9, "overgeslagen", None)]
+    assert (await rows(factory))["person:tom-renner"].status == "overgeslagen"
+
+    # a tap re-triages the name: the verdict stays
+    async with factory() as session:
+        row = await session.get(EntityResearch, "person:virgil-van-dijk")
+        row.last_requested_at = NOW
+        await session.commit()
+    await service.triage()
+    virgil = (await rows(factory))["person:virgil-van-dijk"]
+    assert virgil.status == "overgeslagen" and virgil.prominence["wikidata"]["qid"] == "Q1"
+    await service.enqueue()
+    assert "person:virgil-van-dijk" not in [doel["sleutel"] for doel, _again in client.calls]
+
+    # the admin can still have it researched, and the queue keeps it
+    forced = await service.research_key("person:virgil-van-dijk")
+    assert forced["status"] == "wachtrij"
+    assert (await rows(factory))["person:virgil-van-dijk"].prominence["forced"]
+    await service.triage()
+    assert await service.tidy_queue() == {}
+    assert (await rows(factory))["person:virgil-van-dijk"].status == "wachtrij"
+
+
+async def test_wikidata_unavailable_tries_again_next_cycle(tmp_path: Path) -> None:
+    env = await make_env(tmp_path)
+    service, wikidata = env["service"], env["wikidata"]
+    await add_name(env, "person:virgil-van-dijk", "Virgil van Dijk")
+    await service.triage()
+    wikidata.down = True
+    assert await service.wikidata_check() == {"unavailable": 1, "checked": 0, "waiting": 1}
+    assert "wikidata" not in (await rows(env["factory"]))["person:virgil-van-dijk"].prominence
+    wikidata.down = False
+    assert (await service.wikidata_check())["checked"] == 1
+    service.settings.entity_research_wikidata_enabled = False
+    assert await service.wikidata_check() == {"skipped": "disabled"}
+
+
+async def test_names_triaged_under_older_rules_are_assessed_again(tmp_path: Path) -> None:
+    """After a rule change a queued name is re-assessed (the watermark alone would only re-read
+    names whose news changed) and withdrawn when it has no place in the network."""
+
+    env = await make_env(tmp_path)
+    service, factory, client = env["service"], env["factory"], env["client"]
+    await service.triage()  # the watermark is past everything now
+    await add_name(
+        env,
+        "person:wassily-kandinsky",
+        "Wassily Kandinsky",
+        "Het doek van de Russisch-Franse schilder Wassily Kandinsky is geveild.",
+    )
+    async with factory() as session:
+        # triaged (and queued) by the old rules; and an old name without news rows left
+        session.add_all(
+            [
+                EntityResearch(
+                    entity_key="person:wassily-kandinsky",
+                    name="Wassily Kandinsky",
+                    kind="person",
+                    role_category="onbekend",
+                    status="wachtrij",
+                    pm_doel_id=245,
+                    prominence={"decision": prio.ON_REQUEST},
+                ),
+                EntityResearch(
+                    entity_key="person:oud-nieuws",
+                    name="Oud Nieuws",
+                    kind="person",
+                    role_category="overig",
+                    status="nieuw",
+                    prominence={"decision": prio.ON_REQUEST},
+                ),
+            ]
+        )
+        await session.commit()
+    async with factory() as session:  # its news did not change since the watermark
+        await session.execute(
+            EventEntity.__table__.update()
+            .where(EventEntity.entity_key == "person:wassily-kandinsky")
+            .values(computed_at=NOW - timedelta(days=2))
+        )
+        await session.commit()
+
+    result = await service.triage()
+
+    assert result["retriaged"] == 2
+    found = await rows(factory)
+    kandinsky = found["person:wassily-kandinsky"]
+    assert kandinsky.status == "wachtrij"  # research in progress keeps its status
+    assert kandinsky.prominence["not_in_network"] == "Kunstenaar zonder rol in het netwerk"
+    assert kandinsky.prominence["triage_version"] == TRIAGE_VERSION
+    assert found["person:oud-nieuws"].prominence["triage_version"] == TRIAGE_VERSION
+    assert found["person:oud-nieuws"].status == "nieuw"
+    assert (await service.triage())["retriaged"] == 0  # once
+    assert await service.tidy_queue() == {"overgeslagen": 1}
+    assert client.withdrawn == [(245, "overgeslagen", None)]
+
+
+def test_mention_of_the_last_name_counts_as_the_full_name() -> None:
+    """NER marked only "Kandinsky" after "schilder Wassily" (NU.nl, 2026-10-15)."""
+
+    text = "Het werk van de Russisch-Franse schilder Wassily Kandinsky is geveild."
+    start = text.index("Kandinsky")
+    article = {
+        "content": text,
+        "entities": [{"label": "PERSON", "start": start, "end": start + len("Kandinsky")}],
+    }
+    [context] = mention_contexts(article, {"kandinsky", "wassily-kandinsky"})
+    assert context.span == "Wassily Kandinsky"
+    assert context.before.endswith("Russisch-Franse schilder ")
+    # another name before the surname is left alone
+    other = {
+        "content": "Zei Henk Kandinsky.",
+        "entities": [{"label": "PERSON", "start": 9, "end": 18}],
+    }
+    [context] = mention_contexts(other, {"kandinsky", "wassily-kandinsky"})
+    assert context.span == "Kandinsky" and context.before == "Zei Henk "

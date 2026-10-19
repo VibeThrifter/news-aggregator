@@ -908,12 +908,14 @@ async def propagandamodel_status():
 
 # Wie is dit? (Epic 12): research of named entities by the propaganda-model agents
 class EntityResearchCycleResponse(BaseModel):
-    """Outcome of one entity research cycle (status, triage, queue)."""
+    """Outcome of one entity research cycle (status, triage, Wikidata, queue)."""
 
     skipped: bool
     reason: str | None = None
     status: dict[str, Any] | None = None
     triage: dict[str, Any] | None = None
+    wikidata: dict[str, Any] | None = None
+    queue: dict[str, Any] | None = None
     enqueue: dict[str, Any] | None = None
 
 

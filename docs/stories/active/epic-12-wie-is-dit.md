@@ -214,6 +214,27 @@ gevonden…"); de admin kan zo'n naam toch laten uitzoeken (de agent controleert
 Bijgesteld na een proef op echte data (2026-09-30): "president"/"kanselier" zonder bijvoeglijk naamwoord telt als
 buitenlands ("Trump"), personen met alleen een voor- of achternaam worden overgeslagen ("Milan", "Beune"), en de
 missie-brief slaat BN'ers zonder rol in het netwerk over (artiesten, sporters, verdachten, Koninklijk Huis).
+
+Bijgesteld 2026-10-16 (Wassily Kandinsky stond op "Aangevraagd" en ging naar de scout): de nieuws-app slaat zelf over
+wat de scout overslaat. Een persoon van wie elke rol-aanwijzing alleen kunst of sport noemt ("de Russisch-Franse schilder
+Wassily Kandinsky", "bondscoach Koeman") krijgt `overgeslagen` ("Kunstenaar/Artiest/Sporter zonder rol in het
+netwerk"). Een andere rol ernaast (presentator, columnist, bestuurder, partij) houdt hem erin; schrijvers en
+influencers blijven op verzoek. Personen zonder enige aanwijzing die op verzoek onderzocht mogen worden, zoekt de cyclus
+één keer op in Wikidata (`wikidata.py`, `ENTITY_RESEARCH_WIKIDATA_*`, hoogstens 20 per cyclus, aangetikte eerst). Alleen
+sport of kunst zonder ambt of partij, of een verzonnen personage, betekent overgeslagen; twee mensen met die naam geven
+geen oordeel. Geen regel "overleden": op 500 personen uit het model sloeg die 2,2% ten onrechte over (Fortuyn, Oltmans,
+Derk Sauer, en naamgenoten: "Maarten van Rossum" is in Wikidata de veldheer van 1555); zonder die regel 0,8%, namen die
+de scout ook overslaat of die in het nieuws een functie bij zich hebben. Een al ingeplande naam trekt `tidy_queue` in;
+de admin kan zo'n naam toch laten uitzoeken (`forced`, dan blijft hij in de wachtrij). "Betrokken partij" in de
+LLM-analyse maakt niemand meer politicus (Tom Pidcock, Coco Gauff) en ontkende woorden ("geen expert") tellen niet.
+Een regelwijziging verhoogt `TRIAGE_VERSION`: personen die nog verstuurd kunnen worden (wachtrij of onderzoekbaar) en
+onder oudere regels zijn beoordeeld, komen opnieuw aan de beurt (200 per cyclus, wachtrij eerst); het watermerk alleen
+leest na een herstart maar 200 namen. Wikimedia staat zonder contact in de User-Agent 10 verzoeken per minuut toe, met
+een e-mailadres of URL 200 (`ENTITY_RESEARCH_WIKIDATA_CONTACT`); de verzoeken gaan daarom achter elkaar (6,5 of 0,5 s
+ertussen) en de stap stopt na `ENTITY_RESEARCH_WIKIDATA_SECONDS_PER_CYCLE` (60 s). Versie 3 (2026-10-19): markeert NER
+alleen de achternaam ("schilder Wassily [Kandinsky]"), dan telt de vermelding als de volledige naam, en de triage leest
+8 artikelen per persoon (was 4; Kandinsky's "schilder" stond in het zesde).
+
 `PM_API_BASE_URL` is `http://127.0.0.1:5000`: op macOS hangt httpx op `localhost:5000` (IPv6, AirPlay-ontvanger).
 
 ## Story 12.8: Frontend — klikbare namen overal

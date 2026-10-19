@@ -408,3 +408,102 @@ def test_non_actor_names() -> None:
     assert not is_non_actor("Ook Dit BV") and not is_non_actor("de Volkskrant")
     decision = _decide(kind="org", category=ORGANISATIE, non_actor=True)
     assert decision.decision == prio.SKIP and "Geen actor" in decision.reason
+
+
+# ------------------------------------------------------------ no place in the network (2026-10-16)
+@pytest.mark.parametrize(
+    ("word", "category"),
+    [
+        ("schilder", OVERIG),
+        ("kunstschilder", OVERIG),
+        ("oud-voetballer", OVERIG),
+        ("Twente-trainer", OVERIG),
+        ("volksvertegenwoordiger", POLITICUS),
+    ],
+)
+def test_new_title_words(word: str, category: str) -> None:
+    assert classify_word(word) == category
+
+
+def test_painter_in_the_text_has_no_place_in_the_network() -> None:
+    """Kandinsky: "de Russisch-Franse schilder Wassily Kandinsky" (NU.nl, 2026-10-15)."""
+
+    result = assess_person(
+        [ctx("Das bunte Leben van de Russisch-Franse schilder ", span="Wassily Kandinsky")]
+    )
+    assert result.category == OVERIG and result.label == "schilder"
+    assert result.no_network_role == "Kunstenaar"
+
+
+def test_athlete_from_the_analysis_ignores_negated_words() -> None:
+    result = assess_person(
+        [],
+        [
+            {
+                "authority": "Jay Bothroyd",
+                "actual_role": "Oud-voetballer (voormalig spits), geen medisch deskundige",
+            }
+        ],
+    )
+    assert result.category == OVERIG and result.no_network_role == "Sporter"
+
+
+def test_any_other_role_keeps_the_person() -> None:
+    # a presenter, a board seat or a party is a place in the network
+    presenter = assess_person(
+        [],
+        [{"authority": "Paul de Leeuw", "actual_role": "Zanger, songwriter en presentator"}],
+    )
+    assert presenter.no_network_role is None
+    board = assess_person(
+        [
+            ctx("bondscoach ", span="Jan Jansen"),
+            ctx(span="Jan Jansen", after=", voorzitter van de KNVB, zei"),
+        ]
+    )
+    assert board.no_network_role is None
+    # the analysis names her a critic; "de acteur" in her role is Tom Cruise (2026-10-16)
+    critic = assess_person(
+        [],
+        [
+            {
+                "authority": "Floortje Smit",
+                "authority_type": "Filmrecensent en columnist van de Volkskrant",
+                "actual_role": "Ze interpreteert de motieven van de acteur.",
+            }
+        ],
+    )
+    assert critic.no_network_role is None
+    tv = assess_person(
+        [ctx("televisiepresentator en voormalig voetballer ", span="René van der Gijp")]
+    )
+    assert tv.no_network_role is None
+    party = assess_person([ctx("zanger ", span="Jan Jansen"), ctx(after=" (VVD) tegen de krant.")])
+    assert party.no_network_role is None
+    assert assess_person([ctx("Ze zei tegen ")]).no_network_role is None
+
+
+def test_betrokken_partij_is_no_politician() -> None:
+    """The analysis calls anyone with a stake "partij": Tom Pidcock, Coco Gauff (2026-10-16)."""
+
+    [cue] = cues_from_authority(
+        {"authority": "Tom Pidcock", "actual_role": "Renner en belanghebbende partij"}
+    )
+    assert cue.category == OVERIG and cue.words == ("renner",)
+    assert cues_from_authority({"authority": "X", "authority_type": "betrokken partij"}) == []
+    [opponent] = cues_from_authority(
+        {"authority": "Lord Massey", "actual_role": "Partijpolitieke opposant van de regering"}
+    )
+    assert opponent.category == POLITICUS
+
+
+def test_decide_skips_persons_without_a_place_in_the_network() -> None:
+    decision = _decide(category=OVERIG, not_in_network="Sporter zonder rol in het netwerk")
+    assert decision.decision == prio.SKIP
+    assert decision.reason == "Sporter zonder rol in het netwerk — wordt niet uitgezocht"
+    # a tap does not change it; enough relations in the model come first
+    assert _decide(category=OVERIG, not_in_network="x", requested=True).decision == prio.SKIP
+    assert _decide(not_in_network="x", pm_degree=5).decision == prio.NOT_NEEDED
+    # organisations never
+    org = _decide(kind="org", category=ORGANISATIE, not_in_network="x")
+    assert org.decision == prio.RESEARCH

@@ -90,6 +90,21 @@ class EntityResearchRepository:
             query = query.limit(limit)
         return list((await self.session.execute(query)).scalars())
 
+    async def people(
+        self, statuses: Sequence[str], role_category: str | None = None
+    ) -> list[EntityResearch]:
+        """Persons (no free-text actors) with one of these statuses, highest priority first."""
+
+        query = select(EntityResearch).where(
+            EntityResearch.kind == "person",
+            EntityResearch.status.in_(tuple(statuses)),
+            ~EntityResearch.entity_key.startswith("actor:"),
+        )
+        if role_category is not None:
+            query = query.where(EntityResearch.role_category == role_category)
+        query = query.order_by(EntityResearch.priority.desc(), EntityResearch.entity_key)
+        return list((await self.session.execute(query)).scalars())
+
     async def unlinked_people(self, limit: int = 1000) -> list[EntityResearch]:
         """Persons with a role but no propaganda-model link yet (Epic 15: local office holders the
         register names with initials are linked once the model has them)."""

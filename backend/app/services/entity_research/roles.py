@@ -86,6 +86,7 @@ _LEXICON_WORDS: dict[str, tuple[str, ...]] = {
         "informateur",
         "oppositieleider",
         "regeringsleider",
+        "volksvertegenwoordiger",
         "staatshoofd",
         "ambassadeur",
         "gouverneur",
@@ -115,6 +116,12 @@ _LEXICON_WORDS: dict[str, tuple[str, ...]] = {
         "nieuwslezeres",
         "anchor",
         "recensent",
+        "filmrecensent",
+        "criticus",
+        "televisiepresentator",
+        "televisiepresentatrice",
+        "radiopresentator",
+        "radiopresentatrice",
         "publicist",
         "reporter",
     ),
@@ -214,17 +221,40 @@ _LEXICON_WORDS: dict[str, tuple[str, ...]] = {
         "actrice",
         "rapper",
         "muzikant",
+        "componist",
+        "dirigent",
+        "danser",
+        "danseres",
         "voetballer",
+        "voetbalster",
         "trainer",
         "coach",
         "bondscoach",
         "sporter",
+        "atleet",
         "schaatser",
         "wielrenner",
+        "renner",
         "tennisser",
+        "tennisster",
+        "tennisspeelster",
+        "zwemmer",
+        "zwemster",
+        "keeper",
+        "doelman",
+        "coureur",
+        "darter",
+        "judoka",
+        "hockeyer",
+        "hockeyster",
         "influencer",
         "kunstenaar",
+        "schilder",
+        "kunstschilder",
+        "beeldhouwer",
+        "graficus",
         "cabaretier",
+        "cabaretiere",
         "komiek",
         "ondernemer",
         "dominee",
@@ -289,6 +319,56 @@ _LEXICON_WORDS: dict[str, tuple[str, ...]] = {
 LEXICON: dict[str, str] = {
     word: category for category, words in _LEXICON_WORDS.items() for word in words
 }
+# Roles without a place in the network of power and media: the pm agent nieuws-scout skips
+# artists and athletes ("geen rol in het netwerk"), so the news app does not send them. Writers,
+# presenters, influencers, lawyers and entrepreneurs stay (a column or a following is a place).
+_NO_NETWORK_WORDS: dict[str, tuple[str, ...]] = {
+    "Kunstenaar": ("kunstenaar", "schilder", "kunstschilder", "beeldhouwer", "graficus"),
+    "Artiest": (
+        "zanger",
+        "zangeres",
+        "artiest",
+        "acteur",
+        "actrice",
+        "rapper",
+        "muzikant",
+        "componist",
+        "dirigent",
+        "danser",
+        "danseres",
+        "cabaretier",
+        "cabaretiere",
+        "komiek",
+    ),
+    "Sporter": (
+        "voetballer",
+        "voetbalster",
+        "trainer",
+        "coach",
+        "bondscoach",
+        "sporter",
+        "atleet",
+        "schaatser",
+        "wielrenner",
+        "renner",
+        "tennisser",
+        "tennisster",
+        "tennisspeelster",
+        "zwemmer",
+        "zwemster",
+        "keeper",
+        "doelman",
+        "coureur",
+        "darter",
+        "judoka",
+        "hockeyer",
+        "hockeyster",
+    ),
+}
+NO_NETWORK_ROLE: dict[str, str] = {
+    word: kind for kind, words in _NO_NETWORK_WORDS.items() for word in words
+}
+NO_NETWORK_SUFFIX = "zonder rol in het netwerk"
 # Two-word titles (matched on the last two tokens before the name)
 PHRASES: dict[str, str] = {
     "commissaris van de koning": POLITICUS,
@@ -469,7 +549,7 @@ _AUTHORITY_HINTS: tuple[tuple[str, str], ...] = (
     ("kamerlid", POLITICUS),
     ("wethouder", POLITICUS),
     ("burgemeester", POLITICUS),
-    ("partij", POLITICUS),
+    # no "partij": the analysis calls anyone with a stake "betrokken partij" (a cyclist, a shop)
     ("ceo", BESTUURDER),
     ("directeur", BESTUURDER),
     ("bestuur", BESTUURDER),
@@ -592,6 +672,8 @@ class RoleCue:
     foreign: bool = False
     domestic: bool = False
     org: str | None = None
+    # the lexicon words the cue rests on ("zanger", "presentator"); empty for a party or an age
+    words: tuple[str, ...] = ()
 
 
 @dataclass(slots=True)
@@ -603,23 +685,56 @@ class RoleAssessment:
     confidence: float
     organisations: list[str] = field(default_factory=list)
     cues: list[RoleCue] = field(default_factory=list)
+    # "Kunstenaar", "Artiest" or "Sporter" when every public cue is such a role and nothing else
+    no_network_role: str | None = None
 
 
-def classify_word(word: str) -> str | None:
-    """Category of a (possibly compound) title word: "VVD-Kamerlid", "oud-minister"."""
+def lexicon_word(word: str) -> str | None:
+    """The lexicon entry of a (possibly compound) title word: "oud-voetballer" -> "voetballer"."""
 
     folded = fold(word).strip("'’-")
     if not folded:
         return None
     if folded in LEXICON:
-        return LEXICON[folded]
+        return folded
     if "-" in folded:
         head, _, tail = folded.rpartition("-")
         if tail in LEXICON:
-            return LEXICON[tail]
+            return tail
         if head in LEXICON and head not in MODIFIERS:
-            return LEXICON[head]
+            return head
     return None
+
+
+def classify_word(word: str) -> str | None:
+    """Category of a (possibly compound) title word: "VVD-Kamerlid", "oud-minister"."""
+
+    entry = lexicon_word(word)
+    return LEXICON[entry] if entry else None
+
+
+def _words(*tokens: str) -> tuple[str, ...]:
+    return tuple(entry for entry in (lexicon_word(token) for token in tokens) if entry)
+
+
+_NEGATIONS = frozenset({"geen", "niet", "noch"})
+
+
+def _affirmed_tokens(text: str) -> list[str]:
+    """Tokens of a role text without the negated ones ("geen medisch deskundige")."""
+
+    tokens = _TOKEN.findall(text)
+    negated = {
+        position + step
+        for position, token in enumerate(tokens)
+        if fold(token) in _NEGATIONS
+        for step in (1, 2)
+    }
+    return [token for index, token in enumerate(tokens) if index not in negated]
+
+
+def _affirmed_words(text: str) -> tuple[str, ...]:
+    return _words(*_affirmed_tokens(text))
 
 
 def _party_prefix(word: str) -> str | None:
@@ -656,6 +771,7 @@ def cue_from_before(context: MentionContext) -> RoleCue | None:
                     " ".join(tokens[-size:]).lower(),
                     W_TITLE,
                     _clip(context.before[-80:] + context.span, 160),
+                    words=(phrase,),
                 )
     # Walk back over at most 3 tokens: the title may be followed by a lowercase specification
     # ("hoogleraar economie Bas Jacobs") or preceded by modifiers.
@@ -677,6 +793,8 @@ def cue_from_before(context: MentionContext) -> RoleCue | None:
             _clip(context.before[-80:] + context.span, 160),
             foreign=foreign and not party,
             domestic=bool(party) or fold(token).split("-")[-1] in DOMESTIC_TITLES,
+            # every title in the clause: "televisiepresentator en voormalig voetballer"
+            words=() if party else _words(*tokens),
         )
         return cue
     return None
@@ -699,6 +817,7 @@ def cue_from_span(context: MentionContext) -> RoleCue | None:
         _clip(context.span, 160),
         foreign=not party and is_foreign_head(tokens[0]),
         domestic=bool(party) or fold(tokens[0]).split("-")[-1] in DOMESTIC_TITLES,
+        words=() if party else _words(tokens[0]),
     )
 
 
@@ -737,6 +856,7 @@ def cues_from_after(context: MentionContext) -> list[RoleCue]:
                     evidence,
                     domestic=fold(word) in DOMESTIC_TITLES,
                     org=org if category != PRIVE else None,
+                    words=_words(*role_words),
                 )
             )
             break
@@ -761,6 +881,7 @@ def cue_from_byline(context: MentionContext) -> RoleCue | None:
         W_BYLINE,
         _clip(f"{context.span} — {line}", 160),
         org=context.outlet,
+        words=_words(first),
     )
 
 
@@ -775,13 +896,15 @@ def cues_from_authority(authority: Mapping[str, Any]) -> list[RoleCue]:
             continue
         folded = fold(text)
         category: str | None = None
-        for token in _TOKEN.findall(text):
+        affirmed = _affirmed_tokens(text)  # "geen expert op emigratiegebied" is no expert
+        for token in affirmed:
             category = classify_word(token)
             if category is not None:
                 break
         if category is None:
+            affirmed_text = fold(" ".join(affirmed))
             for hint, hint_category in _AUTHORITY_HINTS:
-                if hint in folded:
+                if hint in affirmed_text:
                     category = hint_category
                     break
         if category is not None:
@@ -792,6 +915,9 @@ def cues_from_authority(authority: Mapping[str, Any]) -> list[RoleCue]:
                     W_LLM,
                     _clip(f"{authority.get('authority') or ''}: {text}", 160),
                     domestic=any(word in folded for word in DOMESTIC_TITLES),
+                    # every title in both texts: "Zanger en presentator" is more than a singer,
+                    # and the role in the article may name someone else ("de acteur")
+                    words=_affirmed_words(actual_role) + _affirmed_words(authority_type),
                 )
             )
             break
@@ -992,7 +1118,20 @@ def _combine(cues: list[RoleCue]) -> RoleAssessment:
         round(min(1.0, score / 4.0), 2),
         organisations,
         cues,
+        no_network_role(public_cues),
     )
+
+
+def no_network_role(cues: Sequence[RoleCue]) -> str | None:
+    """ "Kunstenaar", "Artiest" or "Sporter" when every cue only names such roles; None as soon
+    as one cue names something else (a board seat, a column, a party) or rests on no word."""
+
+    kinds: list[str] = []
+    for cue in sorted(cues, key=lambda cue: -cue.weight):
+        if not cue.words or any(word not in NO_NETWORK_ROLE for word in cue.words):
+            return None
+        kinds.extend(NO_NETWORK_ROLE[word] for word in cue.words)
+    return kinds[0] if kinds else None
 
 
 __all__ = [
@@ -1000,6 +1139,8 @@ __all__ = [
     "EXPERT",
     "JOURNALIST",
     "MentionContext",
+    "NO_NETWORK_ROLE",
+    "NO_NETWORK_SUFFIX",
     "ONBEKEND",
     "ORGANISATIE",
     "OVERIG",
@@ -1024,4 +1165,6 @@ __all__ = [
     "is_foreign_head",
     "is_foreign_head_label",
     "is_non_actor",
+    "lexicon_word",
+    "no_network_role",
 ]

@@ -793,9 +793,10 @@ class Settings(BaseSettings):
         description="Days after which a name with still too few relations may be researched again",
     )
     entity_research_max_articles: int = Field(
-        default=4,
+        default=8,
         ge=1,
         le=20,
+        # 8 since 2026-10-19 (local database, no egress): Kandinsky's title was in the sixth article
         description="Articles read per person for role cues (only the first 6000 characters)",
     )
     entity_research_triage_batch: int = Field(
@@ -803,6 +804,32 @@ class Settings(BaseSettings):
         ge=10,
         le=5000,
         description="Maximum names triaged per run",
+    )
+    entity_research_wikidata_enabled: bool = Field(
+        default=True,
+        description=(
+            "Look up persons without a role cue in Wikidata: athletes, artists and fictional "
+            "characters are not sent to the propaganda model"
+        ),
+    )
+    entity_research_wikidata_per_cycle: int = Field(
+        default=20,
+        ge=0,
+        le=500,
+        description="Maximum Wikidata lookups per entity research cycle (tapped names first)",
+    )
+    entity_research_wikidata_seconds_per_cycle: int = Field(
+        default=60,
+        ge=5,
+        le=600,
+        description="Time the Wikidata lookups may take per cycle (the requests are paced)",
+    )
+    entity_research_wikidata_contact: str = Field(
+        default="",
+        description=(
+            "E-mail address or URL for the Wikidata User-Agent: Wikimedia allows 200 requests a "
+            "minute with it, 10 without"
+        ),
     )
     pm_api_base_url: str = Field(
         # 127.0.0.1, not localhost: on macOS "localhost" may resolve to ::1 first, where port 5000

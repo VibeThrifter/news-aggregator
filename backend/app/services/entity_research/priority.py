@@ -2,8 +2,9 @@
 
 The user's order of importance: politicians, journalists, spokespersons and executives ("hoge
 piefen") first, then organisations and experts; other public persons only on request; private
-persons never. Prominence in the news, the gap in the propaganda model and a tap in the app raise
-the priority; foreign actors are outside the Dutch model.
+persons never, nor artists and athletes without a place in the network (the pm agent skips them
+too). Prominence in the news, the gap in the propaganda model and a tap in the app raise the
+priority; foreign actors are outside the Dutch model.
 """
 
 from __future__ import annotations
@@ -96,11 +97,15 @@ def decide(
     is_foreign: bool = False,
     single_name: bool = False,
     non_actor: bool = False,
+    not_in_network: str | None = None,
     requested: bool = False,
     min_relations: int = 3,
     auto_threshold: float = 60.0,
 ) -> Decision:
-    """Decide whether (and how urgently) an entity should be researched."""
+    """Decide whether (and how urgently) an entity should be researched.
+
+    ``not_in_network`` is the reason a person has no place in the network ("Sporter zonder rol in
+    het netwerk", "Verzonnen personage (Wikidata)"), from the role cues or from Wikidata."""
 
     coverage = coverage_factor(pm_degree, min_relations)
     if coverage == 0.0:
@@ -121,6 +126,8 @@ def decide(
         return Decision(
             SKIP, 0.0, "Buitenlandse persoon — valt buiten het Nederlandse propagandamodel"
         )
+    if kind == "person" and not_in_network:
+        return Decision(SKIP, 0.0, f"{not_in_network} — wordt niet uitgezocht")
 
     base = BASE_PRIORITY.get(category, 0.0)
     if category == ONBEKEND:

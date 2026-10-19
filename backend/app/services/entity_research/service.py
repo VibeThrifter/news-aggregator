@@ -5,7 +5,10 @@ One cycle (scheduler job, every 15 minutes):
 1. **status**  - pull the research queue of the propaganda model (read-only SQLite) into
    ``entity_research``: queued -> in progress -> finished, with what was found and approved
 2. **triage**  - names of recently updated events and names tapped in the app: role, importance,
-   coverage in the propaganda model -> ``entity_research`` (private persons are never researched)
+   coverage in the propaganda model -> ``entity_research`` (private persons are never researched,
+   nor artists and athletes without a place in the network)
+   **wikidata** - persons without any role cue that may be researched on request: Wikidata says
+   whether they only do sport or art, or are a fictional character (then they are not sent)
 3. **enqueue** - the most important thin/missing names go to ``POST /api/nieuws/doelen`` within a
    daily budget (automatic names and tapped names have separate budgets)
 
@@ -20,6 +23,7 @@ only decides WHO and shows the outcome.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
@@ -53,6 +57,8 @@ from backend.app.services.entity_research.pm_coverage import (
     research_outcome,
 )
 from backend.app.services.entity_research.roles import (
+    NO_NETWORK_SUFFIX,
+    ONBEKEND,
     ORGANISATIE,
     POLITICUS,
     MentionContext,
@@ -66,6 +72,12 @@ from backend.app.services.entity_research.roles import (
     is_non_actor,
 )
 from backend.app.services.entity_research.runner import PmAgentConfig, PmAgentRuns
+from backend.app.services.entity_research.wikidata import (
+    WikidataClient,
+    WikidataUnavailableError,
+    WikidataVerdict,
+)
+from backend.app.services.entity_research.wikidata import verdict as wikidata_verdict
 from backend.app.services.website_requests import pull_requests
 
 logger = get_logger(__name__).bind(component="EntityResearchService")
@@ -96,6 +108,13 @@ REQUEST_WINDOW = timedelta(days=7)
 RETRY_FAILED_AFTER = timedelta(days=1)
 MAX_MENTIONS_PER_ARTICLE = 6
 SUMMARY_LIMIT = 2000
+# Kept in ``prominence`` when the triage rewrites it: the Wikidata verdict and the admin's force
+CARRIED_PROMINENCE: tuple[str, ...] = ("wikidata", "forced")
+# Raised when the triage rules change: persons that may still be sent and were triaged under older
+# rules are assessed again (the watermark alone only re-reads names whose news changed).
+# 2 = no place in the network (artists, athletes, Wikidata), "betrokken partij" (2026-10-16)
+# 3 = the full name of a mention marked only by its last name, 8 articles read (2026-10-19)
+TRIAGE_VERSION = 3
 
 
 def _default_read_factory() -> AbstractAsyncContextManager[AsyncSession]:
@@ -176,6 +195,8 @@ def mention_contexts(
         span = content[start:end]
         if not span_matches(span, aliases):
             continue
+        start = _full_name_start(content, start, end, aliases)
+        span = content[start:end]
         line_start = start == 0 or content[start - 1] == "\n"
         next_line = None
         if line_start and (end == len(content) or content[end] == "\n"):
@@ -194,6 +215,24 @@ def mention_contexts(
         if len(contexts) >= limit:
             break
     return contexts
+
+
+_WORD_BEFORE = re.compile(r"(\S+)\s+$")
+
+
+def _full_name_start(content: str, start: int, end: int, aliases: set[str]) -> int:
+    """Start of the full name when NER marked only its last part: "schilder Wassily [Kandinsky]"
+    is a mention of "Wassily Kandinsky", so the title before it counts (2026-10-19)."""
+
+    best, position = start, start
+    for _ in range(3):  # "Hans van der [Berg]"
+        match = _WORD_BEFORE.search(content[max(0, position - 40) : position])
+        if match is None:
+            break
+        position -= len(match.group(0))
+        if slugify(content[position:end]) in aliases:
+            best = position
+    return best
 
 
 def authority_slugs(name: str) -> set[str]:
@@ -346,6 +385,7 @@ class EntityResearchService:
         runner: PmAgentRuns | None = None,
         coverage_loader: Callable[[Path], PmCoverageIndex] | None = None,
         pm_sync: Callable[[], Any] | None = None,
+        wikidata: WikidataClient | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now().astimezone(),
     ) -> None:
         self.settings = settings or get_settings()
@@ -364,6 +404,9 @@ class EntityResearchService:
         )
         self._coverage_loader = coverage_loader or PmCoverageIndex.load
         self._pm_sync = pm_sync
+        self.wikidata = wikidata or WikidataClient(
+            contact=self.settings.entity_research_wikidata_contact
+        )
         self._clock = clock
         self._coverage: PmCoverageIndex | None = None
         self._watermark: datetime | None = None
@@ -406,6 +449,7 @@ class EntityResearchService:
             requests = await self.pull_requests()
             status = await self.sync_status()
             triage = await self.triage()
+            wikidata = await self.wikidata_check()
             queue = await self.tidy_queue()
             enqueue = await self.enqueue()
         outcome = {
@@ -413,6 +457,7 @@ class EntityResearchService:
             "requests": requests,
             "status": status,
             "triage": triage,
+            "wikidata": wikidata,
             "queue": queue,
             "enqueue": enqueue,
         }
@@ -436,10 +481,24 @@ class EntityResearchService:
             return {"error": str(exc)[:300]}
 
     # ------------------------------------------------------------------ triage
+    async def _stale(self, repo: EntityResearchRepository, limit: int) -> list[EntityResearch]:
+        """Persons that may still be sent (queued, or researchable) but were triaged under older
+        rules: queued ones first, then tapped ones, then by priority."""
+
+        stale = [
+            row
+            for row in await repo.people(("nieuw", "wachtrij"))
+            if int((row.prominence or {}).get("triage_version") or 1) < TRIAGE_VERSION
+            and (row.prominence or {}).get("decision") in (prio.RESEARCH, prio.ON_REQUEST)
+        ]
+        stale.sort(key=lambda row: (row.status != "wachtrij", row.last_requested_at is None))
+        return stale[:limit]
+
     async def _load_candidates(
         self, repo: EntityResearchRepository, now: datetime
-    ) -> tuple[dict[str, Candidate], dict[str, EntityResearch], list[str]]:
-        """Changed names of recent events + unassessed taps; returns (candidates, rows, missing)."""
+    ) -> tuple[dict[str, Candidate], dict[str, EntityResearch], list[str], list[str]]:
+        """Changed names of recent events, unassessed taps and names triaged under older rules;
+        returns (candidates, rows, missing, stale keys)."""
 
         since = now - timedelta(days=self.settings.entity_research_lookback_days)
         watermark = self._watermark or since
@@ -448,11 +507,12 @@ class EntityResearchService:
         keys = await repo.changed_entity_keys(
             computed_after=watermark, updated_after=since, limit=batch
         )
+        stale = [row.entity_key for row in await self._stale(repo, batch)]
         latest = await repo.latest_computed_at()
         if latest is not None:
             self._watermark = _utc(latest)
 
-        entity_keys = set(keys)
+        entity_keys = {*keys, *stale}
         actor_requests: list[EntityResearch] = []
         for row in requests:
             if row.entity_key.startswith("actor:"):
@@ -461,7 +521,8 @@ class EntityResearchService:
                 entity_keys.add(row.entity_key)
         # Tapped names are assessed over all their events (the tap may come from an older event)
         rows = await repo.entity_rows(sorted(entity_keys), updated_after=None)
-        recent_or_requested = {row.entity_key for row in requests}
+        # tapped and stale names are assessed over all their events
+        recent_or_requested = {*(row.entity_key for row in requests), *stale}
         filtered = [
             row
             for row in rows
@@ -480,8 +541,8 @@ class EntityResearchService:
         for request in requests:
             if request.entity_key not in candidates and request.entity_key not in missing:
                 missing.append(request.entity_key)
-        existing = await repo.get_many([*candidates, *missing])
-        return candidates, existing, missing
+        existing = await repo.get_many([*candidates, *missing, *stale])
+        return candidates, existing, missing, stale
 
     async def _resolve_actor(
         self, repo: EntityResearchRepository, request: EntityResearch
@@ -590,7 +651,7 @@ class EntityResearchService:
         coverage = self.coverage()
         async with self._write() as session:
             repo = EntityResearchRepository(session)
-            candidates, existing, missing = await self._load_candidates(repo, now)
+            candidates, existing, missing, stale = await self._load_candidates(repo, now)
             assessments = await self._assess(candidates) if candidates else {}
             counts: dict[str, int] = defaultdict(int)
             for key, candidate in candidates.items():
@@ -609,6 +670,7 @@ class EntityResearchService:
                     info = coverage.lookup_official(
                         candidate.name, assessment.label, assessment.organisations
                     )
+                not_in_network = self._not_in_network(assessment, row)
                 decision = prio.decide(
                     kind=kind,
                     category=assessment.category,
@@ -618,6 +680,7 @@ class EntityResearchService:
                     single_name=kind == "person"
                     and len(clean_person_name(candidate.name).split()) < 2,
                     non_actor=is_non_actor(candidate.name),
+                    not_in_network=not_in_network,
                     requested=requested,
                     min_relations=self.settings.entity_research_min_pm_relations,
                     auto_threshold=self.settings.entity_research_auto_threshold,
@@ -633,6 +696,16 @@ class EntityResearchService:
                 )
                 if coverage and coverage.is_pending(lookup_aliases):
                     values["prominence"]["pending_in_pm"] = True
+                if row is not None:
+                    for carried in CARRIED_PROMINENCE:
+                        if carried in (row.prominence or {}):
+                            values["prominence"][carried] = row.prominence[carried]
+                if (
+                    not_in_network
+                    and decision.decision == prio.SKIP
+                    and (decision.reason or "").startswith(not_in_network)
+                ):
+                    values["prominence"]["not_in_network"] = not_in_network
                 if requested and decision.decision == prio.WAIT:
                     # a tap on a name without a known public role: say so instead of "aangevraagd"
                     # (re-assessed when new articles about it arrive)
@@ -653,14 +726,88 @@ class EntityResearchService:
                     key, {"status": "overgeslagen", "status_reason": NOT_IN_NEWS, "triaged_at": now}
                 )
                 counts["overgeslagen"] += 1
+            for key in stale:
+                row = existing.get(key)
+                if key not in candidates and row is not None:
+                    # no news rows left to assess: stamped, so it is not picked again every cycle
+                    row.prominence = {**(row.prominence or {}), "triage_version": TRIAGE_VERSION}
             linked = await self._link_register_officials(repo, coverage) if coverage else 0
             await session.commit()
         return {
             "assessed": len(candidates),
+            "retriaged": len(stale),
             "not_in_news": len(missing),
             "by_status": dict(counts),
             "register_linked": linked,
         }
+
+    @staticmethod
+    def _not_in_network(assessment: RoleAssessment, row: EntityResearch | None) -> str | None:
+        """Why a person has no place in the network: the role cues name only an art or sport
+        ("Sporter zonder rol in het netwerk"), or, without any cue, Wikidata says so."""
+
+        if assessment.no_network_role:
+            return f"{assessment.no_network_role} {NO_NETWORK_SUFFIX}"
+        if assessment.category == ONBEKEND and row is not None:
+            return ((row.prominence or {}).get("wikidata") or {}).get("reason") or None
+        return None
+
+    async def wikidata_check(self) -> dict[str, Any]:
+        """Persons without any role cue that may be researched on request (prominent in the news,
+        or tapped) are looked up once in Wikidata; an athlete or artist without office or party,
+        or a fictional character, is not sent (a queued target is withdrawn by ``tidy_queue``).
+        At most ``entity_research_wikidata_per_cycle`` lookups, tapped names first; the lookups
+        run outside a database transaction."""
+
+        limit = self.settings.entity_research_wikidata_per_cycle
+        if not self.settings.entity_research_wikidata_enabled or limit <= 0:
+            return {"skipped": "disabled"}
+        now = self._clock().astimezone(timezone.utc)
+        async with self._write() as session:
+            rows = await EntityResearchRepository(session).people(("nieuw", "wachtrij"), ONBEKEND)
+            todo = [
+                (row.entity_key, row.name, row.last_requested_at)
+                for row in rows
+                if (row.prominence or {}).get("decision") == prio.ON_REQUEST
+                and "wikidata" not in (row.prominence or {})
+            ]
+        todo.sort(key=lambda item: item[2] is None)  # tapped first, then by priority
+        verdicts: dict[str, WikidataVerdict] = {}
+        counts: dict[str, int] = defaultdict(int)
+        deadline = time.monotonic() + self.settings.entity_research_wikidata_seconds_per_cycle
+        for key, name, _requested in todo[:limit]:
+            if time.monotonic() >= deadline:  # paced requests: the rest waits for the next cycle
+                break
+            try:
+                entries = await self.wikidata.lookup(clean_person_name(name))
+            except WikidataUnavailableError as exc:
+                logger.info("entity_research_wikidata_unavailable", error=str(exc)[:200])
+                counts["unavailable"] += 1
+                break
+            verdicts[key] = wikidata_verdict(entries)
+        async with self._write() as session:
+            repo = EntityResearchRepository(session)
+            current = await repo.get_many(verdicts)
+            for key, verdict in verdicts.items():
+                row = current.get(key)
+                if row is None:
+                    continue
+                prominence = {**(row.prominence or {}), "wikidata": verdict.as_json(now)}
+                if verdict.reason:
+                    prominence["not_in_network"] = verdict.reason
+                    if row.status == "nieuw":
+                        prominence["decision"] = prio.SKIP
+                        row.status = "overgeslagen"
+                        row.status_reason = f"{verdict.reason} — wordt niet uitgezocht"
+                        row.priority = 0.0
+                    counts["not_in_network"] += 1
+                else:
+                    counts["no_verdict"] += 1
+                row.prominence = prominence
+            await session.commit()
+        counts["checked"] = len(verdicts)
+        counts["waiting"] = max(0, len(todo) - len(verdicts))
+        return dict(counts)
 
     async def _link_register_officials(
         self, repo: EntityResearchRepository, coverage: PmCoverageIndex
@@ -721,6 +868,7 @@ class EntityResearchService:
             "mentions": candidate.mentions,
             "last_seen": _iso(candidate.last_seen),
             "decision": decision.decision,
+            "triage_version": TRIAGE_VERSION,
             "confidence": assessment.confidence,
             "context": {
                 "events": candidate.events,
@@ -757,8 +905,9 @@ class EntityResearchService:
     async def tidy_queue(self) -> dict[str, int]:
         """Queued targets the scout did not pick up yet, against the model as it is now (the
         registers add names every week). Withdrawn when no longer needed: the model has the name
-        with enough relations, or it is no actor ("KIJK OOK", "bond") or a foreign head of state;
-        scout rounds are scarce. A name the model has with few relations gets its node on the
+        with enough relations, or it is no actor ("KIJK OOK", "bond"), a foreign head of state, or
+        an artist or athlete without a place in the network (unless the admin forced it); scout
+        rounds are scarce. A name the model has with few relations gets its node on the
         target, so the scout adds to it instead of making a second one."""
 
         coverage = self.coverage()
@@ -791,6 +940,13 @@ class EntityResearchService:
                 ):
                     pm_status, status = "overgeslagen", "overgeslagen"
                     reason = "Buitenlandse persoon — valt buiten het Nederlandse propagandamodel"
+                elif (
+                    kind == "person"
+                    and (row.prominence or {}).get("not_in_network")
+                    and not (row.prominence or {}).get("forced")
+                ):
+                    pm_status, status = "overgeslagen", "overgeslagen"
+                    reason = f"{row.prominence['not_in_network']} — wordt niet uitgezocht"
                 elif info is not None and row.pm_entity_id != info.id:
                     row.pm_entity_id, row.pm_degree = info.id, info.degree
                     try:
@@ -928,6 +1084,9 @@ class EntityResearchService:
                 row.status_reason = None
                 row.pm_doel_id = doel.get("id") or row.pm_doel_id
                 row.queued_at = now
+                if force:
+                    # the admin's choice: the queue is not tidied of it
+                    row.prominence = {**(row.prominence or {}), "forced": now.isoformat()}
                 queued += 1
                 if requested:
                     budget_requests -= 1
@@ -1035,11 +1194,13 @@ class EntityResearchService:
                     row is None
                     or row.status in ("niet_nodig",)
                     or (
-                        # the admin may force a name without a known role (the agent checks the
-                        # public role first); private and foreign persons stay blocked
+                        # the admin may force a name without a known role or an artist/athlete
+                        # (the agent checks the public role first); private and foreign persons
+                        # stay blocked
                         row.status == "overgeslagen"
                         and row.pm_doel_id is None
                         and row.status_reason != NO_PUBLIC_ROLE
+                        and not (row.prominence or {}).get("not_in_network")
                     )
                 )
             enqueue = (
