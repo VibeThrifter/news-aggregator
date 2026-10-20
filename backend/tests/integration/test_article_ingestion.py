@@ -317,6 +317,37 @@ async def test_a_feed_only_source_never_fetches_the_page(monkeypatch, ingest_ser
 
 
 @pytest.mark.asyncio
+async def test_a_source_just_added_is_polled_and_gets_its_row(ingest_service, session_factory):
+    """De Dagelijkse Standaard (added 2026-10-19) had no row in news_sources, so every poll skipped
+    it. A new reader now gets its row, enabled and no main source; a disabled source stays off."""
+    from backend.app.db.models import NewsSource
+    from backend.app.services.ingest_service import _get_enabled_source_ids
+
+    async with session_factory() as session:
+        session.add_all(
+            [
+                NewsSource(source_id="nos_rss", display_name="NOS", feed_url="https://feeds.nos.nl/x", enabled=True),
+                NewsSource(source_id="nunl_rss", display_name="NU.nl", feed_url="https://www.nu.nl/x", enabled=False),
+            ]
+        )
+        await session.commit()
+
+    readers = {rid: ingest_service.readers[rid] for rid in ("nos_rss", "nunl_rss", "indepen_rss")}
+    assert await _get_enabled_source_ids(session_factory, readers) == {"nos_rss", "indepen_rss"}
+
+    async with session_factory() as session:
+        rows = {row.source_id: row for row in (await session.execute(select(NewsSource))).scalars()}
+    indepen = rows["indepen_rss"]
+    assert (indepen.display_name, indepen.feed_url, indepen.spectrum) == ("INDEPEN", "https://indepen.eu/feed/", "alternative")
+    assert indepen.enabled is True and indepen.is_main_source is False
+    assert rows["nunl_rss"].enabled is False
+    # The next poll finds the row: nothing is created twice
+    assert await _get_enabled_source_ids(session_factory, readers) == {"nos_rss", "indepen_rss"}
+    async with session_factory() as session:
+        assert len((await session.execute(select(NewsSource))).scalars().all()) == 3
+
+
+@pytest.mark.asyncio
 async def test_the_catch_up_assigns_ready_articles_before_enriching_more(monkeypatch, ingest_service):
     """Enrichment can use up the catch-up's time budget; articles enriched before must still get an
     event, so the catch-up assigns first."""

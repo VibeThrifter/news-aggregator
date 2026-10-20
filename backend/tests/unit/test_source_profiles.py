@@ -185,3 +185,12 @@ def test_the_profiles_fetch_nieuwrechts_without_stealth_and_een_blik_op_de_nos_f
     assert profiles["ad_rss"].stealth is True
     assert "youtube.com/feeds/videos.xml" in str(profiles["eenblikopdenos_rss"].feed_url)
     assert profiles["eenblikopdenos_rss"].parser == "rss_only"
+
+
+def test_the_profile_takes_indepen_from_its_feed_and_never_fetches_the_page():
+    """The feed holds the full text; trafilatura on the page also took the comments (2026-10-20)."""
+    load_source_profiles.cache_clear()
+    profile = load_source_profiles()["indepen_rss"]
+
+    assert str(profile.feed_url) == "https://indepen.eu/feed/"
+    assert profile.parser == "rss_only"

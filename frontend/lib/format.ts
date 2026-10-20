@@ -88,6 +88,7 @@ const SOURCE_DOMAINS: Record<string, string> = {
   "GeenStijl": "geenstijl.nl",
   "NineForNews": "ninefornews.nl",
   "NieuwRechts": "nieuwrechts.nl",
+  "INDEPEN": "indepen.eu",
 };
 
 export function getSourceFaviconUrl(sourceName: string): string {

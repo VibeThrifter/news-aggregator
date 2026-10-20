@@ -32,6 +32,7 @@ from backend.app.feeds.trouw import TrouwRssReader
 from backend.app.feeds.geenstijl import GeenStijlAtomReader
 from backend.app.feeds.ninefornews import NineForNewsRssReader
 from backend.app.feeds.nieuwrechts import NieuwRechtsRssReader
+from backend.app.feeds.indepen import IndepenRssReader
 from backend.app.feeds.eenblikopdenos import EenBlikOpDeNosReader
 from backend.app.ingestion import (
     ArticleFetchError,
@@ -47,16 +48,27 @@ from backend.app.db.models import Article
 from backend.app.repositories import ArticleRepository, NewsSourceRepository
 from backend.app.services.event_service import EventService
 from backend.app.services.enrich_service import ArticleEnrichmentService
+from backend.app.services.source_service import SourceService
 
 logger = structlog.get_logger()
 
 
-async def _get_enabled_source_ids(session_factory) -> set[str]:
-    """Get the set of enabled source IDs from the database."""
+async def _get_enabled_source_ids(
+    session_factory, readers: Optional[Dict[str, FeedReader]] = None
+) -> set[str]:
+    """Get the set of enabled source IDs from the database.
+
+    A reader without a row yet (a source just added) gets one first, enabled, as
+    POST /admin/sources/initialize gives it. Before, a new source was never polled: De Dagelijkse
+    Standaard (added 2026-10-19) was skipped in every poll.
+    """
     async with session_factory() as session:
-        repo = NewsSourceRepository(session)
-        sources = await repo.get_enabled()
-        return {s.source_id for s in sources}
+        sources = await NewsSourceRepository(session).get_all()
+    known = {s.source_id for s in sources}
+    new_readers = {rid: reader for rid, reader in (readers or {}).items() if rid not in known}
+    if new_readers:
+        await SourceService(session_factory=session_factory).initialize_sources_from_readers(new_readers)
+    return {s.source_id for s in sources if s.enabled} | set(new_readers)
 
 
 # Only current news (owner 2026-10-08): feed items published longer ago are not fetched, and the
@@ -186,6 +198,13 @@ class IngestService:
             self.reader_profiles[nieuwrechts_reader.id] = nieuwrechts_profile
             logger.info("Registered feed reader", reader_id=nieuwrechts_reader.id, url=self.settings.rss_nieuwrechts_url)
 
+            # Register INDEPEN RSS reader (the text comes from the feed)
+            indepen_profile = self._resolve_profile("indepen_rss", default_url=self.settings.rss_indepen_url)
+            indepen_reader = IndepenRssReader(str(indepen_profile.feed_url or self.settings.rss_indepen_url))
+            self.readers[indepen_reader.id] = indepen_reader
+            self.reader_profiles[indepen_reader.id] = indepen_profile
+            logger.info("Registered feed reader", reader_id=indepen_reader.id, url=self.settings.rss_indepen_url)
+
             # Register Een Blik op de NOS RSS reader
             eenblikopdenos_profile = self._resolve_profile("eenblikopdenos_rss", default_url=self.settings.rss_eenblikopdenos_url)
             eenblikopdenos_reader = EenBlikOpDeNosReader(str(eenblikopdenos_profile.feed_url or self.settings.rss_eenblikopdenos_url))
@@ -217,7 +236,7 @@ class IngestService:
 
         # Get enabled source IDs from database
         try:
-            enabled_ids = await _get_enabled_source_ids(self.session_factory)
+            enabled_ids = await _get_enabled_source_ids(self.session_factory, self.readers)
         except Exception as e:
             # If database check fails, fall back to polling all sources
             logger_ctx.warning(

@@ -74,6 +74,10 @@ class Settings(BaseSettings):
         default="https://nieuwrechts.nl/rss",
         description="RSS feed URL for NieuwRechts"
     )
+    rss_indepen_url: str = Field(
+        default="https://indepen.eu/feed/",
+        description="RSS feed URL for INDEPEN (the full text is in the feed)"
+    )
     rss_ninefornews_url: str = Field(
         default="https://www.ninefornews.nl/feed/",
         description="RSS feed URL for NineForNews"

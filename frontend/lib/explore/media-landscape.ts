@@ -180,6 +180,21 @@ export const DUTCH_OUTLETS: OutletProfile[] = [
     monitored: true,
   },
   {
+    // Not in the Epic 8 table: a foundation funded by donations (indepen.eu/faq); positions as
+    // NineForNews, our own estimate (2026-10-20)
+    key: "indepen",
+    name: "INDEPEN",
+    aliases: ["INDEPEN", "Indepen", "indepen.eu"],
+    domains: ["indepen.eu", "indepen.nl"],
+    country: "NL",
+    mediaType: "alternative_online",
+    spectrum: "alternative",
+    politicalX: 7,
+    establishment: -0.9,
+    ownershipType: "independent",
+    monitored: true,
+  },
+  {
     key: "een-blik-op-de-nos",
     name: "Een Blik op de NOS",
     aliases: ["Een Blik op de NOS", "@eenblikopdenos", "eenblikopdenos"],

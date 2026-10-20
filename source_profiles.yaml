@@ -105,6 +105,16 @@ sources:
     stealth: false
     cookie_ttl_minutes: 0
     # Note: NieuwRechts is an Angular SPA - requires Playwright for full article content
+  indepen_rss:
+    # WordPress feed of the 10 newest posts (about one a day), linked on every page for feed readers
+    # (robots.txt keeps search engines off /feed/). content:encoded holds the full text; the page
+    # adds the comments and lists of other articles to it, so it is never fetched (2026-10-20)
+    feed_url: https://indepen.eu/feed/
+    fetch_strategy: simple
+    user_agent: News360Fetcher/1.0 (+https://github.com/news-aggregator)
+    parser: rss_only  # The text comes from the feed: never fetch the page
+    requires_js: false
+    cookie_ttl_minutes: 0
   eenblikopdenos_rss:
     # The YouTube channel of Een Blik op de NOS: X answers 403 since 2025-12 (reading posts needs a
     # paid API plan) and the account has no website. The title and description are the content

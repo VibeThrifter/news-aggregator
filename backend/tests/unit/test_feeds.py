@@ -302,6 +302,103 @@ YOUTUBE_FEED = b"""<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
+INDEPEN_FEED = b"""<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"
+    xmlns:content="http://purl.org/rss/1.0/modules/content/"
+    xmlns:dc="http://purl.org/dc/elements/1.1/">
+<channel>
+    <title>INDEPEN</title>
+    <link>https://indepen.eu</link>
+    <item>
+        <title>Migratie verantwoordelijk voor 60 procent van de woningvraag</title>
+        <link>https://indepen.eu/migratie-verantwoordelijk-voor-60-procent-van-de-woningvraag/</link>
+        <dc:creator><![CDATA[Redactie Indepen]]></dc:creator>
+        <pubDate>Mon, 19 Oct 2026 06:16:53 +0000</pubDate>
+        <category><![CDATA[Politiek]]></category>
+        <category><![CDATA[Uitgelicht]]></category>
+        <guid isPermaLink="false">https://indepen.eu/?p=73774</guid>
+        <description><![CDATA[Deze kop staat boven een artikel van Binnenlands Bestuur en leidde recent tot nogal wat ophef. Eindelijk hebben [&#8230;]]]></description>
+        <content:encoded><![CDATA[<p><em>Deze kop staat boven een artikel van Binnenlands Bestuur en leidde recent tot nogal wat ophef.</em></p>
+<h2>Migratieonderzoek van het Economisch Instituut voor de Bouw</h2>
+<p>Dat blijkt uit <a href="https://www.eib.nl/x.pdf" rel="noopener" target="_blank">onderzoek</a> van het EIB.</p>
+<ul>
+<li>arbeidsmigranten</li>
+<li>asielmigranten</li>
+</ul>
+<p>Minister Boekholt-O&#8217;Sullivan reageerde.</p>
+]]></content:encoded>
+    </item>
+    <item>
+        <title>Een bericht zonder volledige tekst</title>
+        <link>https://indepen.eu/een-bericht-zonder-volledige-tekst/</link>
+        <pubDate>Mon, 19 Oct 2026 08:00:00 +0000</pubDate>
+        <guid isPermaLink="false">https://indepen.eu/?p=73775</guid>
+        <description><![CDATA[Alleen het begin [&#8230;]]]></description>
+    </item>
+</channel>
+</rss>
+"""
+
+
+class TestIndepenReader:
+    """INDEPEN: the WordPress feed holds the full text; the page (with comments) is never fetched."""
+
+    @staticmethod
+    async def fetch_items():
+        from contextlib import asynccontextmanager
+
+        from backend.app.feeds.indepen import IndepenRssReader
+
+        response = MagicMock()
+        response.content = INDEPEN_FEED
+        response.raise_for_status = MagicMock()
+        client = AsyncMock()
+        client.get = AsyncMock(return_value=response)
+
+        @asynccontextmanager
+        async def mock_http_client(*args, **kwargs):
+            yield client
+
+        reader = IndepenRssReader("https://indepen.eu/feed/")
+        with patch("backend.app.feeds.indepen.http_client", mock_http_client):
+            items = await reader.fetch()
+        client.get.assert_called_once_with("https://indepen.eu/feed/")
+        assert reader.id == "indepen_rss"
+        return items
+
+    @pytest.mark.asyncio
+    async def test_the_text_comes_from_the_feed_a_line_per_paragraph(self):
+        item, _ = await self.fetch_items()
+
+        assert item.guid == "https://indepen.eu/?p=73774"
+        assert item.url == "https://indepen.eu/migratie-verantwoordelijk-voor-60-procent-van-de-woningvraag/"
+        assert item.title == "Migratie verantwoordelijk voor 60 procent van de woningvraag"
+        assert item.summary == (
+            "Deze kop staat boven een artikel van Binnenlands Bestuur en leidde recent tot nogal wat "
+            "ophef. Eindelijk hebben…"
+        )
+        assert item.published_at == datetime(2026, 10, 19, 6, 16, 53, tzinfo=timezone.utc)
+        assert item.image_url is None
+        assert item.source_metadata["full_text_from_feed"] == (
+            "Deze kop staat boven een artikel van Binnenlands Bestuur en leidde recent tot nogal wat ophef.\n"
+            "Migratieonderzoek van het Economisch Instituut voor de Bouw\n"
+            "Dat blijkt uit onderzoek van het EIB.\n"
+            "arbeidsmigranten\n"
+            "asielmigranten\n"
+            "Minister Boekholt-O’Sullivan reageerde."
+        )
+        assert item.source_metadata["name"] == "INDEPEN"
+        assert item.source_metadata["spectrum"] == "alternative"
+        assert item.source_metadata["author"] == "Redactie Indepen"
+        assert item.source_metadata["categories"] == ["Politiek", "Uitgelicht"]
+
+    @pytest.mark.asyncio
+    async def test_without_full_text_the_excerpt_is_the_text(self):
+        _, item = await self.fetch_items()
+
+        # Never empty: an empty text would send the ingest to the page, comments and all
+        assert item.source_metadata["full_text_from_feed"] == "Alleen het begin…"
+
+
 class TestEenBlikOpDeNosReader:
     """Een Blik op de NOS comes from its YouTube channel since X answers 403 (2025-12)."""
 
@@ -356,12 +453,13 @@ class TestIngestService:
             mock_settings.return_value.rss_geenstijl_url = "https://mock-geenstijl.nl/atom"
             mock_settings.return_value.rss_ninefornews_url = "https://mock-ninefornews.nl/feed"
             mock_settings.return_value.rss_nieuwrechts_url = "https://mock-nieuwrechts.nl/rss"
+            mock_settings.return_value.rss_indepen_url = "https://mock-indepen.eu/feed/"
             mock_settings.return_value.rss_eenblikopdenos_url = "https://mock-xcancel.com/eenblikopdenos/rss"
             self.service = IngestService()
 
     def test_reader_registration(self):
         """Test that readers are properly registered."""
-        assert len(self.service.readers) == 13
+        assert len(self.service.readers) == 14
         assert "nos_rss" in self.service.readers
         assert "nunl_rss" in self.service.readers
         assert "ad_rss" in self.service.readers
@@ -374,12 +472,13 @@ class TestIngestService:
         assert "geenstijl_atom" in self.service.readers
         assert "ninefornews_rss" in self.service.readers
         assert "nieuwrechts_rss" in self.service.readers
+        assert "indepen_rss" in self.service.readers
         assert "eenblikopdenos_rss" in self.service.readers
 
     def test_get_reader_info(self):
         """Test reader info retrieval."""
         info = self.service.get_reader_info()
-        assert info["total_count"] == 13
+        assert info["total_count"] == 14
         assert "nos_rss" in info["readers"]
         assert "nunl_rss" in info["readers"]
         assert "ad_rss" in info["readers"]
@@ -392,6 +491,7 @@ class TestIngestService:
         assert "geenstijl_atom" in info["readers"]
         assert "ninefornews_rss" in info["readers"]
         assert "nieuwrechts_rss" in info["readers"]
+        assert "indepen_rss" in info["readers"]
         assert "eenblikopdenos_rss" in info["readers"]
 
         nos_info = info["readers"]["nos_rss"]
@@ -430,10 +530,10 @@ class TestIngestService:
 
         # Verify results
         assert results["success"] is True
-        assert results["total_readers"] == 13
-        assert results["successful_readers"] == 13
+        assert results["total_readers"] == 14
+        assert results["successful_readers"] == 14
         assert results["failed_readers"] == 0
-        assert results["total_items"] == 13  # 1 item per reader
+        assert results["total_items"] == 14  # 1 item per reader
         assert len(results["errors"]) == 0
 
     @pytest.mark.asyncio
@@ -471,9 +571,9 @@ class TestIngestService:
 
         # Verify results
         assert results["success"] is False
-        assert results["successful_readers"] == 12  # 12 out of 13 succeed
+        assert results["successful_readers"] == 13  # 13 out of 14 succeed
         assert results["failed_readers"] == 1
-        assert results["total_items"] == 12
+        assert results["total_items"] == 13
         assert len(results["errors"]) == 1
         assert "Test error" in results["errors"][0]["error"]
 
@@ -508,8 +608,8 @@ class TestIngestService:
         results = await self.service.test_readers()
 
         # Verify all readers tested
-        assert len(results) == 13
-        for reader_id in ["nos_rss", "nunl_rss", "ad_rss", "rtl_rss", "telegraaf_rss", "volkskrant_rss", "parool_rss", "anderekrant_rss", "trouw_rss", "geenstijl_atom", "ninefornews_rss", "nieuwrechts_rss", "eenblikopdenos_rss"]:
+        assert len(results) == 14
+        for reader_id in ["nos_rss", "nunl_rss", "ad_rss", "rtl_rss", "telegraaf_rss", "volkskrant_rss", "parool_rss", "anderekrant_rss", "trouw_rss", "geenstijl_atom", "ninefornews_rss", "nieuwrechts_rss", "indepen_rss", "eenblikopdenos_rss"]:
             assert reader_id in results
             assert results[reader_id]["status"] == "ok"
 

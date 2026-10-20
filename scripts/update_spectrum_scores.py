@@ -34,6 +34,7 @@ from backend.app.feeds.trouw import TrouwRssReader
 from backend.app.feeds.geenstijl import GeenStijlAtomReader
 from backend.app.feeds.ninefornews import NineForNewsRssReader
 from backend.app.feeds.nieuwrechts import NieuwRechtsRssReader
+from backend.app.feeds.indepen import IndepenRssReader
 
 
 def get_spectrum_mapping() -> dict[str, str | int | float]:
@@ -56,6 +57,7 @@ def get_spectrum_mapping() -> dict[str, str | int | float]:
         GeenStijlAtomReader(""),
         NineForNewsRssReader(""),
         NieuwRechtsRssReader(""),
+        IndepenRssReader(""),
     ]
 
     mapping = {}
