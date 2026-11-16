@@ -74,6 +74,11 @@ class Settings(BaseSettings):
         default="https://nieuwrechts.nl/rss",
         description="RSS feed URL for NieuwRechts"
     )
+    rss_dagelijksestandaard_url: str = Field(
+        # /feed/ answers 308 to /feed, which is a 404; the homepage links this RSS 2.0 feed
+        default="https://www.dagelijksestandaard.nl/sitemap/news.xml",
+        description="RSS feed URL for De Dagelijkse Standaard"
+    )
     rss_indepen_url: str = Field(
         default="https://indepen.eu/feed/",
         description="RSS feed URL for INDEPEN (the full text is in the feed)"
@@ -227,6 +232,73 @@ class Settings(BaseSettings):
         ge=500,
         le=20000,
         description="Characters of article text sent to the LLM"
+    )
+
+    # Zelfde tekst (Epic 14, Story 14.27): articles of one news item that are the same text
+    # (agency copy, or shared by the titles of one publisher), per link in
+    # event_articles.scoring_breakdown.copy. No LLM: a comparison of the texts
+    copy_detection_enabled: bool = Field(
+        default=True,
+        description="Scheduled job that groups the articles of a news item that are the same text"
+    )
+    copy_detection_interval_seconds: int = Field(
+        default=60,
+        ge=10,
+        le=3600,
+        description="How often the job compares the news items whose articles changed"
+    )
+    copy_detection_window_hours: int = Field(
+        default=72,
+        ge=1,
+        le=8760,
+        description="The job compares news items that got an article in the last N hours "
+        "(older ones via POST /admin/trigger/copy-detection?hours=…)"
+    )
+    # Achtergrondstukken (Epic 14, Story 14.29): documents in Bron of Open State about a news item,
+    # searched with the terms of the factual analysis (no extra LLM call)
+    background_documents_enabled: bool = Field(
+        default=True,
+        description="Scheduled job that searches the analysis's search terms in Bron (api.bron.live)"
+    )
+    background_documents_interval_minutes: int = Field(
+        default=15,
+        ge=1,
+        le=1440,
+        description="How often the job searches news items with new search terms"
+    )
+    background_documents_batch_size: int = Field(
+        default=20,
+        ge=1,
+        le=500,
+        description=(
+            "News items searched per run (per term a Bron and an officielebekendmakingen.nl call,"
+            " plus their linked documents)"
+        )
+    )
+    # Officiële bronnen (Stories 14.33/14.34): Kamervragen that cite an article, the Kamer's votes
+    # on motions in the Tijdlijn, press releases of the Rijksoverheid quoted word for word
+    official_sources_enabled: bool = Field(
+        default=True,
+        description="Scheduled job that reads new Kamervragen, votes and Rijksoverheid releases",
+    )
+    official_sources_interval_minutes: int = Field(
+        default=15,
+        ge=5,
+        le=1440,
+        description="How often the job looks for new Kamervragen and press releases",
+    )
+    official_sources_window_days: int = Field(
+        default=4,
+        ge=1,
+        le=90,
+        description="Kamervragen and releases of the last N days are read (older ones via "
+        "POST /admin/trigger/official-sources?days=…)",
+    )
+    copy_cluster_min_probability: float = Field(
+        default=0.5,
+        ge=0.05,
+        le=0.99,
+        description="Two articles join one group from this chance that they are copies of one text",
     )
 
     # Stemmen zoeken (Epic 14, Story 14.10): AI search for a voice that is missing, queued by the

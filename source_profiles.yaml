@@ -105,6 +105,18 @@ sources:
     stealth: false
     cookie_ttl_minutes: 0
     # Note: NieuwRechts is an Angular SPA - requires Playwright for full article content
+  dagelijksestandaard_rss:
+    # /feed/ answers 308 to /feed, a 404; the homepage links this RSS 2.0 feed (1000 items, about
+    # 11 days, ~85 a day). Its description is a teaser of ~300 characters, so the page is fetched
+    feed_url: https://www.dagelijksestandaard.nl/sitemap/news.xml
+    # Next.js renders the article on the server: a plain fetch gets the full text (2026-10-19)
+    fetch_strategy: simple
+    user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+    parser: trafilatura
+    requires_js: false
+    cookie_ttl_minutes: 0
+    # No news: DDS Premium is behind a paywall (the page holds only its first sentences)
+    skip_urls: ['/dds-premium/']
   indepen_rss:
     # WordPress feed of the 10 newest posts (about one a day), linked on every page for feed readers
     # (robots.txt keeps search engines off /feed/). content:encoded holds the full text; the page

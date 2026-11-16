@@ -65,18 +65,36 @@ class PlaywrightBrowserPool:
             async with self._lock:
                 if self._browser is None or not self._browser.is_connected():
                     self._logger.info("playwright_browser_starting")
+                    # Every start runs a node driver that lives until it is stopped. With the
+                    # browser gone from the cache every fetch failed to launch and left its driver:
+                    # 2,523 by 2026-10-20, and the Mac could not start a process anymore
+                    await self._stop_playwright()
                     playwright_fn = _get_playwright()
                     self._playwright = await playwright_fn().start()
-                    self._browser = await self._playwright.chromium.launch(
-                        headless=True,
-                        args=[
-                            "--disable-dev-shm-usage",
-                            "--no-sandbox",
-                            "--disable-setuid-sandbox",
-                            "--disable-gpu",
-                        ],
-                    )
+                    try:
+                        self._browser = await self._playwright.chromium.launch(
+                            headless=True,
+                            args=[
+                                "--disable-dev-shm-usage",
+                                "--no-sandbox",
+                                "--disable-setuid-sandbox",
+                                "--disable-gpu",
+                            ],
+                        )
+                    except Exception:
+                        await self._stop_playwright()
+                        raise
                     self._logger.info("playwright_browser_started")
+
+    async def _stop_playwright(self) -> None:
+        """Stop the driver of a browser that is gone or never started."""
+        self._browser = None
+        if self._playwright:
+            playwright, self._playwright = self._playwright, None
+            try:
+                await playwright.stop()
+            except Exception as exc:
+                self._logger.warning("playwright_stop_failed", error=str(exc))
 
     @asynccontextmanager
     async def get_context(self) -> AsyncIterator:
@@ -97,13 +115,12 @@ class PlaywrightBrowserPool:
 
     async def close(self) -> None:
         """Close browser and cleanup resources."""
-        if self._browser:
-            self._logger.info("playwright_browser_closing")
-            await self._browser.close()
-            self._browser = None
-        if self._playwright:
-            await self._playwright.stop()
-            self._playwright = None
+        try:
+            if self._browser:
+                self._logger.info("playwright_browser_closing")
+                await self._browser.close()
+        finally:  # a browser that fails to close still leaves its driver
+            await self._stop_playwright()
 
 
 # Global browser pool instance

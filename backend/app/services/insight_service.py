@@ -371,6 +371,10 @@ class InsightService:
                 correlation_id=correlation_id,
             )
 
+        # Search terms for background documents in Bron (Story 14.29): the job reads them here
+        if merged_payload.zoektermen:
+            prompt_metadata["zoektermen"] = merged_payload.zoektermen
+
         async with self.session_factory() as session:
             repo = InsightRepository(session)
             persistence = await repo.upsert_insight(

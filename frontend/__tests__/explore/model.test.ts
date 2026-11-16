@@ -172,7 +172,26 @@ describe("deriveFindings", () => {
 });
 
 describe("propaganda filter signals", () => {
-  const input = buildExploreInput(DEMO_EVENT);
+  // Story 14.34: the sourcing signal about press releases is measured (a quote that stands word for
+  // word in a Rijksoverheid release), not the analysis's guess "copy_paste_score"
+  const base = buildExploreInput(DEMO_EVENT);
+  const toneFinding = deriveFindings(base).find((finding) => finding.body.type === "tone" && finding.body.outletKey);
+  const toneOutlet = toneFinding?.body.type === "tone" ? toneFinding.body.outletKey : null;
+  const quoted = base.articles.find((article) => article.outletKey === toneOutlet);
+  const withPress = clone(DEMO_EVENT);
+  withPress.documents = [
+    {
+      term: "",
+      source: "persbericht",
+      doc_type: "Persbericht",
+      title: "Windpark Stille Polder",
+      url: "https://www.rijksoverheid.nl/actueel/nieuws/2026/09/28/windpark",
+      published_at: "2026-09-28T08:00:00Z",
+      location: "Ministerie van Klimaat en Groene Groei",
+      details: { quoted_by: [{ article_id: quoted!.id, outlet: quoted!.outletName, quotes: ["Een citaat van acht of meer woorden lang"], share: 0 }] },
+    },
+  ];
+  const input = buildExploreInput(withPress);
   const findings = deriveFindings(input);
   const evidence = eventFilterSignals(input, findings);
   const byFilter = Object.fromEntries(evidence.map((entry) => [entry.filter, entry.signals]));
@@ -190,7 +209,8 @@ describe("propaganda filter signals", () => {
   });
 
   it("finds sourcing, ideology, advertising and counter-power signals linked to findings", () => {
-    expect(byFilter.sourcing.some((signal: { text: string }) => signal.text.includes("persberichten"))).toBe(true);
+    expect(byFilter.sourcing.some((signal: { text: string }) => signal.text.includes("citeert letterlijk uit het persbericht van Ministerie van Klimaat"))).toBe(true);
+    expect(byFilter.sourcing.some((signal: { text: string }) => signal.text.includes("leunt sterk op persberichten"))).toBe(false);
     expect(byFilter.ideologie.some((signal: { text: string }) => signal.text.includes("Angst"))).toBe(true);
     expect(byFilter.advertentie.some((signal: { text: string }) => signal.text.includes("Sensationeel"))).toBe(true);
     expect(byFilter.tegenmacht.some((signal: { text: string }) => signal.text.includes("Kritische toon"))).toBe(true);

@@ -292,6 +292,71 @@ function AppUsage({ periods }: { periods: LlmUsagePeriod[] }) {
 }
 
 /**
+ * Who uses the week: the app's own steps, the agents of the propaganda model, scripts and the owner's
+ * own sessions in one list, biggest first. Cache reads are left out everywhere (they hardly count).
+ */
+function WeekBySource({ data }: { data: LlmUsageSummary }) {
+  const week = data.periods.find((p) => p.key === "seven_day");
+  const rows: Array<{ key: string; name: string; group: string; tokens: number; output: number; detail: string }> = [];
+  for (const step of week?.steps ?? []) {
+    rows.push({
+      key: `app-${step.step}`,
+      name: step.step ? (STEP_LABELS[step.step] ?? step.step) : "Overig",
+      group: "App",
+      tokens: step.input_tokens + step.output_tokens + step.cache_write_tokens,
+      output: step.output_tokens,
+      detail: `${whole.format(step.calls)} aanroepen${step.failed ? ` · ${step.failed} mislukt` : ""}`,
+    });
+  }
+  for (const item of data.sources?.items ?? []) {
+    const own = item.source.startsWith("Eigen sessies");
+    rows.push({
+      key: item.source,
+      name: item.source.replace(/^(Agent|Script) /, "").replace(/^Eigen sessies · /, ""),
+      group: own ? "Eigen sessies" : item.source.startsWith("Agent") ? "Agent propagandamodel" : "Script",
+      tokens: item.tokens,
+      output: item.output_tokens,
+      detail: `${whole.format(item.sessions)} sessies · ${whole.format(item.messages)} berichten`,
+    });
+  }
+  rows.sort((a, b) => b.tokens - a.tokens);
+  const total = rows.reduce((sum, row) => sum + row.tokens, 0);
+  if (!total) return null;
+  return (
+    <section aria-labelledby="ai-sources-title" className="space-y-3">
+      <h3 id="ai-sources-title" className="font-serif text-base font-bold text-ink-900">
+        Wie gebruikt de week
+      </h3>
+      <ul className="space-y-3">
+        {rows.map((row) => (
+          <li key={row.key} className="space-y-1">
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <span className="min-w-0 truncate text-ink-900">
+                {row.name}
+                <span className="ml-1.5 text-xs text-ink-500">{row.group}</span>
+              </span>
+              <span className="shrink-0 tabular-nums text-ink-700">
+                <span className="font-semibold text-ink-900">{Math.round((row.tokens / total) * 100)}%</span> · {compact.format(row.tokens)}
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-brand-100">
+              <div className="h-full rounded-full bg-brand-500" style={{ width: `${(row.tokens / total) * 100}%` }} />
+            </div>
+            <p className="text-xs text-ink-500">
+              {row.detail} · {compact.format(row.output)} uit
+            </p>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-ink-500">
+        Tokens sinds {when(data.sources?.since ?? week?.since ?? null)}: invoer, uitvoer en naar cache. Het aandeel is van de tokens, niet van het abonnement: een groot
+        model (Opus, Sonnet) telt per token veel zwaarder dan Haiku, dus je eigen sessies wegen meer dan hun percentage hier.
+      </p>
+    </section>
+  );
+}
+
+/**
  * AI-gebruik: how much of the Claude subscription (5-hour window, week) and of Gemini's free tier
  * is used, and the tokens of the app's own LLM calls per model and per step. From the local backend.
  */
@@ -310,6 +375,7 @@ export function AiUsage() {
             </h3>
             <ClaudeSubscription claude={data.claude} />
           </section>
+          <WeekBySource data={data} />
           <GeminiFreeTier gemini={data.gemini} />
           <AppUsage periods={data.periods} />
         </div>

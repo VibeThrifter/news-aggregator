@@ -810,3 +810,114 @@ class RelationResearch(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper
         return f"<RelationResearch relation={self.relation_id} status={self.status!r}>"
+
+
+class EventDocument(Base):
+    """A government or party document about a news item (Story 14.29, 14.31).
+
+    Found by the job "Achtergrondstukken" with the search terms of the factual analysis
+    (``llm_insights.prompt_metadata.zoektermen``) in Bron or officielebekendmakingen.nl (only
+    documents with the term in their title, migration 021), or linked by an article of the news
+    (``source`` "link", or "officielebekendmakingen" with an empty ``term``). Published to Supabase:
+    the Tijdlijn shows them at their date.
+    """
+
+    __tablename__ = "event_documents"
+    __table_args__ = (
+        UniqueConstraint("event_id", "url", name="uq_event_documents_event_url"),
+        Index("idx_event_documents_event", "event_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("events.id", ondelete="CASCADE", name="fk_event_documents_event"),
+        nullable=False,
+    )
+    term: Mapped[str] = mapped_column(String(120), nullable=False)
+    # Bron's collection: openbesluitvorming, poliflw, woogle, oor, cvdr or obk
+    source: Mapped[str] = mapped_column(String(40), nullable=False)
+    # Bron's document type ("Brief", "Bericht", "Rapport", ...)
+    doc_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The municipality, province, ministry or party branch it comes from
+    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # What it says about the news (migration 024): the articles Kamervragen cite and who asked,
+    # how the Kamer voted on a motion, the articles that quote a press release (Stories 14.33/14.34)
+    details: Mapped[Dict[str, Any] | None] = mapped_column(JSONBType, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, server_default=func.now()
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging helper
+        return f"<EventDocument event_id={self.event_id} source={self.source!r} title={self.title[:40]!r}>"
+
+
+class EventDocumentSearch(Base):
+    """Which search terms of a news item were searched in Bron, and when (Story 14.29).
+
+    Local working database only (migration 022): a news item is searched again only when the
+    analysis gives other terms, also when the first search found nothing.
+    """
+
+    __tablename__ = "event_document_searches"
+
+    event_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("events.id", ondelete="CASCADE", name="fk_event_document_searches_event"),
+        primary_key=True,
+        autoincrement=False,
+    )
+    terms: Mapped[list[str]] = mapped_column(JSONBType, nullable=False, default=list)
+    # The articles' links to public bodies that were read (Story 14.31, migration 023); NULL for a
+    # news item searched before, which is searched once more for the Kamerstukken
+    links: Mapped[list[str] | None] = mapped_column(JSONBType, nullable=True)
+    found: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    searched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, server_default=func.now()
+    )
+
+
+class ParliamentQuestionRead(Base):
+    """A set of Kamervragen the job "Official Sources" read (Story 14.33, migration 025).
+
+    Local working database only. Read once; its links are matched against the articles again
+    when new articles come in.
+    """
+
+    __tablename__ = "parliament_questions_read"
+    __table_args__ = (Index("idx_parliament_questions_read_published", "published_at"),)
+
+    identifier: Mapped[str] = mapped_column(String(80), primary_key=True)
+    doc_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    askers: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    links: Mapped[list[str]] = mapped_column(JSONBType, nullable=False, default=list)
+    read_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, server_default=func.now()
+    )
+
+
+class PressRelease(Base):
+    """A news release of the Rijksoverheid with its text (Story 14.34, migration 025).
+
+    Local working database only: compared word for word with the articles; what the website shows
+    goes to ``event_documents``.
+    """
+
+    __tablename__ = "press_releases"
+    __table_args__ = (Index("idx_press_releases_published", "published_at"),)
+
+    url: Mapped[str] = mapped_column(String(2048), primary_key=True)
+    publisher: Mapped[str] = mapped_column(String(40), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    organisation: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    read_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, server_default=func.now()
+    )

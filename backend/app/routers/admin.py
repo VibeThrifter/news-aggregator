@@ -10,6 +10,9 @@ from pydantic import BaseModel
 from backend.app.core.logging import get_logger
 from backend.app.core.scheduler import get_scheduler
 from backend.app.services.article_digest import get_article_digest_service
+from backend.app.services.background_documents import get_background_documents_service
+from backend.app.services.copy_detection import get_copy_detection_service
+from backend.app.services.official_sources import get_official_sources_service
 from backend.app.services.enrich_service import ArticleEnrichmentService
 from backend.app.services.entity_research.service import get_entity_research_service
 from backend.app.services.evidence_research import get_evidence_research_service
@@ -722,6 +725,108 @@ async def trigger_bias_requests(limit: int = 1):
     if limit < 1 or limit > 5:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 5")
     return await get_bias_request_service().run_pending(limit=limit)
+
+
+# Zelfde tekst (Epic 14, Story 14.27): articles of a news item that are the same text
+@router.post("/trigger/copy-detection")
+async def trigger_copy_detection(
+    hours: int | None = None,
+    force: bool = False,
+    include_archived: bool = False,
+    dry_run: bool = False,
+):
+    """Compare the news items that got an article in the last ``hours`` and store which of their
+    articles are the same text (the job does this every minute for the ones that changed).
+
+    Args:
+        hours: Window in hours (1-8760, default COPY_DETECTION_WINDOW_HOURS)
+        force: Also the news items that did not change since the last comparison
+        include_archived: Also archived news items (a backfill)
+        dry_run: Only count the links that would change
+    """
+    if hours is not None and (hours < 1 or hours > 8760):
+        raise HTTPException(status_code=400, detail="hours must be between 1 and 8760")
+    return await get_copy_detection_service().refresh_recent(
+        hours=hours, force=force, include_archived=include_archived, dry_run=dry_run
+    )
+
+
+@router.post("/trigger/copy-detection/{event_id}")
+async def trigger_copy_detection_event(event_id: int):
+    """Compare the articles of one news item now and return its groups."""
+
+    service = get_copy_detection_service()
+    stats = await service.refresh_events([event_id])
+    if not stats["events"]:
+        raise HTTPException(status_code=404, detail=f"Event {event_id} has no articles")
+    return {"event_id": event_id, **stats, "groups": await service.stored_groups(event_id)}
+
+
+# Achtergrondstukken (Epic 14, Story 14.29): documents in Bron about a news item
+@router.post("/trigger/background-documents")
+async def trigger_background_documents(limit: int = 20):
+    """Search the terms of news items with a new analysis in Bron now (the job does this every
+    15 minutes)."""
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+    return await get_background_documents_service().run(limit=limit)
+
+
+@router.post("/trigger/background-documents/{event_id}")
+async def trigger_background_documents_event(event_id: int):
+    """Search the terms of one news item again, also when they were searched before."""
+
+    stats = await get_background_documents_service().run(event_ids=[event_id])
+    if not stats["events"] and not stats["failed"]:
+        raise HTTPException(status_code=404, detail=f"Event {event_id} has no search terms")
+    return {"event_id": event_id, **stats}
+
+
+# Officiële bronnen (Stories 14.33/14.34): Kamervragen, votes, press releases
+@router.post("/trigger/official-sources")
+async def trigger_official_sources(days: int = 4, steps: str = "kamervragen,persberichten"):
+    """Read new Kamervragen (and their citations of articles), the Kamer's votes on motions in the
+    Tijdlijn and new Rijksoverheid releases now (the job does this every 15 minutes). ``days``
+    widens the window for a backfill; a long window takes several calls (60 sets and 60
+    releases per call)."""
+
+    if days < 1 or days > 90:
+        raise HTTPException(status_code=400, detail="days must be between 1 and 90")
+    chosen = tuple(step.strip() for step in steps.split(",") if step.strip())
+    if not chosen or any(step not in ("kamervragen", "persberichten") for step in chosen):
+        raise HTTPException(status_code=400, detail="steps: kamervragen and/or persberichten")
+    return await get_official_sources_service().run(days=days, steps=chosen)
+
+
+@router.post("/trigger/kamervragen-rematch")
+async def trigger_kamervragen_rematch(days: int = 90):
+    """Match the links of the Kamervragen read in the last ``days`` days against the articles
+    again (articles that came in after a set was read)."""
+
+    if days < 1 or days > 365:
+        raise HTTPException(status_code=400, detail="days must be between 1 and 365")
+    return await get_official_sources_service().parliament.rematch(days=days)
+
+
+# Onderzoek in opdracht van (Story 14.36): who paid for a study, read from the text (no AI)
+@router.post("/trigger/sponsored-research")
+async def trigger_sponsored_research(days: int = 60):
+    """Read who paid for the research in the texts of the Dutch articles of the last ``days``
+    days (new articles get it when they are stored)."""
+
+    if days < 1 or days > 365:
+        raise HTTPException(status_code=400, detail="days must be between 1 and 365")
+    from datetime import timedelta, timezone
+
+    from backend.app.db.session import get_sessionmaker
+    from backend.app.repositories.article_repo import ArticleRepository
+
+    async with get_sessionmaker()() as session:
+        stats = await ArticleRepository(session).backfill_sponsored(
+            datetime.now(timezone.utc) - timedelta(days=days)
+        )
+        await session.commit()
+    return stats
 
 
 # Exploration endpoints (Epic 11, Story 11.8)

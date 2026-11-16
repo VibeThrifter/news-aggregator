@@ -15,7 +15,9 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from backend.app.core.logging import get_logger
 from backend.app.db.models import Article
 from backend.app.feeds.base import FeedItem
+from backend.app.ingestion.headlines import headline_change, normalize_headline, with_title_change
 from backend.app.ingestion.parser import ArticleParseResult
+from backend.app.nlp.sponsored_research import sponsored_research
 
 # Sources that use source_article_id for deduplication (e.g., AD with LIVE articles)
 SOURCES_WITH_ARTICLE_ID = {"AD"}
@@ -122,6 +124,13 @@ class ArticleRepository:
             )
             return ArticlePersistenceResult(article=existing, created=False)
 
+        metadata = dict(feed_item.source_metadata)
+        if parsed.links:
+            metadata["links"] = parsed.links
+        # Onderzoek in opdracht van (Story 14.36): who paid for a study the text reports
+        sponsored = sponsored_research(parsed.text)
+        if sponsored:
+            metadata["sponsored"] = sponsored
         article = Article(
             guid=feed_item.guid,
             url=feed_item.url,
@@ -129,7 +138,7 @@ class ArticleRepository:
             summary=feed_item.summary or parsed.summary,
             content=parsed.text,
             source_name=feed_item.source_metadata.get("name"),
-            source_metadata=feed_item.source_metadata,
+            source_metadata=metadata,
             published_at=feed_item.published_at,
             image_url=feed_item.image_url,
             fetched_at=datetime.now(timezone.utc),
@@ -196,6 +205,80 @@ class ArticleRepository:
             if await self._find_by_source_article_id(source_name, source_article_id):
                 known.add(item.guid or item.url)
         return known
+
+    async def record_title_changes(self, items: List[FeedItem]) -> Dict[str, int]:
+        """Compare the headlines in the feed with those of the stored articles (Story 14.32).
+
+        A new headline becomes the title and the stored one goes into
+        ``source_metadata.title_history``; a small fix only becomes the title; a live blog keeps
+        its first headline (``headlines.py``). Returns how many of each kind were seen.
+        """
+
+        counts = {"headline": 0, "minor": 0, "live": 0}
+        if not items:
+            return counts
+        urls = {item.url for item in items}
+        guids = {item.guid for item in items if item.guid}
+        rows = (
+            await self.session.execute(
+                select(Article).where(or_(Article.url.in_(urls), Article.guid.in_(guids)))
+            )
+        ).scalars().all()
+        by_url = {article.url: article for article in rows}
+        by_guid = {article.guid: article for article in rows if article.guid}
+        now = datetime.now(timezone.utc)
+        for item in items:
+            article = by_url.get(item.url) or (by_guid.get(item.guid) if item.guid else None)
+            if article is None:
+                continue
+            kind = headline_change(article.title, item.title)
+            if kind is None:
+                continue
+            counts[kind] += 1
+            if kind == "live":
+                continue
+            new_title = normalize_headline(item.title)[:512]
+            if kind == "headline":
+                article.source_metadata = with_title_change(article.source_metadata, article.title, now)
+                self.log.info(
+                    "article_headline_changed",
+                    article_id=article.id,
+                    source=article.source_name,
+                    old=article.title,
+                    new=new_title,
+                )
+            article.title = new_title
+        if counts["headline"] or counts["minor"]:
+            await self.session.flush()
+        return counts
+
+    async def backfill_sponsored(self, since: datetime) -> Dict[str, int]:
+        """Read who paid for the research in the texts of Dutch articles published since ``since``
+        (Story 14.36; new articles get it when they are stored)."""
+
+        stats = {"articles": 0, "sponsored": 0}
+        rows = (
+            await self.session.execute(
+                select(Article).where(
+                    Article.published_at >= since, Article.is_international.is_(False)
+                )
+            )
+        ).scalars().all()
+        for article in rows:
+            stats["articles"] += 1
+            found = sponsored_research(article.content)
+            current = (article.source_metadata or {}).get("sponsored")
+            if found == current or (not found and current is None):
+                continue
+            meta = dict(article.source_metadata or {})
+            if found:
+                meta["sponsored"] = found
+                stats["sponsored"] += 1
+            else:
+                meta.pop("sponsored", None)
+            article.source_metadata = meta
+        await self.session.flush()
+        return stats
 
     async def _find_existing(self, url: str, guid: str | None) -> Article | None:
         """The stored article with this URL, else with this guid."""

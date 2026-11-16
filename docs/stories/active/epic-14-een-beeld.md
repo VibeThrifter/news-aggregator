@@ -73,7 +73,7 @@ Bronnen en artikelen
 
 - `lib/explore/speakers.ts`: parseert `source_in_article` ("NU.nl (eigen bewering)", "X (geciteerd via NU.nl)",
   "Naam (Org)", "Naam, rol", anoniem, media als "via"), samengevoegd met `authority_analysis`.
-- `lib/explore/figure.ts`: groepen per bron (≤ 2 NL-bronnen) of per invalshoek (≥ 3), Buitenland (via de
+- `lib/explore/figure.ts`: groepen per bron (1 NL-bron) of per invalshoek (≥ 2; tot 2026-10-19 pas vanaf 3), Buitenland (via de
   bronnenkiezer), "Niet aan het woord"; vaste nummering per event.
 - UI in `components/explore/map/`: `NewsFigure`, `SpectrumMap` (Links/rechts), `FindingsTabs`, `FindingRow`,
   `FindingDetail`, `StemmenTab` (met matrix ● aan het woord / ○ genoemd), `TijdlijnTab`, `PeopleCards`, `Markers`.
@@ -1716,3 +1716,538 @@ Tests:
   apparaten. "Wie zit erachter? shows real routes in the demo" faalt: de demo heeft sinds Story 14.25 geen blok.
 - Screenshots op 390 en 1440 breed (demo, "Bart van den Brink vraagt hulp", "Meerdere explosies"): geen zijwaarts
   scrollen.
+
+## Story 14.27: Zelfde tekst — persbureaukopij in een nieuwsitem
+
+**Status**: ✅ Done (2026-10-16; in het beeld, herijkt en in de analyse 2026-10-19), nog niet gecommit; backend-herstart
+nodig voor de nieuwe kanscurve en de analyse
+
+Eigenaar (2026-10-16), na de vraag of veel nieuws een herschreven persbureaupakket is: "Kun een metric maken waarmee
+we op de nieuwswebsite in een event nieuwsberichten kunnen clusteren die met een bepaalde waarschijnlijkheid copy
+paste nieuws zijn van dezelfde persbureau?"
+
+Waarom:
+- Drie media met dezelfde ANP-tekst zijn één stem, geen drie. "Wie zegt wat?" telt ze nu als drie.
+- Meting in de eigen database (oktober 2025 tot 16 oktober 2026, de acht hoofdbronnen): van de artikelen over nieuws
+  dat ook een andere hoofdbron bracht, is ongeveer 1 op 6 voor minstens de helft dezelfde tekst als bij een ander
+  medium. De Telegraaf 40-45 %, RTL Nieuws 18-33 %, AD 20 %, Het Parool 13-22 %, Trouw 14 %, de Volkskrant 0-5 %,
+  NU.nl 2-3 % (herschrijft), NOS 0 %.
+- Onderzoek: Boumans e.a. (2018, data 2014) vonden online 68 % ANP-kopij (NU.nl 75 %), papier 12-16 %; Welbers e.a.
+  (2018) online 50-75 % (gedeeltelijke) kopie bij politiek nieuws.
+
+Hoe het meet (`backend/app/services/copy_detection.py`, geen AI):
+- Per paar artikelen van verschillende media in één nieuwsitem: welk deel van elke tekst woord voor woord in de andere
+  staat, in passages van minstens 12 woorden in dezelfde volgorde (`cover`). Citaten tellen niet mee (media die zelf
+  schrijven citeren dezelfde uitspraak), sitemeubilair ook niet ("Maak RTL je Google-favoriet", cookiemeldingen).
+- De overlap is het deel van de meest bedekte tekst: een ingekorte kopie staat helemaal in het origineel.
+- `copy_probability` maakt er een kans van dat het kopieën van één tekst zijn. Eerst geijkt op 33 paren die met de
+  hand waren beoordeeld; sinds 2026-10-19 op de 93 blind beoordeelde paren (zie "Nauwkeurigheid"), gewogen naar de
+  echte aantallen: 0,19 bij overlap 0,20, 0,50 bij 0,27, 0,87 bij 0,36 en 0,98 bij 0,45 (`PROBABILITY_MIDPOINT` 0,27,
+  `PROBABILITY_SLOPE` 21; was 0,36 en 16). Opgeslagen kansen hebben `"v": 2`.
+
+- Artikelen met een kans van minstens `COPY_CLUSTER_MIN_PROBABILITY` (0,5) vormen een groep (ook via een derde).
+- Waar de tekst vandaan komt:
+  - een tekst noemt ANP ("(ANP)", "ANP/AFP", "tegen het ANP"): persbureau, ANP;
+  - media van verschillende eigenaren (`eigendom` in het propagandamodel; concurrenten kopiëren elkaar niet):
+    persbureau, vermoedelijk ANP (het enige Nederlandse persbureau sinds de overname van Novum);
+  - titels van één eigenaar met dezelfde artikelcode (ad.nl/…~a43d58b6/ en parool.nl/…~b43d58b6/): zelfde artikel
+    van die uitgever;
+  - titels van één eigenaar zonder gedeelde code: "zelfde tekst", bron open (zij nemen ook ANP-kopij af).
+- Opslag per link in `event_articles.scoring_breakdown.copy` (groep, aandeel, beste match, kans, bron), zoals
+  `found_voice`: geen migratie, de website leest het al mee in dezelfde query.
+
+Job "Copy Detection" (elke 60 s, `COPY_DETECTION_*`): vergelijkt de nieuwsitems die in de laatste 72 uur een artikel
+kregen en sinds de vorige keer veranderden (aantal links, laatste link, artikel-ids). Eerste run na een herstart: alle
+929 nieuwsitems van 72 uur in 1,3 s. Beheer: `POST /admin/trigger/copy-detection` (`hours`, `force`,
+`include_archived`, `dry_run`) en `POST /admin/trigger/copy-detection/{event_id}` (geeft de groepen terug).
+
+Wat de lezer ziet. Eerst alleen onder "Alle bronnen en artikelen"; eigenaar (2026-10-19): "nu is het wel heel ver
+verstopt". Sindsdien is zelfde tekst een bevinding zoals de andere, met een nummer (`=7`) na de tegenspraken
+(`lib/explore/findings.ts`, `figure.ts`, `lib/explore/copies.ts`):
+- "Wie zegt wat?": ballonnen met dezelfde tekst staan naast elkaar (de grootste groep eerst), met een grijze lijn
+  ertussen en in het midden het nummer, zoals ⚡ bij een tegenspraak. Staan ze in verschillende invalshoeken, dan
+  krijgt de ballon een chip "=7 zelfde als RTL Nieuws" (op een telefoon naast een tweede chip alleen "=7"). Een tik
+  opent de kaart onder "Wie praat?" (`NewsFigure.tsx`).
+- "Wie praat?": bovenaan per tekst een kaart met de herkomst als kop ("Zelfde persbureautekst (vermoedelijk ANP)",
+  "Zelfde artikel van DPG Media"), de artikelen op volgorde van publicatie en per artikel "80% dezelfde tekst · kans
+  99%" (`CopyCards.tsx`). Een artikel dat vooral iets anders is (een liveblog met het bericht erin) "bevat deze tekst".
+  De kans staat nooit op 100 %.
+- "Alle bronnen en artikelen": de kop zegt hoeveel artikelen dezelfde tekst zijn ("5 met dezelfde tekst"), en bij elk
+  artikel opent een pil "=7 zelfde tekst" de kaart (`SourcesRow.tsx`).
+
+Tests:
+- Pytest `backend/tests/unit/test_copy_detection.py` (21): citaten en meubilair, ingekorte kopie, eigen woorden met
+  hetzelfde citaat, passages in dezelfde volgorde, de ijking, herkomst (eigenaren, ANP, artikelcode), groepen via een
+  derde, liveblog, de beheer-endpoints.
+- Integratie `backend/tests/integration/test_copy_detection.py` (2) op een echte Postgres (`TEST_POSTGRES_URL`):
+  opslaan, niets dubbel vergelijken, een vertrokken artikel, dry run, eigenaren uit het propagandamodel.
+- Alle 775 andere backend-unittests groen, op `test_google_news` na (land van Times of Israel, staat los hiervan).
+- Jest `__tests__/explore/copies.test.ts` (9, sinds 2026-10-19 ook nummering, lijnen tussen buren, chips bij ballonnen
+  uit elkaar en drie media); alle 364 frontend-tests groen, tsc en ESLint schoon.
+- Op de echte data (72 uur): 27 groepen in 929 nieuwsitems; screenshots op 390 breed (Nobelprijs: AD, Trouw, RTL
+  Nieuws, De Telegraaf en Het Parool; Harry Styles: zelfde artikel van DPG Media).
+
+### Nauwkeurigheid, blind gemeten (2026-10-16)
+
+Opzet:
+- 93 paren die bij de bouw en de ijking niet bekeken waren, gestratificeerd over alle 1.631 paren (verschillende media
+  in één nieuwsitem, beide met genoeg tekst). Daaronder 25 paren zonder gedeelde passage, waarvan 15 met de meeste
+  gedeelde woordgroepjes (de waarschijnlijkste missers). De uitkomsten zijn gewogen naar de echte aantallen per laag.
+- Twee onafhankelijke beoordelaars (agents zonder kennis van de metric) zagen geen score, geen medium en geen tijd.
+  "Kopie" betekent: meer dan de helft van de zinnen van de kortste tekst (buiten citaten) staat (bijna) letterlijk in
+  de andere. Ze waren het over alle 93 paren eens (kappa 1,0). Het is wel één model, dus dat zegt minder dan twee
+  mensen die het eens zijn.
+
+| Overlap | Paren (populatie) | Beoordeeld | Kopie | Deels | Eigen | Voorspelde kans | Gemeten |
+|---|---|---|---|---|---|---|---|
+| 0 | 1.276 | 10 | 0 | 0 | 10 | 0,00 | 0,00 |
+| 0, meeste woordgroepjes | 67 | 15 | 0 | 4 | 11 | 0,00 | 0,00 |
+| 0-0,20 | 90 | 15 | 1 | 9 | 5 | 0,02 | 0,07 |
+| 0,20-0,36 | 32 | 11 | 8 | 2 | 1 | 0,23 | 0,73 |
+| 0,36-0,50 | 24 | 12 | 11 | 1 | 0 | 0,70 | 0,92 |
+| 0,50-0,70 | 49 | 15 | 14 | 1 | 0 | 0,97 | 0,93 |
+| ≥ 0,70 | 93 | 15 | 15 | 0 | 0 | 1,00 | 1,00 |
+
+Uitkomst bij de drempel (kans ≥ 0,5, overlap ≥ 0,36), met 95%-intervallen (bootstrap):
+- Precisie 97% (92-100): van wat de metric groepeert, is 97% echt dezelfde tekst.
+- Recall 85% (78-90): 15% van de kopieën mist hij. Dat zijn licht herschreven ANP-teksten (NU.nl, RTL, De Telegraaf)
+  met 20-36% letterlijk gelijke passages.
+- Brier-score 0,015. De gewone accuracy (98%) zegt weinig: de meeste paren zijn overduidelijk verschillend.
+- De kans is te laag tussen 0,2 en 0,5 (voorspeld 0,23 en 0,70, gemeten 0,73 en 0,92). De eigen ijking rekende licht
+  herschreven tekst niet als kopie, de blinde beoordelaars wel.
+- Met de drempel op overlap 0,20: precisie 93% (87-98), recall 97% (91-100).
+
+Niet gemeten: of de herkomst klopt (ANP, uitgever), artikelen zonder tekst (betaalmuur), en kopieën die de clustering
+in verschillende nieuwsitems zette.
+
+### Herijkt en opnieuw gemeten (2026-10-19)
+
+De curve is opnieuw geijkt op de 93 blinde oordelen (gewogen naar de echte aantallen per laag). Op die paren is de
+precisie 97 % en de recall 92 %, met een Brier-score van 0,010. Omdat dat dezelfde paren zijn, is daarna opnieuw blind
+gemeten:
+- 72 nieuwe paren, nooit gebruikt bij het ijken: 61 uit dezelfde populatie en 11 van na 16 oktober. Ze zijn
+  gestratificeerd over 1.580 paren en terug gewogen.
+- Elk paar kreeg twee nieuwe beoordelaars, met dezelfde regels: geen score, medium of tijd.
+- Over kopie of niet waren ze het bij alle 72 eens (kappa 1,0). Over de drie labels kopie, deels en eigen was dat 93 %
+  (kappa 0,89).
+
+| Overlap | Paren (populatie) | Beoordeeld | Kopie | Deels | Eigen | Voorspelde kans | Gemeten |
+|---|---|---|---|---|---|---|---|
+| 0 | 1.323 | 8 | 0 | 0 | 8 | 0,00 | 0,00 |
+| 0, meeste woordgroepjes | 69 | 12 | 1 | 5 | 6 | 0,00 | 0,08 |
+| 0-0,15 | 64 | 14 | 0 | 13 | 1 | 0,02 | 0,00 |
+| 0,15-0,27 | 12 | 12 | 3 | 5 | 4 | 0,17 | 0,25 |
+| 0,27-0,40 | 2 | 2 | 2 | 0 | 0 | 0,73 | 1,00 |
+| 0,40-0,60 | 17 | 12 | 12 | 0 | 0 | 1,00 | 1,00 |
+| ≥ 0,60 | 93 | 12 | 12 | 0 | 0 | 1,00 | 1,00 |
+
+Uitkomst bij de drempel (kans ≥ 0,5, nu overlap ≥ 0,27), met 95%-intervallen (bootstrap per laag):
+- Precisie 100 % (100-100): geen enkel paar boven de drempel was iets anders dan dezelfde tekst.
+- Recall 93 % (84-99). Wat hij mist, zijn bewerkte kopieën:
+  - een paar dat voor de helft letterlijk ANP is (overlap 0,26);
+  - twee licht herschreven teksten (0,17 en 0,22);
+  - een paar zonder één gelijke passage van 12 woorden, waarin alleen de zinnen tussen de citaten bijna gelijk zijn.
+- Brier-score 0,005. Met de oude curve (drempel 0,36) waren de precisie 100 % en de recall 91 %.
+- Met de drempel op overlap 0,20 is de recall 94 % en de precisie nog 100 %. Dat verschil is één paar, dus de drempel
+  blijft bij een kans van 0,5.
+
+### De analyse leest één tekst één keer (2026-10-19)
+
+Waarom: de samenvatting schreef "Volgens De Telegraaf overleed Geel in juli…", terwijl RTL Nieuws, AD en De Telegraaf
+dezelfde ANP-tekst brachten. Drie kopieën namen ook drie van de 16 plekken.
+
+Hoe (`backend/app/llm/prompt_builder.py`, geen extra AI-aanroep):
+- De promptbouwer leest de groepen uit `event_articles.scoring_breakdown.copy` in de lokale database.
+- Van een groep wordt het eerste artikel in de gewone volgorde (het nieuwste per medium eerst) heel gelezen.
+- Een kopie daarna brengt alleen de zinnen die nog niet in de prompt staan. Dat wordt per zin bepaald op de hele tekst:
+  een zin telt als gelezen wanneer de helft van zijn reeksen van 6 woorden er al staat. Een kopie neemt pas een plek in
+  vanaf 40 eigen woorden (`OWN_TEXT_MIN_WORDS`), en nooit de plek van een artikel dat er zonder dit wel in zat.
+- Het eerste artikel toont "Tekst die ook bij AD en RTL Nieuws staat" en apart "Eigen tekst van De Telegraaf".
+- Een kopie toont "Eigen tekst van AD (de rest staat bij artikel 1)", of "dezelfde als bij artikel 1, zonder eigen
+  zinnen".
+- Staat de gedeelde passage buiten wat de prompt van het eerste artikel leest (4.000 tekens, bijvoorbeeld bij een
+  liveblog), dan blijft de kopie heel.
+- Elk artikel van een groep krijgt de regel "Zelfde tekst als RTL Nieuws (artikel 3): persbureautekst (vermoedelijk
+  ANP)", en de context krijgt "- Zelfde tekst bij De Telegraaf, AD en RTL Nieuws: …".
+- Boven de artikelen staat wat dat betekent (`COPY_NOTE`): één bron, geen bevestiging door meer media; schrijf het toe
+  aan de tekst die ze samen brengen. Dat staat in de data en niet in de prompt in de database, zodat de database en de
+  templates gelijk blijven.
+- Gemeten op de 13 nieuwsitems met kopieën van de laatste 72 uur:
+  - geen enkel nieuwsitem raakte de grens van 16 artikelen (het grootste had er 13), dus er wordt niets extra gelezen
+    en er valt geen medium weg;
+  - de artikelblokken zijn 2 % korter;
+  - de winst zit in de toeschrijving.
+- Tests in `backend/tests/unit/test_prompt_builder.py` (5): één plek voor drie kopieën, een kopie zonder eigen zinnen,
+  een kopie alleen in de prompt, de groepen uit de links en de liveblog.
+- Dit geldt voor nieuwe analyses na een herstart van de backend; bestaande analyses blijven zoals ze zijn.
+
+### Open
+- Bewerkte kopieën mist de metric (7 % van de kopieën, zie de hermeting).
+- Het eigen deel van AD en RTL Nieuws bevat soms paginarommel ("Interessant voor jou" met koppen van andere artikelen,
+  "Lees meer over"). Dat zit al in de opgehaalde tekst en hoort daar weg.
+- Oudere nieuwsitems: `POST /admin/trigger/copy-detection?hours=8760&include_archived=true&force=true`.
+
+## Story 14.28: Ballonnen per invalshoek, niet per krant
+
+**Status**: ✅ Done (2026-10-19)
+
+Feedback eigenaar (2026-10-19): "moet niet per krant maar per invalshoek verdeeld zijn in ballonnen", en de naam van
+een invalshoek noemt de krant niet ("Telegraaf: …"), ook niet als die krant de enige met die invalshoek is.
+
+- "Wie zegt wat?" groepeert per invalshoek zodra er 2 Nederlandse bronnen zijn (was 3). Met 1 Nederlandse bron blijft
+  het één groep met de sprekers als eigen ballon (`lib/explore/figure.ts`).
+- De naam van een invalshoek zegt hoe het nieuws gebracht wordt, niet wie het brengt: de prompt (`prompt_factual`,
+  database + `factual_prompt.txt`) verbiedt mediumnamen in `label`, en voor bestaande analyses haalt
+  `lib/explore/angle.ts` de bronnen van het nieuws uit de naam ("Berichtgeving RTL Nieuws over X" → "Berichtgeving
+  over X", "Recensie van de Volkskrant" → "Recensie"; blijft er niets over: "Berichtgeving"). Getoetst op alle 3.470
+  labels van de laatste 30 dagen: 244 noemden een bron, alle 244 schoon, geen andere gewijzigd. Het finding-id houdt
+  het oude label (bewaarde items blijven werken).
+- Tests: `__tests__/explore/angle.test.ts`, `figure.test.ts` (twee bronnen per invalshoek).
+
+## Story 14.29: Achtergrond uit overheidsstukken (Bron van Open State)
+
+**Status**: ✅ Gebouwd (2026-10-21), nog niet gecommit. Eigenaar (2026-10-21): bouwen, in de Tijdlijn
+
+Eigenaar (2026-10-19), over https://openstate.eu/projecten/: "Wat van deze projecten (databases of api's of front
+ends whatever) kun je gebruiken om als er een nieuwe event is hier og meer relevante achtergrondinformatie over op te
+zoeken?"
+
+Wat bruikbaar is:
+- Bruikbaar is alleen **Bron** (bron.live, broncode `openstate/jodal`, MIT). Daarin zitten PoliFLW, Woogle en Open
+  Raadsinformatie al.
+  - De zoek-API heeft geen sleutel: `GET https://api.bron.live/documents/search`, met `query` (Elasticsearch
+    query_string), `filter` (`source:oor,woogle|published_from:2026-10-01`), `sort` (`_score:desc`,
+    `published:desc`), `limit`, `includes`/`excludes`; ook `format=rss`.
+  - Gebruiksvoorwaarden of een limiet heeft Open State nergens gepubliceerd.
+- Wat erin zit (2026-10-20; totaal sinds de start, met de nieuwste datum):
+
+  | `source` | Wat | Stukken | Nieuwste |
+  |---|---|---|---|
+  | `openbesluitvorming` | raadsstukken van gemeenten (= Open Raadsinformatie) | 4,9 mln | 2026-10-15 |
+  | `woogle` | Woo-stukken | 1,5 mln | 2025-10-13 |
+  | `poliflw` | nieuws van partijen, vrijwel alleen lokale afdelingen (landelijk: laatste in dec. 2025) | 706 dzd | 2026-10-19 |
+  | `cvdr` | lokale regelgeving | 235 dzd | 2026-10-01 |
+  | `obk` | officiële bekendmakingen van gemeenten | 215 dzd | 2026-10-19 |
+  | `oor` | Woo-stukken van het Rijk (open.overheid.nl) | 42 dzd | 2025-04-10 |
+
+- De rest van de lijst is niet bruikbaar:
+  - Open Lobby en Open Rechtspraak zitten al in het propagandamodel (`tools/registers/agenda.py`,
+    `rechtspraak.py`).
+  - Open Spending heeft geen API gevonden.
+  - Open Inkoop, VraagHetZe en Politwoops reageerden niet.
+  - Woogle verhuisde naar woozm.nl, zonder API.
+  - De andere projecten zijn campagnes, onderzoek of verkiezingshulp.
+
+### Meting (2026-10-20)
+
+Opzet:
+- Twaalf binnenlandse nieuwsitems van 14-20 oktober met kans op overheidsstukken. Etos is de controle: daar zijn geen
+  stukken te verwachten.
+- Per item drie manieren om de zoekvraag te kiezen. Alleen de derde gebruikt een mens.
+- De bovenste treffers (4-5 per groep bronnen) zijn beoordeeld op de vraag of een stuk over dit nieuws of het
+  onderwerp ervan gaat. Dat deed één beoordelaar (Claude), niet blind. Het is een kleine steekproef: lees de cijfers
+  als richting.
+
+| Nieuwsitem | Automatisch: woorden of namen | Automatisch: zeldzaamste woord | Goed gekozen woord |
+|---|---|---|---|
+| Streekvervoer staakt opnieuw | – | – (Keolis: vervoerplannen) | – (streekvervoer + staking) |
+| Onderhoud boven nieuwe wegen | – | – (Karremans: andere brieven) | ✓ Nedersaksenlijn: MIRT-afspraken, CDA over uitstel |
+| Jetten vader via draagmoeder | – | ✓ draagmoeder: WODC "Het Gedragen Kind" | ✓ draagmoederschap: idem |
+| PostNL wil extra geld | – | – | – (alleen late post in Haarlemmermeer) |
+| Calandbrug blijft dicht | – | – | – |
+| Angstcultuur asielschip Silja | – | – (asielschip: een ander schip) | ✓ Silja: raadsdebatten Rotterdam over de MS Silja |
+| Statushouders en sociale huur | – | – | ✓ raadsvragen over voorrang statushouders |
+| Arbeidsuitbuiting stijgt | – | – | ✓ "Samen tegen mensenhandel" (JenV), gemeentelijke aanpak |
+| Geroofde Kandinsky verkocht | – | – (geroofde Joodse panden) | – (roofkunst algemeen) |
+| Coalitie zoekt steun rechts | – | – | ✓ spreidingswet: contourennota intrekking, lokale partijen |
+| Klaver nodigt Jetten uit | – | niet gemeten | niet gemeten |
+| Etos online na cyberaanval (controle) | – | – | – |
+| **Raak** | **0 van 12** | **1 van 11** | **6 van 11** |
+
+Wat de meting zegt:
+- **De zoekterm bepaalt alles.**
+  - Woorden uit de tf-idf of namen uit het nieuws vinden niets bruikbaars. "werkgever", "Rob Jetten" en "FNV" staan
+    in duizenden stukken.
+  - Het zeldzaamste woord volgens Bron's eigen telling pakt ruis: "De Calandbrug", "syriër", "Delhaize".
+  - Het woord dat een overheidsstuk zelf gebruikt werkt wel: een wet, een project, een plaats of een schip.
+- **Een treffer met de zoekterm in de titel ging in deze steekproef over het onderwerp.** Treffers die de term alleen
+  in de tekst hadden, waren meestal ruis. Een filter op de titel houdt de lijst dus zuiver, en geeft liever niets dan
+  iets dat er niet over gaat.
+- **Bron is lokaal.**
+  - De treffers zijn raadsstukken en partijnieuws van gemeenten.
+  - Rijksstukken stoppen in april 2025 (`oor`) en oktober 2025 (`woogle`).
+  - Kamerstukken en Handelingen zitten er niet in.
+  - Voor landelijk nieuws geeft Bron dus vooral oudere achtergrond, zoals het WODC-rapport van 2024.
+- **De meeste grote nieuwsitems zijn buitenlands, sport of entertainment.** Van de 40 grootste van deze week (4+
+  artikelen) gingen er twee over Nederlands beleid of bestuur (draagmoederschap, streekvervoer). Bron helpt alleen bij
+  dat soort nieuws.
+
+### Hoe het zou werken
+
+Eén manier, zonder extra AI-aanroep (regel: extra AI alleen voor de beheerder):
+
+1. **De zoekterm komt uit de feitenanalyse.** `prompt_factual` levert een nieuw veld `zoektermen`: hoogstens twee
+   woorden die een overheidsstuk over dit nieuws zou gebruiken ("draagmoederschap", "Silja", "spreidingswet"). Bij
+   buitenlands nieuws, sport en entertainment blijft het leeg. Het zit in dezelfde aanroep, dus er komt geen AI bij.
+   Database en `factual_prompt.txt` gaan samen (zie CLAUDE.md, "LLM Prompts Updaten").
+2. **Een job "Achtergrondstukken"** (elke 15 minuten, na de insights) draait voor nieuwsitems met zoektermen die nog
+   niet gezocht zijn, of waarvan de termen veranderden. Per term is het één aanroep van Bron (`sort=_score:desc`,
+   `limit=20`, de laatste drie jaar). Wat blijft:
+   - alleen stukken met de term in de titel;
+   - dezelfde titel maar één keer (Bron heeft dubbelen, bijvoorbeeld een stuk bij twee vergaderingen);
+   - hoogstens 5 per nieuwsitem, de nieuwste eerst.
+
+   Bij zo'n 150 binnenlandse items per dag zijn dat hoogstens 300 aanroepen naar Bron. Er gaat geen leesverkeer naar
+   Supabase.
+3. **Opslag** in een nieuwe tabel `event_documents` (migratie 021):
+   - kolommen: nieuwsitem, term, bron, titel, url, datum, plaats of organisatie;
+   - lokaal, en via `PUBLISHED_TABLES` ook in Supabase, met RLS en alleen SELECT voor anon.
+4. **Tonen in de Tijdlijn**, in het verhaal ervóór (Story 14.26):
+   - elk stuk op zijn datum, met een eigen punt;
+   - waar het vandaan komt, bijvoorbeeld "Raadsdebat · Rotterdam" of "Woo-stuk · Ministerie van JenV";
+   - de titel als link naar het stuk.
+
+   Er staat alleen wat er is: geen "geen stukken gevonden".
+
+### Besluit (eigenaar, 2026-10-21)
+- Bouwen, in de Tijdlijn.
+- Nog open: Open State vragen of de API zo gebruikt mag worden. Ze publiceren geen voorwaarden.
+
+### Gebouwd (2026-10-21)
+- **Zoektermen**: `prompt_factual` (database en `factual_prompt.txt`) vraagt `zoektermen`, hoogstens twee. Het schema
+  (`FactualPayload.zoektermen`) neemt de eerste twee en laat de analyse nooit mislukken op dit veld. Ze staan in
+  `llm_insights.prompt_metadata.zoektermen`, dat lokaal blijft.
+- **Job "Background Documents"** (`backend/app/services/background_documents.py`, elke 15 minuten,
+  `BACKGROUND_DOCUMENTS_*`):
+  - pakt nieuwsitems die niet gearchiveerd zijn en waarvan de nieuwste analyse andere termen geeft dan de vorige
+    zoekopdracht (`event_document_searches`, lokaal, migratie 022), hoogstens 20 per keer, de nieuwste eerst;
+  - zoekt per term `title:"term"` in Bron, de laatste drie jaar, 20 treffers;
+  - houdt alleen treffers met de term letterlijk in de titel, zonder het registratienummer ervoor
+    ("[24bb002195] …");
+  - houdt elke titel en URL één keer, hoogstens 5, de nieuwste eerst;
+  - vervangt dan de stukken van dat nieuwsitem.
+
+  Valt Bron uit, dan stopt de run zonder iets op te slaan. De volgende run probeert het opnieuw.
+- **Opslag**: `event_documents` (migratie 021, op beide databases): lokaal geschreven, via `PUBLISHED_TABLES` in
+  Supabase, met RLS en alleen SELECT voor anon.
+- **Tijdlijn** (`lib/explore/chronology.ts`, `TijdlijnTab.tsx`):
+  - elk stuk staat op zijn datum, vóór of na dit nieuws, met een klein grijs vierkant als punt (een stuk, geen
+    moment of artikel);
+  - erboven staat waar het vandaan komt, met `documentLabel`: Raadsstuk, Partijnieuws, Woo-stuk, Regelgeving of
+    Bekendmaking, met de plaats of organisatie ("Raadsstuk · Rotterdam");
+  - de titel linkt naar het stuk;
+  - een stuk zonder datum staat er niet. Zonder stukken verandert er niets.
+- **Beheer**: `POST /admin/trigger/background-documents?limit=20`, en `POST
+  /admin/trigger/background-documents/{event_id}` voor één nieuwsitem, ook als het al gezocht is.
+- **Tests**: `backend/tests/unit/test_background_documents.py` (termen, titelfilter, selectie, zoekvraag, schema,
+  aanroep met een nep-Bron) en Jest `figure.test.ts` (stukken op de as, label).
+
+### Open
+- Actuele landelijke stukken zitten niet in Bron. Die vraag hoort in een eigen story, met deze bronnen:
+  - Kamerbrieven en Kamervragen: officielebekendmakingen.nl (SRU) of de Tweede Kamer OData, die het propagandamodel
+    al leest voor personen;
+  - Woo-stukken van het Rijk: open.overheid.nl.
+- Bijvangst van de meting (2026-10-20), los van deze story:
+  - Sinds 2026-10-19 14:33 ontbrak de Chromium van Playwright (`chromium_headless_shell-1148`). Een
+    Playwright-installatie elders had hem opgeruimd, omdat de backend-venv niet in `ms-playwright/.links` stond.
+  - Elke fetch liet daardoor een node-driver achter: 2.523 stuks, en de Mac kon geen processen meer starten.
+  - Volkskrant, Parool en Trouw kwamen niet binnen. AD, NU.nl, De Telegraaf, NieuwRechts en NineForNews kwamen binnen
+    met alleen de RSS-samenvatting: 140 artikelen.
+  - Hersteld: de drivers gestopt, de browser opnieuw geïnstalleerd (`.venv/bin/python -m playwright install
+    chromium`), en `PlaywrightBrowserPool` stopt nu de driver van een mislukte start
+    (`backend/tests/unit/test_playwright_fetch.py`). Die codewijziging werkt na een herstart van de backend.
+
+## Story 14.30: Gelinkte bronnen (OSINT)
+
+**Status**: ✅ Gebouwd (2026-11-15), nog niet gecommit. Eigenaar (2026-11-15): "doe nu de osint aanvullingen bouwen"
+
+Aanleiding: een voorstel voor vier OSINT-automatiseringen (eigendom via OpenCorporates/OpenSanctions/Wikidata,
+technische vingerafdrukken via RDAP/urlscan.io, bron- en citatie-analyse per artikel, coördinatie via
+embeddings). Beoordeeld op 2026-11-15:
+- **Coördinatie (embeddings > 85 %)**: niet gebouwd. Zelfde tekst (Story 14.27) vergelijkt woord voor woord en is
+  gekalibreerd. Embeddings van hetzelfde nieuws lijken altijd op elkaar (de clustering gebruikt 0,70), en
+  "gecoördineerd" is een oordeel.
+- **Bron- en wederhoor-extractie per artikel met een LLM**: niet gebouwd. "Wie praat?", "Wat ontbreekt?" en "Niet
+  gevraagd" doen dit per nieuwsitem; een aanroep per artikel botst met de regel dat extra AI alleen voor de beheerder
+  is.
+- **Technische vingerafdrukken**: niet gebouwd. Een gedeeld IP-adres zegt niets (Cloudflare, gedeelde hosting). Een
+  gedeeld tracking-id is geen plek in het medium en geen geld (Story 14.25). Hooguit een spoor voor `nieuws-scout`.
+- **OpenSanctions als register**: niet gebouwd. De data staat onder CC BY-NC 4.0 en de app heeft betaalde
+  pro-codes, dus het gebruik is commercieel: daar is een licentie voor nodig. Wat OpenSanctions over Nederlandse
+  ambtsdragers heeft, leest het propagandamodel al rechtstreeks uit de registers zelf (OO, Tweede Kamer, EP). Het
+  is een eigenaarsbesluit.
+- **Externe links in de artikeltekst**: gebouwd (hieronder). Deze stap gebruikt geen AI en de feiten staan letterlijk
+  op de pagina.
+
+### Wat er gebouwd is
+- **Ophalen**: `extract_links` in `backend/app/ingestion/parser.py`. Trafilatura haalt de artikeltekst er nog een
+  keer uit, nu met links (`include_links`). Alleen links in de tekst tellen; menu, footer en "lees ook" blijven buiten.
+  - Weg blijven: links naar de eigen site (`site_of`), deelknoppen en "volg ons"-links (Google Nieuws, WhatsApp-kanaal).
+  - Weg uit de link: trackingparameters en het `#`-deel. Een post op X wordt `x.com/<naam>/status/<id>`.
+  - Hoogstens 20 links per artikel (`LINK_LIMIT`).
+  - Opslag in `articles.source_metadata.links` (`article_repo.upsert_from_feed_item`). Dat veld wordt al
+    gepubliceerd, dus er is geen migratie nodig.
+- **Wat het oplevert** (2026-11-15, losse artikelen):
+  - NieuwRechts linkt naar vier Kamerstukken (officielebekendmakingen.nl).
+  - NineForNews linkt naar een post op X van Van Houwelingen.
+  - De Dagelijkse Standaard linkt naar maurice.nl en parlement.com.
+  - GeenStijl linkt naar ScienceDaily en het AD.
+  - NOS en NU.nl linken zelden.
+- **Nieuwspagina**: in "Alle bronnen en artikelen" (`SourcesRow`) staan onder elk artikel de sites waar het naar
+  linkt (↗ rijksoverheid.nl). Een pagina waar artikelen van twee of meer bronnen naar linken, staat onder "Dezelfde
+  pagina gelinkt" met die bronnen (`sharedLinks` in `frontend/lib/explore/links.ts`).
+- Tests: `backend/tests/unit/test_parser.py`, `frontend/__tests__/explore/links.test.ts`.
+
+### Open
+- Alleen artikelen die sinds 2026-11-15 binnenkomen hebben links. Oudere artikelen krijgen ze niet: die pagina's
+  worden niet opnieuw opgehaald.
+- Een feed die zelf de volledige tekst geeft (GeenStijl, INDEPEN) levert alleen links op als de pagina wordt
+  opgehaald.
+- Wat de links verder opleveren staat in Story 14.31: gelinkte stukken in de Tijdlijn, en de links in de analyse.
+
+## Story 14.31: Kamerstukken en gelinkte stukken als achtergrond
+
+**Status**: ✅ Gebouwd (2026-11-15), nog niet gecommit. Eigenaar (2026-11-15): "doe 1 en 2"; 1 = gelinkte stukken
+in de Tijdlijn en de links in de analyse, 2 = actuele Kamerstukken (het open punt van Story 14.29)
+
+### Meting (2026-11-15)
+De zoektermen van de feitenanalyse van 26 nieuwsitems uit oktober zijn gezocht in de titels bij
+officielebekendmakingen.nl (SRU van KOOP, `repository.overheid.nl/sru`, geen sleutel). Het gaat om de laatste drie
+jaar, de nieuwste eerst. Eén beoordelaar (Claude), niet blind:
+- **Raak bij 13 van de 26.** Voorbeelden:
+  - draagmoederschap: amendement, motie en Kamervragen;
+  - Postwet: de routekaart voor de postmarkt;
+  - World Economic Forum: de motie en de Kamervragen van Van Houwelingen;
+  - Huize Soria: de Kamervragen en antwoorden van die week;
+  - warmtepompplicht: de motie om haar te schrappen, en de Kamervragen;
+  - Risicoanalyse Nationale Veiligheid: de Kamerbrief;
+  - Songfestival: de motie en de Kamervragen.
+- **Geen treffer bij 10 termen**, onder andere Floradorp, Silja, Jackdaw en noodopvang Loosdrecht. Dat is lokaal of
+  buitenlands nieuws, waar Bron of niets past.
+- **Ruis kwam uit de Staatscourant**: vergunningskennisgevingen bij "Calandbrug" en archiefbesluiten bij
+  "Archiefwet". De Staatscourant blijft daarom weg, net als uitstelberichten ("Uitstel beantwoording", subrubriek
+  Mededeling) en beslisnota's.
+
+### Wat er gebouwd is
+- **Kamerstukken** (`search_ob` in `backend/app/services/background_sources.py`): per zoekterm één SRU-aanroep.
+  - Gezocht wordt in Kamerstukken, Kamervragen (met en zonder antwoord), Handelingen, het Staatsblad en
+    niet-dossierstukken.
+  - Een stuk blijft alleen als de term in de titel staat, vergeleken op woorden ("Handhaving- en Toezichtlocatie").
+  - Hoogstens 5 per nieuwsitem, elke titel één keer.
+  - Het label leest zoals een lezer het noemt: Motie, Amendement, Kamerbrief, Kamervragen, Antwoord op Kamervragen,
+    Kamerdebat.
+- **Gelinkte stukken** (`linked_documents`): de links in de artikeltekst (Story 14.30) naar een lijst van
+  overheidsinstanties (`PUBLIC_SITES`).
+  - Een officielebekendmakingen.nl-nummer wordt in de SRU opgezocht.
+  - Een documentnummer van de Tweede Kamer (`?did=2026D57700`) wordt opgezocht in de open data van de Kamer.
+  - Elke andere pagina geeft zelf titel en datum: `DCTERMS.issued`/`available`, Open Graph of een datum in de URL;
+    nooit `modified`.
+  - Hoogstens 6 per nieuwsitem; wat meer bronnen linken eerst.
+  - Een pagina die niet te lezen is, of die doorverwijst naar de voorpagina, valt weg.
+  - Een gelinkt stuk komt niet nog eens terug als zoektreffer.
+- **Opnieuw zoeken**: een nieuwsitem wordt opnieuw gezocht als de zoektermen of de links veranderen
+  (`event_document_searches.links`, migratie 023, alleen lokaal). Wat vóór deze story gezocht was, wordt één keer
+  opnieuw gezocht, voor de Kamerstukken.
+- **Tijdlijn**: "Motie · Tweede Kamer", "Europese Commissie" (gelinkte pagina), en onder het stuk "Gelinkt door
+  De Dagelijkse Standaard" (`linkedBy` in `chronology`). De site vraagt hoogstens 16 stukken op.
+- **Analyse**: elk artikel geeft in de prompt de pagina's waar zijn tekst naar linkt: hoogstens 5, die van
+  overheidsinstanties eerst (`PROMPT_LINKS_PER_ARTICLE`). Er staat een korte uitleg bij (`LINK_NOTE`): een bewering
+  die op een gelinkt stuk rust, is niet "zonder bron", maar het stuk zelf is niet gelezen. De prompt in de database is
+  niet veranderd en er komt geen AI-aanroep bij.
+- **Hersteld**: de site haalde `source_metadata.links` wel op, maar `getExploration` gaf ze niet door. De links
+  onder "Alle bronnen en artikelen" (Story 14.30) bleven daardoor leeg.
+- **Proef (2026-11-15)**:
+  - WEF-nieuws (11348): de motie en Kamervragen van Van Houwelingen in de Tijdlijn; Bron vond niets.
+  - De Dagelijkse Standaard (11574): drie gelinkte pagina's van de Europese Commissie, met "Gelinkt door". De twee
+    EUR-Lex-links gaven geen titel en vielen weg.
+- Tests: `backend/tests/unit/test_background_sources.py`, `test_prompt_builder.py`, `test_parser.py`,
+  `frontend/__tests__/explore/figure.test.ts`, `links.test.ts`.
+
+### Open
+- Pagina's die hun inhoud met JavaScript laden (de persberichten van de Europese Commissie, uitspraken op
+  rechtspraak.nl) geven geen datum. Ze staan dan niet in de Tijdlijn.
+- De lijst van overheidsinstanties (`PUBLIC_SITES`) is met de hand gemaakt. Gemeenten staan er niet in.
+
+## Stories 14.32–14.37: Sporen rond het nieuws (OSINT, vervolg)
+
+**Status**: ✅ Gebouwd (2026-11-16), nog niet gecommit; de backend moet opnieuw starten voor de job en de koppen.
+Eigenaar (2026-11-16): "bouw alles", na het advies over OSINT-technieken (koppen volgen, Kamervragen, citaten uit
+persberichten, gelijktijdige publicatie, opdrachtgever van onderzoek); daarna (eigenaar: "ok") de geldregisters voor
+"Wie betaalt" (Story 14.37).
+
+### Meting (2026-11-16, lokale database, alleen gelezen)
+- **Koppen**: van 376 artikelen die hooguit zes uur eerder waren opgehaald, had 5 % (18) in de feed al een andere
+  kop. Van 16 bekeken: 3 spelling, 4 liveblogs, 9 een nieuwe kop boven hetzelfde artikel. Eén zondagavond, niet blind.
+- **Kamervragen**: 31 % van 273 sets (3 oktober–14 november) noemt een bericht in de titel; over 2–21 oktober
+  linkten 12 sets naar precies een artikel in de app.
+- **Persberichten**: 59 berichten van de Rijksoverheid naast 5.694 artikelen. 13 kwamen woordelijk terug in 21
+  artikelen; lopende tekst overnemen is zeldzaam (1 artikel, 47 %), een citaat van 8+ woorden uit het persbericht
+  staat in 16 van de 21.
+- **Tegelijk**: bij 7 van 221 nieuwsitems met drie of meer titels verschenen minstens drie binnen twee minuten.
+- **Opdrachtgever**: 26 van 7.602 artikelen noemen in één zin wie het onderzoek bestelde.
+
+### Wat er gebouwd is
+Geen AI-aanroep in een van de vijf; elke regel zegt wat er staat, nooit waarom.
+- **14.32 Koppen die veranderen**: elke poll vergelijkt de kop in de feed met die van artikelen die er al zijn
+  (`record_title_changes` in `article_repo.py`, `backend/app/ingestion/headlines.py`). Een nieuwe kop wordt de titel
+  en de oude gaat naar `source_metadata.title_history`; een kleine verbetering (spelling) wordt alleen de titel; een
+  liveblog houdt zijn eerste kop. De Tijdlijn toont "NOS verandert de kop" met oud en nieuw, "Alle bronnen en
+  artikelen" de eerdere kop. Geen extra verkeer: de feed wordt al elk kwartier gelezen.
+- **14.33 Kamervragen en stemmingen** (job Official Sources, `parliament_citations.py`): nieuwe Kamervragen op
+  officielebekendmakingen.nl (met en zonder antwoord) worden één keer gelezen (`parliament_questions_read`, lokaal,
+  migratie 025); hun links worden vergeleken met de artikelen, ook later nog (`/admin/trigger/kamervragen-rematch`).
+  Een treffer wordt een rij in `event_documents` (bron `kamervragen`, `details.cites`, `details.askers`): de
+  Tijdlijn toont "Vragen van Ergin (DENK)" en "Over het bericht van NU.nl", het artikel "Kamervragen over dit
+  artikel". Bij een motie of amendement in de Tijdlijn haalt de job de stemming uit de open data van de Kamer
+  (`details.vote`: uitslag, fracties voor en tegen met zetels).
+- **14.34 Citaat uit het persbericht** (`press_releases.py`): nieuwe nieuwsberichten van de Rijksoverheid (sitemap,
+  CC0; `press_releases`, lokaal) worden woord voor woord vergeleken met de artikelen van de vier dagen eromheen, met
+  de methode van Zelfde tekst. Een citaat van 8+ woorden dat letterlijk in het persbericht staat, of lopende tekst
+  eruit, wordt `event_documents` (bron `persbericht`, `details.quoted_by`). De Tijdlijn toont "Letterlijk geciteerd
+  door …", het artikel "Een citaat staat letterlijk in het persbericht". De analyse krijgt het per artikel te zien
+  (`PRESS_NOTE` in `prompt_builder.py`): zo'n citaat telt niet als eigen gesprek. Het signaal "persberichten" in het
+  propagandamodel en "Kopieergedrag" in de vergelijking rusten nu op deze meting en Zelfde tekst, niet op de schatting
+  van de AI (`copy_paste_score`).
+- **14.35 Tegelijk verschenen** (alleen website, `chronology.ts`): drie of meer bronnen die het nieuws binnen twee
+  minuten brengen staan in de Tijdlijn als "4 bronnen verschijnen binnen 2 minuten: …".
+- **14.36 Onderzoek in opdracht van** (`backend/app/nlp/sponsored_research.py`): zinnen met "in opdracht van" en
+  een woord voor onderzoek; de opdrachtgever (en het bureau, als de zin het noemt) gaat naar
+  `source_metadata.sponsored`, met de zin erbij. "Deze site" is de bron zelf. Nieuwe artikelen krijgen het bij het
+  opslaan; `/admin/trigger/sponsored-research?days=60` doet de oude. "Alle bronnen en artikelen" toont het per artikel.
+- **Opslag**: `event_documents.details` (migratie 024, beide databases, gepubliceerd); de achtergrondjob gooit de
+  rijen van Official Sources niet weg bij opnieuw zoeken.
+- **Proef (2026-11-16, laatste 45 dagen)**: 13 nieuwsitems met Kamervragen, 14 met een geciteerd persbericht, 1
+  motie met stemuitslag; 25 artikelen met een opdrachtgever (na een correctie: "de toenmalige staatssecretaris"
+  werd "de toenmalige", "een onbekende" telde mee).
+- Tests: `test_headlines.py`, `test_article_repo_headlines.py`, `test_parliament_citations.py`,
+  `test_press_releases.py`, `test_sponsored_research.py`, `test_background_documents.py`,
+  `test_prompt_builder.py`; frontend `official.test.ts`, `model.test.ts`, `figure.test.ts`.
+
+- **14.37 Wie betaalt uit de registers**: bij een geciteerde autoriteit toonde "Wie betaalt" wat de AI uit zijn
+  geheugen wist, zonder bron.
+  - **In het propagandamodel**: het register `subsidies` (`tools/registers/subsidies.py` en
+    `subsidies_naar_model.py`, README daar) leest "Financiële instrumenten 2017–2024" van Rijksfinanciën. Dat bestand
+    is weer te downloaden; het oude adres gaf in oktober 404. Het neemt per ontvanger het bedrag per jaar, alleen het
+    instrument "Subsidies (regelingen)". Het plant ministerie → ontvanger (`financiering`, `overheidssubsidie_denktank` of
+    `overheidssubsidie_ngo`), met de bedragen in `functie`.
+  - **Wat telt**: alleen denktanks en maatschappelijke organisaties die al in het model staan. Gekoppeld wordt op de
+    naam zonder rechtsvorm; noemt het bestand onder die naam meer KvK-nummers, dan is het een naamgenoot (Buitenhof,
+    Radar) en blijft hij weg.
+  - **Wat niet telt**: koepels van medeoverheden (VNG), alleen coronasteun, en samen minder dan € 25.000.
+  - **Registercheck**: hij leidt elke recordregel opnieuw af uit de bewaarde csv; de uurronde keurt goed langs het
+    structuurpad. Stap 17 van `scripts/test_registers.py`.
+  - **Ingediend (2026-11-16)**: 56 verbanden met 67 argumenten; de registercheck vond ze allemaal kloppend. Voorbeelden:
+    BZ → Cordaid (€ 413 mln), Oxfam Novib, Hivos, Free Press Unlimited, Atlantische Commissie; IenW/EZ → Deltares;
+    VWS → Rathenau Instituut; BZK → Open State Foundation; OCW → VO-raad; SZW → AWVN, FNV, CNV. Het KvK-nummer van de
+    KNAW staat ook bij het Rathenau Instituut en het NIOD; daarom is een record KvK-nummer plus naam.
+  - **Nieuws-app**: "Wie betaalt" zoekt de autoriteit op in het propagandamodel en toont de financiers, met bedragen
+    per jaar (`lib/explore/funding.ts`, `AuthorityFunding` in `FindingDetail.tsx`). Alleen zonder treffer staat het
+    antwoord van de analyse er nog. Test: `frontend/__tests__/explore/funding.test.ts`. De verbanden komen op de site
+    zodra de uurronde ze goedkeurt en de backend (Propagandamodel Sync) draait.
+
+### Open
+- Alleen persberichten van de Rijksoverheid; die van gemeenten, de EU of bedrijven niet.
+- Geldregisters die nog niet gemeten zijn: ANBI-verantwoordingen en overheidsopdrachten (TenderNed).
+- "Onafhankelijk?" en "Eerdere adviezen" komen nog uit de analyse.
+- Niet gemeten: of citaten uit Kamerdebatten terug te vinden zijn in het debatverslag.
+- De koppen zijn één avond gemeten; na een week draaien kijken hoeveel er echt veranderen.

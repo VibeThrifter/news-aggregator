@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 SpectrumLabel = Literal["mainstream", "links", "rechts", "alternatief", "overheid", "sociale_media"]
 ClaimPresentation = Literal["feit", "advies", "mening", "voorspelling"]
+
+# The LLM sometimes escapes its JSON twice: the summary then holds a backslash + n and a
+# backslash + quote instead of a line break and a quote, so title, headings and text run
+# together (Claude Code, since 2026-10-05)
+_LITERAL_ESCAPE = re.compile(r'\\([nrt"])')
+_LITERAL_ESCAPE_VALUES = {"n": "\n", "r": "", "t": " ", '"': '"'}
+
+
+def unescape_literal_escapes(text: str) -> str:
+    """Turn literal escape sequences (backslash + n, r, t or quote) back into the characters."""
+    return _LITERAL_ESCAPE.sub(lambda m: _LITERAL_ESCAPE_VALUES[m.group(1)], text)
 
 
 class InvolvedCountry(BaseModel):
@@ -361,6 +373,29 @@ class FactualPayload(BaseModel):
         max_length=5,
         description="3-5 English keywords for searching international news about this event (e.g., names, places, key terms)"
     )
+    zoektermen: list[str] = Field(
+        default_factory=list,
+        description="At most two words a Dutch government document about this news would use "
+        "(a law, project, place or ship); empty for foreign news, sport and entertainment (Story 14.29)"
+    )
+
+    @field_validator("summary", mode="before")
+    @classmethod
+    def unescape_summary(cls, v: object) -> object:
+        """A twice-escaped summary gets its line breaks and quotes back."""
+        return unescape_literal_escapes(v) if isinstance(v, str) else v
+
+    @field_validator("zoektermen", mode="before")
+    @classmethod
+    def coerce_zoektermen(cls, v: object) -> list:
+        """Null or one string to a list; more than two: the first two (never fail the analysis)."""
+        if v is None:
+            return []
+        if isinstance(v, str):
+            v = [v]
+        if not isinstance(v, list):
+            return []
+        return [str(item).strip() for item in v if str(item).strip()][:2]
 
 
 class CriticalPayload(BaseModel):
@@ -396,6 +431,10 @@ class InsightsPayload(BaseModel):
         default_factory=list,
         description="English keywords for international news search"
     )
+    zoektermen: list[str] = Field(
+        default_factory=list,
+        description="Search terms for government documents about this news (Story 14.29)"
+    )
     fallacies: list[InsightFallacy] = Field(default_factory=list)
     frames: list[InsightFrame] = Field(default_factory=list, description="Framing perspectives used in news coverage")
     coverage_gaps: list[CoverageGap] = Field(default_factory=list, description="Underrepresented perspectives or missing contexts")
@@ -407,6 +446,12 @@ class InsightsPayload(BaseModel):
     timing_analysis: TimingAnalysis | None = Field(default=None, description="Analyse van de timing van het nieuwsbericht")
     scientific_plurality: ScientificPlurality | None = Field(default=None, description="Analyse van wetenschappelijke pluraliteit")
 
+    @field_validator("summary", mode="before")
+    @classmethod
+    def unescape_summary(cls, v: object) -> object:
+        """A twice-escaped summary gets its line breaks and quotes back."""
+        return unescape_literal_escapes(v) if isinstance(v, str) else v
+
     @classmethod
     def from_phases(cls, factual: FactualPayload, critical: CriticalPayload) -> InsightsPayload:
         """Merge factual and critical payloads into a complete InsightsPayload."""
@@ -417,6 +462,7 @@ class InsightsPayload(BaseModel):
             contradictions=factual.contradictions,
             involved_countries=factual.involved_countries,
             search_keywords=factual.search_keywords,
+            zoektermen=factual.zoektermen,
             fallacies=critical.fallacies,
             frames=critical.frames,
             coverage_gaps=critical.coverage_gaps,

@@ -168,6 +168,18 @@ def test_a_skip_pattern_that_is_no_regular_expression_is_refused():
             "“Nieuwe Defensiewet is militaire staatsgreep”",
             False,
         ),
+        (
+            "dagelijksestandaard_rss",
+            "https://www.dagelijksestandaard.nl/dds-premium/den-haag-twee-maten-defensie-lelystad-n35-stikstof-kazerne-budel-coa",
+            "Defensie verhuurt zijn kazerne aan het COA en legt de grond onder Lelystad op slot",
+            True,
+        ),
+        (
+            "dagelijksestandaard_rss",
+            "https://www.dagelijksestandaard.nl/politiek/van-essen-lto-dreigt-uit-stikstofoverleg-negen-punten-koopmans-najk-zwagerman",
+            "Van Essen drijft zelfs LTO naar de deur",
+            False,
+        ),
     ],
 )
 def test_the_profiles_skip_what_is_no_news(source, url, title, skipped):
@@ -185,6 +197,16 @@ def test_the_profiles_fetch_nieuwrechts_without_stealth_and_een_blik_op_de_nos_f
     assert profiles["ad_rss"].stealth is True
     assert "youtube.com/feeds/videos.xml" in str(profiles["eenblikopdenos_rss"].feed_url)
     assert profiles["eenblikopdenos_rss"].parser == "rss_only"
+
+
+def test_the_profile_reads_de_dagelijkse_standaard_from_its_news_feed_without_a_browser():
+    """/feed/ answers 308 to /feed, a 404; the homepage links /sitemap/news.xml (2026-10-19)."""
+    load_source_profiles.cache_clear()
+    profile = load_source_profiles()["dagelijksestandaard_rss"]
+
+    assert str(profile.feed_url) == "https://www.dagelijksestandaard.nl/sitemap/news.xml"
+    assert profile.fetch_strategy == "simple"
+    assert profile.requires_js is False
 
 
 def test_the_profile_takes_indepen_from_its_feed_and_never_fetches_the_page():

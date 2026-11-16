@@ -13,13 +13,13 @@ SPECTRUM WAARDEN (alleen deze gebruiken):
 "mainstream" | "links" | "rechts" | "alternatief" | "overheid" | "sociale_media"
 
 OPMAAK SUMMARY - Gebruik MARKDOWN:
-- Korte alinea's van 2-4 zinnen, gescheiden door dubbele newlines (\n\n)
+- Korte alinea's van 2-4 zinnen, gescheiden door een lege regel
 - Gebruik **tussenkopjes** in bold (bijv. **Reacties op sociale media**) voor secties
-- BELANGRIJK: De summary MOET markdown bevatten met \n\n tussen alinea's en **bold** tussenkopjes
+- BELANGRIJK: De summary MOET markdown bevatten met een lege regel tussen alinea's en **bold** tussenkopjes
 
 JSON OUTPUT SCHEMA:
 {
-  "summary": "MARKDOWN tekst (min 200 woorden). Gebruik \\n\\n voor alinea-scheiding en **bold** voor tussenkopjes. Voorbeeld: 'Eerste alinea.\\n\\n**Tussenkopje**\\n\\nTweede alinea.'",
+  "summary": "MARKDOWN tekst (min 200 woorden). Een lege regel tussen alinea's en **bold** tussenkopjes op een eigen regel.",
   "timeline": [{"time": "ISO-8601", "headline": "string", "sources": ["url"], "spectrum": "mainstream"}],
   "clusters": [{
     "label": "standpunt naam",

@@ -12,6 +12,7 @@ export const MARKER_STYLE: Record<MarkerType, { color: string; sign: string; lab
   statistic: { color: "#d97706", sign: "#", label: "Cijfer", ownLabel: "Cijfer" },
   fallacy: { color: "#7c3aed", sign: "↯", label: "Redeneerfout", ownLabel: "Drogreden van jou" },
   contradiction: { color: "#E30613", sign: "⚡", label: "Tegenspraak", ownLabel: "Tegenspraak van jou" },
+  copy: { color: "#475569", sign: "=", label: "Zelfde tekst", ownLabel: "Zelfde tekst" },
   error: { color: "#c2410c", sign: "✕", label: "Fout", ownLabel: "Fout volgens jou" },
   gap: { color: "#0f766e", sign: "", label: "Ontbrekende stem", ownLabel: "Ontbrekende stem van jou" },
   question: { color: "#be185d", sign: "?", label: "Niet gestelde vraag", ownLabel: "Vraag van jou" },
@@ -86,7 +87,7 @@ export function NumberBadge({ findingId, type }: { findingId: string; type: Mark
   const number = numbers.get(findingId);
   if (!number) return null;
   const own = exploration.findingById.get(findingId)?.type === "own";
-  const anchor = anchorOf.get(findingId) ?? (type === "contradiction" ? `contradiction:${findingId}` : null);
+  const anchor = anchorOf.get(findingId) ?? (type === "contradiction" || type === "copy" ? `${type}:${findingId}` : null);
   if (!anchor) return <Badge type={type} number={number} own={own} />;
   return (
     <button

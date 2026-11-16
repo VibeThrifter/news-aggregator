@@ -130,7 +130,7 @@ export function CompareSheet() {
           />
           <CompareRow label="Bronpatroon" a={viewA.sourcingPattern} b={viewB.sourcingPattern} />
           <CompareRow
-            label="Kopieergedrag · anoniem"
+            label="Overgenomen tekst · anoniem"
             a={[viewA.copyPaste, viewA.anonymousSources ? `${viewA.anonymousSources} anoniem` : null].filter(Boolean).join(" · ") || null}
             b={[viewB.copyPaste, viewB.anonymousSources ? `${viewB.anonymousSources} anoniem` : null].filter(Boolean).join(" · ") || null}
           />

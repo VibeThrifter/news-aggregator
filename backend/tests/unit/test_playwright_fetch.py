@@ -60,6 +60,69 @@ class TestPlaywrightBrowserPool:
         assert pool._browser.new_context.await_count == 5
 
 
+def _drivers(launch_error: Exception | None = None) -> tuple[MagicMock, list[MagicMock]]:
+    """A Playwright entry point that records every driver it starts."""
+    started: list[MagicMock] = []
+
+    async def start():
+        driver = MagicMock()
+        driver.stop = AsyncMock()
+        browser = MagicMock()
+        browser.is_connected.return_value = True
+        driver.chromium.launch = AsyncMock(side_effect=launch_error, return_value=browser)
+        started.append(driver)
+        return driver
+
+    entry = MagicMock()
+    entry.return_value.start = start
+    return entry, started
+
+
+class TestDriversAreStopped:
+    """Every start runs a node driver; one left running stays until the backend stops."""
+
+    @pytest.mark.asyncio
+    async def test_a_failed_launch_stops_its_driver(self):
+        """2026-10-20: the browser was gone from the cache and every fetch left a driver (2,523)."""
+        entry, started = _drivers(launch_error=RuntimeError("Executable doesn't exist"))
+        pool = PlaywrightBrowserPool()
+
+        with patch("backend.app.ingestion.playwright_fetch._get_playwright", return_value=entry):
+            for _ in range(3):
+                with pytest.raises(RuntimeError):
+                    await pool._ensure_browser()
+
+        assert len(started) == 3
+        assert all(driver.stop.await_count == 1 for driver in started)
+        assert pool._playwright is None and pool._browser is None
+
+    @pytest.mark.asyncio
+    async def test_a_lost_browser_stops_the_old_driver_before_a_new_one(self):
+        entry, started = _drivers()
+        pool = PlaywrightBrowserPool()
+
+        with patch("backend.app.ingestion.playwright_fetch._get_playwright", return_value=entry):
+            await pool._ensure_browser()
+            pool._browser.is_connected.return_value = False
+            await pool._ensure_browser()
+
+        assert len(started) == 2
+        assert started[0].stop.await_count == 1
+        assert started[1].stop.await_count == 0
+        assert pool._playwright is started[1]
+
+    @pytest.mark.asyncio
+    async def test_a_running_browser_starts_no_driver(self):
+        entry, started = _drivers()
+        pool = PlaywrightBrowserPool()
+
+        with patch("backend.app.ingestion.playwright_fetch._get_playwright", return_value=entry):
+            await pool._ensure_browser()
+            await pool._ensure_browser()
+
+        assert len(started) == 1
+
+
 def _page_on(url: str, html: str) -> MagicMock:
     page = MagicMock()
     page.url = url

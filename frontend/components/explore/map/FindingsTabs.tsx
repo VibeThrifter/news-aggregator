@@ -57,8 +57,12 @@ export function FindingsTabs() {
     const map = new Map<TabId, number>([
       ["invalshoeken", dutch >= 2 ? of("invalshoeken") : 0],
       ["klopt", of("klopt")],
-      // Who speaks, and the sources you added
-      ["stemmen", new Set(speakers.speakers.map((speaker) => speaker.slug)).size + (byTab.get("stemmen") ?? []).filter((f) => f.body.type === "own" && f.body.entry.kind === "source").length],
+      // Who speaks, the texts more outlets bring and the sources you added
+      [
+        "stemmen",
+        new Set(speakers.speakers.map((speaker) => speaker.slug)).size +
+          (byTab.get("stemmen") ?? []).filter((f) => f.body.type === "copy" || (f.body.type === "own" && f.body.entry.kind === "source")).length,
+      ],
       ["ontbreekt", of("ontbreekt")],
       ["vragen", of("vragen")],
       ["gebracht", (byTab.get("gebracht") ?? []).filter((finding) => finding.type !== "tone" || finding.outletKeys.length > 0).length],

@@ -2,11 +2,21 @@
 
 import { useId, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 
-import { chronology, partOf, type ChronologyRow, type Episode, type StoryRow } from "@/lib/explore/chronology";
+import { chronology, documentLabel, partOf, type ChronologyRow, type Episode, type StoryRow } from "@/lib/explore/chronology";
+import {
+  KAMERVRAGEN_SOURCE,
+  PERSBERICHT_SOURCE,
+  TOGETHER_WINDOW_MINUTES,
+  documentOutlets,
+  voteSummary,
+  type HeadlineChangeRow,
+} from "@/lib/explore/official";
+import type { EventDocument } from "@/lib/types";
 import { ownEntryOf } from "@/lib/explore/own";
 import { formatLag } from "@/lib/explore/timeline";
+import { joinNames } from "@/lib/explore/why";
 import type { Finding } from "@/lib/explore/types";
 
 import { useExplore } from "../ExploreContext";
@@ -37,14 +47,16 @@ const BEFORE_SHOWN = 3;
 
 type Own = { kind: "own"; t: number; finding: Finding };
 type Part = "before" | "news" | "after";
-type Dot = "publication" | "moment" | "own" | "story-moment" | "episode" | "news";
+type Dot = "publication" | "moment" | "own" | "story-moment" | "episode" | "document" | "news";
 
 const DOT: Record<Exclude<Dot, "own">, string> = {
-  publication: "h-2.5 w-2.5 bg-ink-900",
-  moment: "h-2.5 w-2.5 border-2 border-ink-900 bg-paper-50",
-  "story-moment": "h-2.5 w-2.5 border-2 border-ink-300 bg-paper-50",
-  episode: "h-2.5 w-2.5 bg-ink-300",
-  news: "h-3 w-3 bg-ink-900 ring-4 ring-paper-50",
+  publication: "h-2.5 w-2.5 rounded-full bg-ink-900",
+  moment: "h-2.5 w-2.5 rounded-full border-2 border-ink-900 bg-paper-50",
+  "story-moment": "h-2.5 w-2.5 rounded-full border-2 border-ink-300 bg-paper-50",
+  episode: "h-2.5 w-2.5 rounded-full bg-ink-300",
+  // A document is a paper, not a moment or an article: a small grey square
+  document: "h-2 w-2 rounded-[1px] bg-ink-300",
+  news: "h-3 w-3 rounded-full bg-ink-900 ring-4 ring-paper-50",
 };
 
 /** One row of the axis: when on the left, its dot on the line, what happened on the right. */
@@ -174,7 +186,7 @@ function AxisRow({ item, up, down }: { item: AxisItem; up: string | null; down: 
         {item.dot && item.dot !== "own" ? (
           <span
             aria-hidden="true"
-            className={`absolute left-px -translate-x-1/2 -translate-y-1/2 rounded-full ${DOT[item.dot]}`}
+            className={`absolute left-px -translate-x-1/2 -translate-y-1/2 ${DOT[item.dot]}`}
             style={{ top: dotY }}
           />
         ) : null}
@@ -189,6 +201,20 @@ function storyItem(row: StoryRow | Own, part: Part, i: number): AxisItem {
   if (row.kind === "own") return ownItem(row, part, when);
   if (row.kind === "episode") {
     return { key: `${part}e${row.episode.eventId}`, part, when, dot: "episode", body: <EpisodeLink episode={row.episode} /> };
+  }
+  if (row.kind === "document") {
+    // The dot and the date at its first line, the small label
+    return {
+      key: `${part}d${row.document.url}`,
+      part,
+      when,
+      dot: "document",
+      dotY: 16,
+      body: <DocumentLink document={row.document} linkedBy={row.linkedBy} />,
+    };
+  }
+  if (row.kind === "headline") {
+    return { key: `${part}h${row.change.articleId}-${row.t}`, part, when, dot: "story-moment", dotY: 16, body: <HeadlineChange change={row.change} /> };
   }
   return {
     key: `${part}m${row.timelineIndex}-${i}`,
@@ -208,6 +234,12 @@ function newsItem(row: ChronologyRow | Own, i: number): AxisItem {
   const when = row.kind === "publication" || hasClock(row.t) ? clock.format(new Date(row.t)) : null;
   if (row.kind === "publication") {
     return { key: `p${row.outletKey}`, part: "news", when, dot: "publication", body: <Publication outletKey={row.outletKey} lagMinutes={row.lagMinutes} /> };
+  }
+  if (row.kind === "together") {
+    return { key: `t${row.t}`, part: "news", when, dot: "moment", body: <Together outletKeys={row.outletKeys} /> };
+  }
+  if (row.kind === "headline") {
+    return { key: `h${row.change.articleId}-${row.t}`, part: "news", when, dot: "moment", dotY: 16, body: <HeadlineChange change={row.change} /> };
   }
   return {
     key: `m${row.timelineIndex}-${i}`,
@@ -278,6 +310,72 @@ function EpisodeLink({ episode }: { episode: Episode }) {
       </span>
       <ChevronRight size={16} className="mt-0.5 shrink-0 text-ink-400" aria-hidden="true" />
     </Link>
+  );
+}
+
+/**
+ * A document about this news: where it comes from, its title as a link, and what ties it to the
+ * articles: the outlets that link to it, the articles Kamervragen cite and who asked (Story 14.33),
+ * how the Kamer voted on a motion (14.33), the articles that quote a press release (14.34).
+ */
+function DocumentLink({ document, linkedBy }: { document: EventDocument; linkedBy: string[] }) {
+  const { exploration } = useExplore();
+  const outlets = documentOutlets(document, exploration.input.articles);
+  const details = document.details;
+  const lines: string[] = [];
+  if (document.source === KAMERVRAGEN_SOURCE) {
+    if (details?.askers) lines.push(`Vragen van ${details.askers}`);
+    if (outlets.length) lines.push(`Over het bericht van ${joinNames(outlets)}`);
+  } else if (document.source === PERSBERICHT_SOURCE) {
+    if (outlets.length) lines.push(`Letterlijk geciteerd door ${joinNames(outlets)}`);
+  } else if (linkedBy.length) {
+    lines.push(`Gelinkt door ${joinNames(linkedBy)}`);
+  }
+  const vote = voteSummary(details?.vote);
+  if (vote) lines.push(vote);
+  const quotes = document.source === PERSBERICHT_SOURCE ? (details?.quoted_by ?? []).flatMap((entry) => entry.quotes ?? []) : [];
+  return (
+    <div className="py-2">
+      <a href={document.url} target="_blank" rel="noopener noreferrer" className="group flex items-start gap-2">
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs leading-4 text-ink-500">{documentLabel(document)}</span>
+          <span className="block text-sm leading-5 text-ink-900 group-hover:underline">{document.title}</span>
+        </span>
+        <ExternalLink size={14} className="mt-5 shrink-0 text-ink-400" aria-hidden="true" />
+      </a>
+      {lines.map((line) => (
+        <span key={line} className="mt-0.5 block text-xs leading-4 text-ink-500">
+          {line}
+        </span>
+      ))}
+      {quotes.length ? (
+        <span className="mt-1 block border-l-2 border-paper-300 pl-2 text-xs italic leading-4 text-ink-600">“{quotes[0]}”</span>
+      ) : null}
+    </div>
+  );
+}
+
+/** Three or more outlets published within two minutes of each other (Story 14.35) */
+function Together({ outletKeys }: { outletKeys: string[] }) {
+  const { exploration } = useExplore();
+  const names = outletKeys.map((key) => exploration.index.outlet(key)?.name ?? key);
+  return (
+    <p className="py-2 text-sm leading-5 text-ink-900">
+      {names.length} bronnen verschijnen binnen {TOGETHER_WINDOW_MINUTES} minuten: {joinNames(names)}
+    </p>
+  );
+}
+
+/** An outlet gave its article another headline (Story 14.32) */
+function HeadlineChange({ change }: { change: HeadlineChangeRow }) {
+  const { exploration } = useExplore();
+  const outlet = exploration.index.outlet(change.outletKey);
+  return (
+    <div className="py-2 text-sm leading-5">
+      <span className="block text-xs leading-4 text-ink-500">{outlet?.name ?? "Een bron"} verandert de kop</span>
+      <span className="block text-ink-500 line-through decoration-ink-300">{change.from}</span>
+      <span className="block text-ink-900">{change.to}</span>
+    </div>
   );
 }
 

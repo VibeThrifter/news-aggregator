@@ -21,6 +21,9 @@ from ..db.supabase import SupabaseListener, dispose_supabase_engine
 from ..events.maintenance import get_event_maintenance_service
 from ..repositories.event_repo import EventRepository
 from ..services.article_digest import get_article_digest_service
+from ..services.background_documents import get_background_documents_service
+from ..services.copy_detection import get_copy_detection_service
+from ..services.official_sources import get_official_sources_service
 from ..services.voice_search import get_voice_search_service
 from ..services.bias_requests import get_bias_request_service
 from ..services.bias_service import BiasDetectionService, get_bias_detection_service
@@ -74,6 +77,12 @@ EVIDENCE_RESEARCH_TIMEOUT_SECONDS = 300
 PUBLISH_TIMEOUT_SECONDS = 600
 # The daily backup of the local database
 LOCAL_BACKUP_TIMEOUT_SECONDS = 900
+# Zelfde tekst (Story 14.27): comparing the texts of the news items that changed
+COPY_DETECTION_TIMEOUT_SECONDS = 300
+# Achtergrondstukken (Story 14.29): two Bron calls per news item, a pause between them
+BACKGROUND_DOCUMENTS_TIMEOUT_SECONDS = 600
+# Officiële bronnen: an SRU page, up to 60 sets and 60 releases read with a pause, the comparison
+OFFICIAL_SOURCES_TIMEOUT_SECONDS = 900
 LOCAL_BACKUP_INTERVAL_HOURS = 24
 
 logger = structlog.get_logger()
@@ -131,6 +140,11 @@ class NewsAggregatorScheduler:
         # "Wat schreef …?": outcome of the last foreign article digest batch
         self._article_digest_last_run: dict | None = None
         self._voice_search_last_run: dict | None = None
+        # Story 14.27: the last comparison that changed something (the job runs every minute)
+        self._copy_detection_last_run: dict | None = None
+        # Story 14.29: the last search for background documents that searched something
+        self._background_documents_last_run: dict | None = None
+        self._official_sources_last_run: dict | None = None
         # Story INFRA-2: the voice search waits for a signal from Supabase instead of asking every
         # few seconds (None: Supabase is the one database, ask as before)
         self._voice_listener: SupabaseListener | None = (
@@ -283,6 +297,65 @@ class NewsAggregatorScheduler:
             )
         else:
             logger.info("Article digest job disabled (set ARTICLE_DIGEST_ENABLED=true to enable)")
+
+        # Zelfde tekst (Story 14.27) - articles of a news item that are the same text
+        if self.settings.copy_detection_enabled:
+            self.scheduler.add_job(
+                func=self._copy_detection_job,
+                trigger=IntervalTrigger(seconds=self.settings.copy_detection_interval_seconds),
+                id="copy_detection",
+                name="Copy Detection",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
+            logger.info(
+                "Copy detection job enabled",
+                interval_seconds=self.settings.copy_detection_interval_seconds,
+                window_hours=self.settings.copy_detection_window_hours,
+            )
+        else:
+            logger.info("Copy detection job disabled (set COPY_DETECTION_ENABLED=true to enable)")
+
+        # Achtergrondstukken (Story 14.29) - documents in Bron about news items with search terms
+        if self.settings.background_documents_enabled:
+            self.scheduler.add_job(
+                func=self._background_documents_job,
+                trigger=IntervalTrigger(minutes=self.settings.background_documents_interval_minutes),
+                id="background_documents",
+                name="Background Documents",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
+            logger.info(
+                "Background documents job enabled",
+                interval_minutes=self.settings.background_documents_interval_minutes,
+                batch_size=self.settings.background_documents_batch_size,
+            )
+        else:
+            logger.info(
+                "Background documents job disabled (set BACKGROUND_DOCUMENTS_ENABLED=true to enable)"
+            )
+
+        # Officiële bronnen (Stories 14.33/14.34) - Kamervragen, votes and press releases
+        if self.settings.official_sources_enabled:
+            self.scheduler.add_job(
+                func=self._official_sources_job,
+                trigger=IntervalTrigger(minutes=self.settings.official_sources_interval_minutes),
+                id="official_sources",
+                name="Official Sources",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
+            logger.info(
+                "Official sources job enabled",
+                interval_minutes=self.settings.official_sources_interval_minutes,
+                window_days=self.settings.official_sources_window_days,
+            )
+        else:
+            logger.info("Official sources job disabled (set OFFICIAL_SOURCES_ENABLED=true to enable)")
 
         # Stemmen zoeken (Story 14.10) - AI searches for missing voices the admin queued
         if self.settings.voice_search_enabled:
@@ -695,6 +768,81 @@ class NewsAggregatorScheduler:
         run["finished_at"] = datetime.now(timezone.utc).isoformat()
         self._article_digest_last_run = run
 
+    async def _copy_detection_job(self) -> None:
+        """Group the articles of the news items that changed that are the same text (Story 14.27).
+        Never raises."""
+
+        run: dict = {"started_at": datetime.now(timezone.utc).isoformat(), "success": False}
+        try:
+            stats = await asyncio.wait_for(
+                get_copy_detection_service().refresh_recent(),
+                timeout=COPY_DETECTION_TIMEOUT_SECONDS,
+            )
+            run.update(success=True, result=stats)
+        except asyncio.TimeoutError:
+            run["error"] = f"timed out after {COPY_DETECTION_TIMEOUT_SECONDS} seconds"
+            logger.error(
+                "Copy detection job timed out", timeout_seconds=COPY_DETECTION_TIMEOUT_SECONDS
+            )
+        except Exception as exc:
+            run["error"] = str(exc)[:500] or type(exc).__name__
+            logger.error("Copy detection job failed", error=run["error"])
+        run["finished_at"] = datetime.now(timezone.utc).isoformat()
+        # Keep the last run that changed something, or failed (most runs compare nothing)
+        if (
+            run.get("error")
+            or (run.get("result") or {}).get("updated_links")
+            or self._copy_detection_last_run is None
+        ):
+            self._copy_detection_last_run = run
+
+    async def _background_documents_job(self) -> None:
+        """Search the terms of news items with a new analysis in Bron (Story 14.29). Never raises."""
+
+        run: dict = {"started_at": datetime.now(timezone.utc).isoformat(), "success": False}
+        try:
+            stats = await asyncio.wait_for(
+                get_background_documents_service().run(),
+                timeout=BACKGROUND_DOCUMENTS_TIMEOUT_SECONDS,
+            )
+            run.update(success=True, result=stats)
+        except asyncio.TimeoutError:
+            run["error"] = f"timed out after {BACKGROUND_DOCUMENTS_TIMEOUT_SECONDS} seconds"
+            logger.error(
+                "Background documents job timed out",
+                timeout_seconds=BACKGROUND_DOCUMENTS_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            run["error"] = str(exc)[:500] or type(exc).__name__
+            logger.error("Background documents job failed", error=run["error"])
+        run["finished_at"] = datetime.now(timezone.utc).isoformat()
+        # Keep the last run that searched something, or failed
+        if (
+            run.get("error")
+            or (run.get("result") or {}).get("events")
+            or (run.get("result") or {}).get("failed")
+            or self._background_documents_last_run is None
+        ):
+            self._background_documents_last_run = run
+
+    async def _official_sources_job(self) -> None:
+        """Kamervragen that cite the news, votes, press releases (Stories 14.33/14.34). Never raises."""
+
+        run: dict = {"started_at": datetime.now(timezone.utc).isoformat(), "success": False}
+        try:
+            stats = await asyncio.wait_for(
+                get_official_sources_service().run(), timeout=OFFICIAL_SOURCES_TIMEOUT_SECONDS
+            )
+            run.update(success=True, result=stats)
+        except asyncio.TimeoutError:
+            run["error"] = f"timed out after {OFFICIAL_SOURCES_TIMEOUT_SECONDS} seconds"
+            logger.error("Official sources job timed out", timeout_seconds=OFFICIAL_SOURCES_TIMEOUT_SECONDS)
+        except Exception as exc:
+            run["error"] = str(exc)[:500] or type(exc).__name__
+            logger.error("Official sources job failed", error=run["error"])
+        run["finished_at"] = datetime.now(timezone.utc).isoformat()
+        self._official_sources_last_run = run
+
     async def _voice_search_job(self) -> None:
         """Run the AI searches for missing voices that are queued. Never raises."""
 
@@ -1077,6 +1225,10 @@ class NewsAggregatorScheduler:
                 "article_digest_last_run": self._article_digest_last_run,
                 "voice_search_last_run": self._voice_search_last_run,
                 "bias_request_last_run": self._bias_request_last_run,
+                "copy_detection_last_run": self._copy_detection_last_run,
+                "background_documents_last_run": self._background_documents_last_run,
+            "official_sources_last_run": self._official_sources_last_run,
+                "official_sources_last_run": self._official_sources_last_run,
                 "storage": self._storage_status(),
             }
 
@@ -1102,6 +1254,9 @@ class NewsAggregatorScheduler:
             "article_digest_last_run": self._article_digest_last_run,
             "voice_search_last_run": self._voice_search_last_run,
             "bias_request_last_run": self._bias_request_last_run,
+            "copy_detection_last_run": self._copy_detection_last_run,
+            "background_documents_last_run": self._background_documents_last_run,
+            "official_sources_last_run": self._official_sources_last_run,
             "storage": self._storage_status(),
         }
 

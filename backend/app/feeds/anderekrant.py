@@ -215,13 +215,18 @@ class AndereKrantRssReader(FeedReader):
 
     def _is_meta_content(self, item: FeedItem) -> bool:
         """
-        Detect non-news content like edition announcements, promotional content,
-        and tables of contents that should not be treated as news events.
+        Detect non-news content like edition announcements and promotional content
+        that should not be treated as news events.
+
+        Only the title decides: the summary is the full article text (content:encoded),
+        so words in it ("abonnementen", "ook ... verder ... bovendien") say nothing about
+        the kind of item. Judging the text dropped real news (2026-10-19: "Kabinet Jetten
+        jaagt huishoudens op kosten met verplichte slimme warmtepomp", "Tweede Kamer
+        bespreekt 'recht op leven zonder digitale identiteit'").
         """
         title_lower = item.title.lower()
-        summary_lower = (item.summary or "").lower()
 
-        # Edition/issue announcements (e.g., "uitgave 48 gepubliceerd")
+        # Edition/issue announcements (e.g., "2026 – Uitgave 42")
         if re.search(r"uitgave\s+\d+", title_lower):
             return True
 
@@ -234,19 +239,5 @@ class AndereKrantRssReader(FeedReader):
             r"abonnement",
             r"verkooppunt",
             r"bestel\s+(nu|hier|direct)",
-            r"neem\s+een\s+abonnement",
         ]
-        for pattern in promo_patterns:
-            if re.search(pattern, title_lower) or re.search(pattern, summary_lower):
-                return True
-
-        # Table of contents indicators (listing multiple topics with "en", "ook", etc.)
-        # These are meta-articles summarizing an edition
-        if summary_lower:
-            # Count topic indicators - if many different topics mentioned, likely a TOC
-            topic_markers = ["daarnaast", "ook", "verder", "tevens", "bovendien"]
-            marker_count = sum(1 for m in topic_markers if m in summary_lower)
-            if marker_count >= 3:
-                return True
-
-        return False
+        return any(re.search(pattern, title_lower) for pattern in promo_patterns)

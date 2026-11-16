@@ -10,6 +10,7 @@ import { ArticleIndex } from "./input";
 import { biasByOutlet } from "./bias";
 import { FILTERS, frameLabel, type FilterId } from "./labels";
 import { OWNERSHIP_TYPE_LABELS } from "./media-landscape";
+import { measuredCopying } from "./official";
 import type { Finding, ExploreInput } from "./types";
 
 export interface FilterSignal {
@@ -66,8 +67,16 @@ export function eventFilterSignals(
         if (COUNTERPOWER_TONES.has(tone)) {
           push("tegenmacht", `Kritische toon bij ${name(body.outletKey)}`, finding, body.outletKey ? [body.outletKey] : []);
         }
-        if (body.analysis.copy_paste_score?.toLowerCase().trim() === "hoog") {
-          push("sourcing", `${name(body.outletKey)} leunt sterk op persberichten of andere media`, finding, body.outletKey ? [body.outletKey] : []);
+        // Measured, not guessed: quotes that stand word for word in a Rijksoverheid release
+        // (Story 14.34), and most of a text the same as another outlet's (Story 14.27)
+        if (body.outletKey) {
+          const measured = measuredCopying(input, body.outletKey);
+          if (measured.pressFrom.length) {
+            push("sourcing", `${name(body.outletKey)} citeert letterlijk uit het persbericht van ${measured.pressFrom.join(" en ")}`, finding, [body.outletKey]);
+          }
+          if ((measured.sameTextShare ?? 0) >= 0.5) {
+            push("sourcing", `${name(body.outletKey)} brengt grotendeels dezelfde tekst als ${measured.sameTextWith.join(" en ") || "een andere bron"}`, finding, [body.outletKey]);
+          }
         }
         if ((body.analysis.anonymous_source_count ?? 0) > 0) {
           push(

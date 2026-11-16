@@ -9,6 +9,7 @@ import type {
   Cluster,
   Contradiction,
   CoverageGap,
+  EventDocument,
   EventEntity,
   EventRelation,
   Fallacy,
@@ -91,8 +92,76 @@ export interface ExploreArticle {
   digest: ArticleDigest | null;
   /** Added because a missing voice speaks here (AI search, approved), or null */
   foundVoice: FoundVoice | null;
+  /** The same text as other articles of this news (Story 14.27), or null */
+  copy: ArticleCopy | null;
+  /** Pages of other sites the article text links to (source_metadata.links), in order; empty when none */
+  links?: string[];
+  /** Earlier headlines, oldest first (Story 14.32); empty when the headline never changed */
+  titleHistory?: HeadlineChange[];
+  /** Studies whose sponsor the article names (Story 14.36) */
+  sponsored?: SponsoredStudy[];
   /** A source the reader added themselves: the id of that entry (own.ts) */
   ownId?: string;
+}
+
+/** An earlier headline of an article and when the next one was first seen (Story 14.32) */
+export interface HeadlineChange {
+  title: string;
+  /** ISO time the poll first saw the headline that replaced it */
+  until: string;
+}
+
+/** A study the article reports, with who ordered it, read from the article's own sentence (Story 14.36) */
+export interface SponsoredStudy {
+  sponsor: string;
+  researcher: string | null;
+  sentence: string;
+  /** The sponsor is the outlet itself ("in opdracht van deze site") */
+  self: boolean;
+}
+
+/**
+ * The same text as other articles of the news (Story 14.27): agency copy, or one article of a
+ * publisher in several of its titles. The backend job "Copy Detection" compares the texts (no AI).
+ */
+export interface ArticleCopy {
+  /** The group: the id of its first article */
+  group: number;
+  /** Share of this article's text (outside quotes) that the others of the group have word for word, 0..1 */
+  share: number;
+  /** The article of the group it shares most with */
+  match: number;
+  /** Chance that this article and that one are copies of one text, 0..1 */
+  probability: number;
+  /** Where the one text comes from: an agency, the publisher's own article, or not known */
+  source: "persbureau" | "uitgever" | null;
+  /** The agency a text of the group names ("ANP") */
+  agency: string | null;
+  /** The agency it will be when none is named: Dutch agency copy is the ANP's */
+  likelyAgency: string | null;
+  /** The owner of every title in the group, when they have one */
+  publisher: string | null;
+}
+
+export interface CopyGroupArticle {
+  article: ExploreArticle;
+  /** Share of its text (outside quotes) that the others of the group have word for word, 0..1 */
+  share: number;
+  /** Chance that it is a copy of the group's text, 0..1 */
+  probability: number;
+}
+
+/** Articles of different outlets that are one text (Story 14.27) */
+export interface CopyGroup {
+  /** The id of the group's first article */
+  key: number;
+  source: ArticleCopy["source"];
+  agency: string | null;
+  likelyAgency: string | null;
+  publisher: string | null;
+  /** First published first */
+  articles: CopyGroupArticle[];
+  outletKeys: string[];
 }
 
 export interface ExploreOutlet {
@@ -145,6 +214,8 @@ export interface ExploreInput {
   insight: AggregationResponse | null;
   entities: EventEntity[];
   relations: EventRelation[];
+  /** Government and party documents about this news (Bron, Story 14.29) */
+  documents?: EventDocument[];
   /** Latest bias analysis per article id */
   bias: Record<number, ArticleBiasAnalysis>;
   availability: ExploreAvailability;
@@ -208,6 +279,8 @@ export type FindingBody =
   | { type: "science"; plurality: ScientificPlurality }
   | { type: "first"; order: OutletRef[] }
   | { type: "timeline"; item: TimelineEvent; timeLabel: string; historic: boolean }
+  /** Articles of different outlets that are one text: one voice, not several (Story 14.27) */
+  | { type: "copy"; group: CopyGroup }
   | { type: "own"; entry: OwnEntry };
 
 export type FindingType = FindingBody["type"];

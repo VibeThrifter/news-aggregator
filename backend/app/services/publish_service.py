@@ -75,6 +75,7 @@ PUBLISHED_TABLES: tuple[PublishedTable, ...] = (
     PublishedTable("article_bias_analyses", skip=frozenset({"raw_response"})),
     PublishedTable("event_entities"),
     PublishedTable("event_relations"),
+    PublishedTable("event_documents"),
     PublishedTable("pm_entities"),
     PublishedTable("pm_relations"),
     PublishedTable("pm_sources"),

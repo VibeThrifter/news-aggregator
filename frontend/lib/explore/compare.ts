@@ -6,6 +6,7 @@
 import { biasByOutlet, type OutletBias } from "./bias";
 import { ArticleIndex } from "./input";
 import { frameLabel, toneLabel } from "./labels";
+import { measuredCopying, measuredCopyingLabel } from "./official";
 import type { Finding, ExploreInput, ExploreOutlet } from "./types";
 
 export interface OutletProfileView {
@@ -67,7 +68,8 @@ export function outletProfileView(
         if (body.outletKey === outletKey) {
           view.tone = toneLabel(body.analysis.tone);
           view.toneFindingId = finding.id;
-          view.copyPaste = body.analysis.copy_paste_score ?? null;
+          // Measured (Stories 14.27/14.34), not the analysis's guess
+          view.copyPaste = measuredCopyingLabel(measuredCopying(input, outletKey));
           view.anonymousSources = body.analysis.anonymous_source_count ?? null;
           view.findingIds.push(finding.id);
         }

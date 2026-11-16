@@ -341,6 +341,10 @@ CURATED_ALIASES: dict[int, tuple[str, tuple[str, ...]]] = {
     342: ("GeenStijl", ("GeenStijl", "Geen Stijl", "geenstijl.nl")),
     248: ("De Andere Krant", ("De Andere Krant", "deanderekrant.nl")),
     1215: ("NieuwRechts", ("NieuwRechts", "Nieuw Rechts", "nieuwrechts.nl")),
+    5034: (
+        "De Dagelijkse Standaard",
+        ("De Dagelijkse Standaard", "Dagelijkse Standaard", "dagelijksestandaard.nl"),
+    ),
 }
 
 # Demo slice (scripts/export_pm_demo_slice.py): the outlets of the demo event + two owners.

@@ -3,12 +3,23 @@
  * a lookup that maps the (LLM) URLs in insights back to articles and outlets.
  */
 
-import type { AggregationResponse, ArticleBiasAnalysis, EventEntity, EventRelation } from "@/lib/types";
+import type { AggregationResponse, ArticleBiasAnalysis, EventDocument, EventEntity, EventRelation } from "@/lib/types";
 
 import { findOutletByName, findOutletByUrl } from "./media-landscape";
 import { normalizeUrl, slugify, urlFingerprint, urlHost } from "./normalize";
 import { splitLlmSummary } from "./summary";
-import type { ArticleDigest, ExploreArticle, ExploreAvailability, ExploreInput, ExploreOutlet, FoundVoice, OutletProfile } from "./types";
+import type {
+  ArticleCopy,
+  ArticleDigest,
+  ExploreArticle,
+  ExploreAvailability,
+  ExploreInput,
+  ExploreOutlet,
+  FoundVoice,
+  HeadlineChange,
+  OutletProfile,
+  SponsoredStudy,
+} from "./types";
 
 export interface RawExploreArticle {
   id: number;
@@ -22,8 +33,25 @@ export interface RawExploreArticle {
   spectrum: number | string | null;
   /** source_metadata.digest: Dutch gist of a foreign article, written by the backend job */
   digest?: { nl?: unknown; basis?: unknown } | null;
+  /** source_metadata.links: pages of other sites the article text links to */
+  links?: unknown;
+  /** source_metadata.title_history: earlier headlines (Story 14.32) */
+  title_history?: unknown;
+  /** source_metadata.sponsored: studies whose sponsor the text names (Story 14.36) */
+  sponsored?: unknown;
   /** event_articles.scoring_breakdown.found_voice: added for a missing voice (AI search, approved) */
   found?: { perspective?: unknown; who?: unknown; gist?: unknown; gap_key?: unknown } | null;
+  /** event_articles.scoring_breakdown.copy: the same text as other articles (Story 14.27) */
+  copy?: {
+    group?: unknown;
+    share?: unknown;
+    match?: unknown;
+    probability?: unknown;
+    source?: unknown;
+    agency?: unknown;
+    likely_agency?: unknown;
+    publisher?: unknown;
+  } | null;
 }
 
 export interface RawExploration {
@@ -40,6 +68,8 @@ export interface RawExploration {
   insight: AggregationResponse | null;
   entities: EventEntity[];
   relations: EventRelation[];
+  /** Government and party documents about this news (Story 14.29) */
+  documents?: EventDocument[];
   bias: ArticleBiasAnalysis[];
   availability: ExploreAvailability;
 }
@@ -60,6 +90,32 @@ function parseDigest(value: RawExploreArticle["digest"]): ArticleDigest | null {
   return text ? { text, basis: value.basis === "title" ? "title" : "text" } : null;
 }
 
+function parseLinks(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((link): link is string => typeof link === "string" && /^https?:\/\//.test(link)).slice(0, 20);
+}
+
+function parseTitleHistory(value: unknown): HeadlineChange[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const title = text((entry as { title?: unknown }).title, 512);
+    const until = text((entry as { until?: unknown }).until, 40);
+    return title && until && !Number.isNaN(Date.parse(until)) ? [{ title, until }] : [];
+  });
+}
+
+function parseSponsored(value: unknown): SponsoredStudy[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const raw = entry as { sponsor?: unknown; researcher?: unknown; sentence?: unknown; self?: unknown };
+    const sponsor = text(raw.sponsor, 120);
+    const sentence = text(raw.sentence, 300);
+    return sponsor && sentence ? [{ sponsor, researcher: text(raw.researcher, 120), sentence, self: raw.self === true }] : [];
+  }).slice(0, 3);
+}
+
 function text(value: unknown, max: number): string | null {
   return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 }
@@ -74,6 +130,28 @@ function parseFoundVoice(value: RawExploreArticle["found"]): FoundVoice | null {
     who: text(value.who, 160),
     gist: text(value.gist, 600),
     gapKey: gapKey && /^(gap|own):[\w-]+$/.test(gapKey) ? gapKey : null,
+  };
+}
+
+function share(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : null;
+}
+
+function parseCopy(value: RawExploreArticle["copy"]): ArticleCopy | null {
+  if (!value || typeof value !== "object") return null;
+  const { group, match } = value;
+  const part = share(value.share);
+  const probability = share(value.probability);
+  if (!Number.isInteger(group) || !Number.isInteger(match) || part === null || probability === null) return null;
+  return {
+    group: group as number,
+    share: part,
+    match: match as number,
+    probability,
+    source: value.source === "persbureau" || value.source === "uitgever" ? value.source : null,
+    agency: text(value.agency, 40),
+    likelyAgency: text(value.likely_agency, 40),
+    publisher: text(value.publisher, 120),
   };
 }
 
@@ -136,6 +214,10 @@ export function buildExploreInput(raw: RawExploration): ExploreInput {
       sourceCountry: rawArticle.source_country ?? null,
       digest: parseDigest(rawArticle.digest),
       foundVoice,
+      copy: parseCopy(rawArticle.copy),
+      links: parseLinks(rawArticle.links),
+      titleHistory: parseTitleHistory(rawArticle.title_history),
+      sponsored: parseSponsored(rawArticle.sponsored),
     });
   }
 
@@ -167,6 +249,7 @@ export function buildExploreInput(raw: RawExploration): ExploreInput {
     insight: raw.insight,
     entities: raw.entities,
     relations: raw.relations,
+    documents: raw.documents ?? [],
     bias,
     availability: raw.availability,
   };

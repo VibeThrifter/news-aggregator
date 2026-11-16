@@ -83,6 +83,8 @@ OUTLET_STOPLIST: tuple[str, ...] = (
     "Nine For News",
     "NieuwRechts",
     "Nieuw Rechts",
+    "De Dagelijkse Standaard",
+    "Dagelijkse Standaard",
     "De Andere Krant",
     "INDEPEN",
     "Een Blik op de NOS",

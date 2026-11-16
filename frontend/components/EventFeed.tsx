@@ -28,6 +28,23 @@ function getDefaultDateRange(): { startDate: string; endDate: string } {
   };
 }
 
+// undated: the default week was empty (the backend was off), so the page holds the newest news of any date
+type FeedPage = EventFeedResponse & { undated?: boolean };
+
+// The front page never stays empty only because nothing came in this week: without filters of the
+// reader it then shows the newest news there is
+async function listFeed(filters: EventListFilters): Promise<FeedPage> {
+  const page = await listEvents(filters);
+  const defaults = getDefaultDateRange();
+  const unfiltered =
+    !filters.search?.trim() &&
+    (!filters.category || filters.category === "all") &&
+    (filters.minSources ?? 1) <= 1 &&
+    filters.startDate === defaults.startDate &&
+    filters.endDate === defaults.endDate;
+  if (page.data.length > 0 || !unfiltered) return page;
+  return { ...(await listEvents({ ...filters, startDate: "", endDate: "" })), undated: true };
+}
 
 function resolveErrorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
@@ -205,9 +222,9 @@ export default function EventFeed() {
 
   // Story 4 (INFRA): Event list cached for 5 minutes to reduce Supabase egress. This is the first
   // page; "Meer nieuws" adds the next ones (FEED_PAGE_SIZE each).
-  const { data, error, isLoading, isValidating, mutate } = useSWR<EventFeedResponse>(
+  const { data, error, isLoading, isValidating, mutate } = useSWR<FeedPage>(
     swrKey,
-    () => listEvents(filters),
+    () => listFeed(filters),
     eventListSwrOptions,
   );
 
@@ -229,7 +246,8 @@ export default function EventFeed() {
     setLoadingMore(true);
     setMoreError(null);
     try {
-      const page = await listEvents({ ...filters, offset: nextOffset });
+      const pageFilters = data?.undated ? { ...filters, startDate: "", endDate: "" } : filters;
+      const page = await listEvents({ ...pageFilters, offset: nextOffset });
       setMore((current) => ({
         key: swrKey,
         events: [...(current?.key === swrKey ? current.events : []), ...page.data],
@@ -241,7 +259,7 @@ export default function EventFeed() {
     } finally {
       setLoadingMore(false);
     }
-  }, [filters, nextOffset, swrKey]);
+  }, [filters, nextOffset, swrKey, data?.undated]);
 
   // Extract all unique sources from all events for the filter
   const availableSources: SourceInfo[] = useMemo(() => {

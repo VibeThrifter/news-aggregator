@@ -172,6 +172,7 @@ export function ownSources(input: Pick<ExploreInput, "outlets">, entries: readon
       sourceCountry: country,
       digest: null,
       foundVoice: null,
+      copy: null,
       ownId: entry.id,
     });
   }

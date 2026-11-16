@@ -12,6 +12,7 @@ import { slugify } from "@/lib/explore/normalize";
 import { useExplore } from "../ExploreContext";
 import { OutletInline } from "../entity/EntityText";
 import { Chip, Favicon, SubHeading } from "../ui/primitives";
+import { CopyCard } from "./CopyCards";
 import { FindingDetail } from "./FindingDetail";
 import { FindingRow } from "./FindingRow";
 import { ShareControl, SharedTag } from "./Others";
@@ -23,12 +24,14 @@ import { Avatar, OwnAbout } from "./PeopleCards";
 const CARD = "rounded-2xl border border-paper-300 bg-paper-50 px-4";
 
 /**
- * "Wie praat?": a matrix with ≥ 2 outlets, then a card per outlet: how it sources the news, who
- * gets the word (role, interests, claims) and the sources you added.
+ * "Wie praat?": first the texts that more outlets bring (one voice, not several), a matrix with ≥ 2
+ * outlets, then a card per outlet: how it sources the news, who gets the word (role, interests,
+ * claims) and the sources you added.
  */
 export function StemmenTab() {
   const { exploration } = useExplore();
   const { input, speakers, findings } = exploration;
+  const copies = findings.filter((finding) => finding.body.type === "copy");
   const sources = findings.filter((finding) => ownEntryOf(finding)?.kind === "source");
   const sourcesOf = (key: string) => sources.filter((finding) => sourceOutletKey(ownEntryOf(finding)?.url) === key);
   const patternOf = (key: string) => {
@@ -39,9 +42,12 @@ export function StemmenTab() {
   const outlets = [...input.outlets, ...(exploration.ownOutlets ?? [])].filter(
     (outlet) => (speakers.byOutlet.get(outlet.key)?.length ?? 0) > 0 || Boolean(patternOf(outlet.key)) || sourcesOf(outlet.key).length > 0,
   );
-  if (outlets.length === 0) return null;
+  if (outlets.length === 0 && copies.length === 0) return null;
   return (
     <div className="space-y-3">
+      {copies.map((finding) => (
+        <CopyCard key={finding.id} finding={finding} />
+      ))}
       {outlets.length >= 2 ? <VoicesMatrix /> : null}
       {outlets.map((outlet) => {
         const pattern = patternOf(outlet.key);

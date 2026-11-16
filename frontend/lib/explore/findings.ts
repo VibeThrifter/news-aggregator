@@ -6,7 +6,9 @@
  * dossier items map one-to-one (see `legacyFindingId`).
  */
 
+import { angleLabel } from "./angle";
 import { biasByOutlet } from "./bias";
+import { copyGroupLabel, copyGroups } from "./copies";
 import {
   actorNode,
   claimNode,
@@ -32,6 +34,7 @@ export const TAB_OF_TYPE: Record<AnalysisType, TabId> = {
   perspective: "invalshoeken",
   voices: "stemmen",
   authority: "stemmen",
+  copy: "stemmen",
   contradiction: "klopt",
   claim: "klopt",
   statistic: "klopt",
@@ -91,6 +94,8 @@ export function deriveFindings(input: ExploreInput, index: ArticleIndex = new Ar
   const dutchOutlets = input.outlets.filter((outlet) => !outlet.isInternational);
 
   // --- Invalshoeken ----------------------------------------------------------------------------
+  // Named after how the news is brought, never after the outlet (the id keeps the analysis' label)
+  const outletNames = dutchOutlets.map((outlet) => outlet.name);
   (insight?.clusters ?? []).forEach((cluster, i) => {
     const stances: StanceEntry[] = [];
     for (const source of cluster.sources ?? []) {
@@ -106,7 +111,7 @@ export function deriveFindings(input: ExploreInput, index: ArticleIndex = new Ar
     const outletKeys = stances.map((entry) => entry.outletKey);
     collector.add(
       `cluster:${cluster.label}`,
-      { type: "perspective", cluster, index: i, stances },
+      { type: "perspective", cluster: { ...cluster, label: angleLabel(cluster.label, outletNames) }, index: i, stances },
       outletKeys,
       [perspectiveNode(i), ...outletKeys.map(outletNode)],
     );
@@ -159,6 +164,11 @@ export function deriveFindings(input: ExploreInput, index: ArticleIndex = new Ar
       outletKey ? [outletKey] : [],
       [actorNode(actor.slug), ...(outletKey ? [outletNode(outletKey)] : [])],
     );
+  }
+
+  // Outlets that bring one text (agency copy, one article in more titles): who tells it is that text
+  for (const group of copyGroups(input.articles)) {
+    collector.add(`copy:${group.key}`, { type: "copy", group }, group.outletKeys, group.outletKeys.map(outletNode));
   }
 
   // --- Klopt het? ------------------------------------------------------------------------------
@@ -341,6 +351,7 @@ export const FINDING_TYPE_LABELS: Record<Finding["type"], string> = {
   science: "Wetenschap",
   first: "Wie eerst",
   timeline: "Moment",
+  copy: "Zelfde tekst",
   own: "Van jou",
 };
 
@@ -388,6 +399,8 @@ export function findingTitle(finding: Finding, index: ArticleIndex): string {
       return `Eerst: ${outletName(body.order[0]?.outletKey)}`;
     case "timeline":
       return body.item.headline;
+    case "copy":
+      return copyGroupLabel(body.group);
     case "own":
       return body.entry.text;
     default:

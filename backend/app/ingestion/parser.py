@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from textwrap import shorten
 from typing import Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import trafilatura
 
@@ -25,6 +27,9 @@ class ArticleParseResult:
 
     text: str
     summary: str
+    # Pages of other sites the article text links to (not the menu or footer): the documents,
+    # reports and statements it rests on. Outlets that link to the same page share that source.
+    links: list[str] = field(default_factory=list)
 
 
 def _fallback_summary(text: str, max_chars: int = 320) -> str:
@@ -85,7 +90,92 @@ def parse_article_html(html: str, *, url: Optional[str] = None) -> ArticleParseR
     if not summary:
         summary = _fallback_summary(text)
 
-    return ArticleParseResult(text=text, summary=summary)
+    return ArticleParseResult(text=text, summary=summary, links=extract_links(html, url=url))
+
+
+# At most this many links per article; a live blog can hold hundreds
+LINK_LIMIT = 20
+# Sharing buttons and "volg ons" links inside the text are no source
+_SHARE_LINK = re.compile(
+    r"^https?://(?:[\w-]+\.)*(?:"
+    r"facebook\.com/(?:sharer|share|dialog)|(?:twitter|x)\.com/(?:intent|share)|wa\.me/|api\.whatsapp\.com/"
+    r"|(?:www\.)?linkedin\.com/(?:share|sharing|shareArticle)|t\.me/share|reddit\.com/submit"
+    r"|pinterest\.\w+/pin/create|news\.google\.com/publications|whatsapp\.com/channel"
+    r"|google\.\w+/preferences/source"
+    r")",
+    re.IGNORECASE,
+)
+# Tracking parameters: the same page with another campaign tag is the same page
+_TRACKING_PARAM = re.compile(
+    r"^(?:utm_\w+|fbclid|gclid|mc_cid|mc_eid|at_\w+|xtor|ref_src)$", re.IGNORECASE
+)
+_REF_TARGET = re.compile(r'<ref target="([^"]+)"')
+# Two-letter country domains with a second level (bbc.co.uk, abc.net.au)
+_SECOND_LEVEL = {"co", "com", "net", "org", "gov", "ac", "edu"}
+
+
+def site_of(host: str) -> str:
+    """The registrable part of a host name: nos.nl for www.nos.nl, bbc.co.uk for www.bbc.co.uk."""
+    labels = host.lower().rstrip(".").split(".")
+    if labels and labels[0] == "www":
+        labels = labels[1:]
+    if len(labels) >= 3 and len(labels[-1]) == 2 and labels[-2] in _SECOND_LEVEL:
+        return ".".join(labels[-3:])
+    return ".".join(labels[-2:])
+
+
+def clean_link(link: str) -> Optional[str]:
+    """The link without fragment and tracking parameters; None when it is no web page."""
+    try:
+        parts = urlsplit(link.strip())
+    except ValueError:
+        return None
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return None
+    # A post on X is the same post whoever shared it (?s=20, ?t=...)
+    if site_of(parts.hostname) in ("x.com", "twitter.com"):
+        return urlunsplit(("https", "x.com", parts.path, "", ""))
+    params = parse_qsl(parts.query, keep_blank_values=True)
+    query = urlencode([(key, value) for key, value in params if not _TRACKING_PARAM.match(key)])
+    return urlunsplit((parts.scheme, parts.netloc.lower(), parts.path or "/", query, ""))
+
+
+def extract_links(html: str, *, url: Optional[str] = None) -> list[str]:
+    """Links in the article text to pages of other sites, in order of appearance.
+
+    Only the text Trafilatura takes as the article counts, so menus, footers and "lees ook"
+    blocks around it stay out. Links to the outlet's own site and sharing buttons are left out.
+    """
+    try:
+        extraction = trafilatura.extract(
+            html,
+            url=url,
+            include_comments=False,
+            include_tables=False,
+            include_images=False,
+            include_links=True,
+            favor_recall=True,
+            output_format="xml",
+        )
+    except Exception as exc:  # pragma: no cover - the text is what matters, links are extra
+        logger.warning("article_links_failed", url=url, error=str(exc))
+        return []
+    if not extraction:
+        return []
+
+    own_site = site_of(urlsplit(url).hostname or "") if url else ""
+    links: list[str] = []
+    for target in _REF_TARGET.findall(extraction):
+        link = clean_link(target.replace("&amp;", "&"))
+        if not link or _SHARE_LINK.match(link):
+            continue
+        if own_site and site_of(urlsplit(link).hostname or "") == own_site:
+            continue
+        if link not in links:
+            links.append(link)
+        if len(links) >= LINK_LIMIT:
+            break
+    return links
 
 
 class _HTMLStripper(HTMLParser):

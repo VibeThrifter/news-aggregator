@@ -6,11 +6,15 @@
  * "Same story" replaces "Volg het spoor": a related event counts only when it shares people or
  * organisations; relations that are related by theme, category or country alone are dropped
  * (62% of all relations, and they mostly led to unrelated news). Other news that shares one name is
- * not followed here: the name itself opens "Ook in ander nieuws". Pure.
+ * not followed here: the name itself opens "Ook in ander nieuws". Government and party documents
+ * about the news stand at their own date: found in Bron (Story 14.29) or officielebekendmakingen.nl,
+ * or linked by the articles (Story 14.31), with the outlets that link to them. Pure.
  */
 
-import type { EventRelation, RelationReason } from "@/lib/types";
+import type { EventDocument, EventRelation, RelationReason } from "@/lib/types";
 
+import { outletsLinking } from "./links";
+import { headlineChanges, togetherClusters, type HeadlineChangeRow } from "./official";
 import { firstReporters, parseTimelineTime } from "./timeline";
 import { stripMarkdown } from "./summary";
 import type { ExploreInput } from "./types";
@@ -100,15 +104,50 @@ export function storyThread(input: Pick<ExploreInput, "event" | "relations" | "a
   return thread;
 }
 
-/** A row of this news: the first article of an outlet, or a moment from the analysis */
+/**
+ * A row of this news: the first article of an outlet, a moment from the analysis, outlets that
+ * published within two minutes (Story 14.35), or an article that got another headline (Story 14.32)
+ */
 export type ChronologyRow =
   | { kind: "publication"; t: number; outletKey: string; lagMinutes: number }
-  | { kind: "moment"; t: number; headline: string; timelineIndex: number };
+  | { kind: "moment"; t: number; headline: string; timelineIndex: number }
+  | { kind: "together"; t: number; outletKeys: string[] }
+  | { kind: "headline"; t: number; change: HeadlineChangeRow };
 
-/** A row before or after this news: a moment from the analysis, or another episode of the story */
+/**
+ * A row before or after this news: a moment from the analysis, another episode of the story, a
+ * document, or a headline changed later
+ */
 export type StoryRow =
   | { kind: "moment"; t: number; yearOnly: boolean; headline: string; timelineIndex: number }
-  | { kind: "episode"; t: number; episode: Episode };
+  | { kind: "episode"; t: number; episode: Episode }
+  | { kind: "document"; t: number; document: EventDocument; linkedBy: string[] }
+  | { kind: "headline"; t: number; change: HeadlineChangeRow };
+
+/** Rows at the same minute: a moment, then the outlets together, their articles, a new headline */
+const ROW_ORDER: Record<ChronologyRow["kind"], number> = { moment: 0, together: 1, publication: 2, headline: 3 };
+
+/** What kind of document it is, by Bron's collection */
+const DOCUMENT_KIND: Record<string, string> = {
+  openbesluitvorming: "Raadsstuk",
+  poliflw: "Partijnieuws",
+  woogle: "Woo-stuk",
+  oor: "Woo-stuk",
+  cvdr: "Regelgeving",
+  obk: "Bekendmaking",
+};
+
+/**
+ * Rows that carry their own kind (doc_type): Kamerstukken, documents the articles link to,
+ * Kamervragen that cite an article (Story 14.33) and press releases (Story 14.34)
+ */
+const OWN_KIND = new Set(["officielebekendmakingen", "link", "kamervragen", "persbericht"]);
+
+/** "Raadsstuk · Rotterdam", "Motie · Tweede Kamer", "Rijksoverheid" (a page an article links to) */
+export function documentLabel(document: Pick<EventDocument, "source" | "location" | "doc_type">): string {
+  const kind = DOCUMENT_KIND[document.source] ?? (OWN_KIND.has(document.source) ? document.doc_type?.trim() : "Overheidsstuk");
+  return [kind, document.location?.trim()].filter(Boolean).join(" · ") || "Overheidsstuk";
+}
 
 export interface Chronology {
   /** Background and earlier episodes of the story, oldest first */
@@ -166,11 +205,28 @@ export function chronology(input: ExploreInput): Chronology {
     const t = time(episode.firstSeenAt);
     result[t < newsAt ? "before" : "after"].push({ kind: "episode", t, episode });
   }
+  // A document without a date has no place on the axis
+  for (const document of input.documents ?? []) {
+    const t = time(document.published_at);
+    if (!Number.isNaN(t)) {
+      result[t < newsAt ? "before" : "after"].push({ kind: "document", t, document, linkedBy: outletsLinking(input.articles, document.url) });
+    }
+  }
+
+  // Outlets that published within two minutes (Story 14.35)
+  for (const cluster of togetherClusters(input)) {
+    result.rows.push({ kind: "together", t: cluster.t, outletKeys: cluster.outletKeys });
+  }
+  // A new headline above an article (Story 14.32): in this news, or after it
+  for (const change of headlineChanges(input.articles)) {
+    if (partOf(change.t, span) === "after") result.after.push({ kind: "headline", t: change.t, change });
+    else result.rows.push({ kind: "headline", t: change.t, change });
+  }
 
   const byTime = (a: { t: number }, b: { t: number }) => a.t - b.t;
   result.before.sort(byTime);
   result.after.sort(byTime);
   // A moment before the article that reports it
-  result.rows.sort((a, b) => a.t - b.t || (a.kind === "moment" ? -1 : 1));
+  result.rows.sort((a, b) => a.t - b.t || ROW_ORDER[a.kind] - ROW_ORDER[b.kind]);
   return result;
 }

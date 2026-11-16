@@ -4,19 +4,21 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from importlib import resources
 from textwrap import indent, shorten
-from typing import List, Mapping, Sequence
+from typing import Any, Iterable, List, Mapping, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
-from backend.app.db.models import Article, Event, EventArticle
+from backend.app.db.models import Article, Event, EventArticle, EventDocument
 from backend.app.db.session import get_sessionmaker
+from backend.app.services.background_sources import public_body
+from backend.app.services.copy_detection import NGRAM, TOKEN
 from backend.app.services.llm_config_service import get_llm_config_service
 
 LOG = get_logger(__name__).bind(component="PromptBuilder")
@@ -31,6 +33,41 @@ DEFAULT_SUMMARY_CHAR_LIMIT = 320
 # read only the first three sentences, so whatever came later (a quote, the precedent) was
 # "missing" and Zoek met AI looked for what was already in the news (event 8786).
 ARTICLE_TEXT_CHAR_LIMIT = 4000
+# Zelfde tekst (Story 14.27): an article with the same text as one the analysis reads already brings
+# only the sentences that are not in the prompt yet, and takes a place of the cap only with this
+# many words of its own. Until 2026-10-19 three ANP copies took three places, and the analysis wrote
+# "volgens De Telegraaf" about what all three brought.
+OWN_TEXT_MIN_WORDS = 40
+# A sentence is in the prompt already when this share of its runs of NGRAM words is there
+SEEN_SENTENCE_SHARE = 0.5
+COPY_NOTE = (
+    'Zelfde tekst: bij "Zelfde tekst als …" brengen meer media één tekst, een persbureaubericht '
+    "of één artikel van een uitgever in meer titels. Die tekst staat hieronder één keer, bij het "
+    "eerste artikel; bij de andere staat alleen wat dat medium er zelf aan toevoegt. Zo'n tekst "
+    "is één bron, geen bevestiging door meer media: schrijf wat erin staat niet toe aan één van "
+    'die media, maar aan de tekst die ze samen brengen ("meldt het ANP-bericht dat [media] '
+    'brachten"). Wat een medium zelf toevoegt, is van dat medium.'
+)
+# Story 14.30: the pages an article links to in its text (source_metadata.links), at most this many
+# per article, those of public bodies first. Until 2026-11-15 the analysis read the text without
+# them and could call a claim unsourced while the article linked the Kamerbrief it came from.
+PROMPT_LINKS_PER_ARTICLE = 5
+LINK_NOTE = (
+    "Links in de tekst: de pagina's waar een artikel in zijn tekst naar linkt. Zo noemt het een "
+    "bron: een Kamerstuk of rapport waar een bewering vandaan komt, of het bericht (op X) waarin "
+    "iemand iets zegt. Rust een bewering op zo'n stuk, dan is ze niet 'zonder bron': noem het stuk "
+    "waar het artikel naar linkt. Of het stuk de bewering draagt, is niet gelezen."
+)
+
+# Story 14.34: quotes (and text) of an article that stand word for word in a news release of the
+# Rijksoverheid (job "Official Sources", event_documents source "persbericht")
+PRESS_NOTE = (
+    "Uit het persbericht: bij een artikel staan de citaten die letterlijk in een persbericht van de "
+    "Rijksoverheid staan. Zo'n citaat komt uit het persbericht; of de journalist de spreker zelf "
+    "sprak, staat er niet. Tel het niet als een gesprek van dat medium, en schrijf wat er staat toe "
+    "aan het persbericht van dat ministerie."
+)
+PRESS_QUOTE_CHARS = 160
 
 
 def _load_template(filename: str = "pluriform_prompt.txt") -> str:
@@ -89,6 +126,38 @@ class PromptBuilderError(RuntimeError):
 
 
 @dataclass(slots=True)
+class CopyInfo:
+    """The text an article shares with articles of other outlets, as copy detection stored it in
+    ``event_articles.scoring_breakdown.copy`` (Story 14.27)."""
+
+    group: str
+    source: str | None = None
+    agency: str | None = None
+    likely_agency: str | None = None
+    publisher: str | None = None
+    # How much of this article's text the others have; little for a liveblog that contains it
+    share: float | None = None
+
+    @property
+    def kind(self) -> str:
+        """What the one text is, like the event page names it."""
+        if self.source == "persbureau":
+            if self.agency:
+                return f"{self.agency}-tekst"
+            if self.likely_agency:
+                return f"persbureautekst (vermoedelijk {self.likely_agency})"
+            return "persbureautekst"
+        if self.source == "uitgever":
+            if self.publisher:
+                return f"één artikel van {self.publisher} in meer titels"
+            return "één artikel in meer titels"
+        # Titles of one owner: they take agency copy too
+        if self.publisher:
+            return f"persbureautekst of een artikel van {self.publisher}"
+        return "herkomst onbekend"
+
+
+@dataclass(slots=True)
 class ArticleCapsule:
     """Normalized article slice used inside the LLM prompt."""
 
@@ -106,6 +175,21 @@ class ArticleCapsule:
     # International perspectives (Epic 9)
     is_international: bool = False
     source_country: str | None = None
+    # Zelfde tekst (Story 14.27): the group, and what the selection made of it. The first article
+    # of a group in the prompt shows the shared text once, the others only their own sentences
+    copy: CopyInfo | None = None
+    copy_lead: ArticleCapsule | None = None
+    copy_members: list[ArticleCapsule] = field(default_factory=list)
+    shared_text: str = ""
+    own_text: str = ""
+    # Its sentences in the prompt already are left out (the rest is own_text)
+    reduced: bool = False
+    # The whole text: what the prompt reads of it is clipped, a shared passage may come later
+    body: str = ""
+    # Pages the text links to (Story 14.30), those of public bodies first
+    links: list[str] = field(default_factory=list)
+    # What of the text stands word for word in a Rijksoverheid release (Story 14.34)
+    press: list[str] = field(default_factory=list)
 
     @property
     def reference_time(self) -> datetime:
@@ -149,13 +233,16 @@ class PromptBuilder:
         async with self._sessions()() as session:
             event = await self._fetch_event(session, event_id)
             articles = await self._fetch_articles(session, event_id)
+            copies = await self._fetch_copies(session, event_id)
+            press = await self._fetch_press(session, event_id)
 
         if not articles:
             raise PromptBuilderError(
                 f"Event {event_id} has no linked articles; rerun enrichment pipeline first"
             )
 
-        capsules = self._build_capsules(articles)
+        capsules = self._build_capsules(articles, copies)
+        _attach_press(capsules, press)
         selected = self._select_balanced_subset(capsules, limit=limit)
         if not selected:
             raise PromptBuilderError(
@@ -241,7 +328,44 @@ class PromptBuilder:
         articles = list(result.scalars().all())
         return articles
 
-    def _build_capsules(self, articles: Sequence[Article]) -> List[ArticleCapsule]:
+    async def _fetch_copies(self, session: AsyncSession, event_id: int) -> dict[int, CopyInfo]:
+        """Zelfde tekst (Story 14.27): per article the text it shares with articles of other
+        outlets, as copy detection stored it on the link."""
+        stmt = select(EventArticle.article_id, EventArticle.scoring_breakdown).where(
+            EventArticle.event_id == event_id
+        )
+        copies: dict[int, CopyInfo] = {}
+        for article_id, breakdown in await session.execute(stmt):
+            copy = breakdown.get("copy") if isinstance(breakdown, Mapping) else None
+            if not isinstance(copy, Mapping) or copy.get("group") is None:
+                continue
+            copies[article_id] = CopyInfo(
+                group=str(copy["group"]),
+                source=copy.get("source"),
+                agency=copy.get("agency"),
+                likely_agency=copy.get("likely_agency"),
+                publisher=copy.get("publisher"),
+                share=copy.get("share"),
+            )
+        return copies
+
+    async def _fetch_press(self, session: AsyncSession, event_id: int) -> dict[int, list[str]]:
+        """Citaat uit het persbericht (Story 14.34): per article what stands in a release."""
+        stmt = select(EventDocument.title, EventDocument.location, EventDocument.details).where(
+            EventDocument.event_id == event_id, EventDocument.source == "persbericht"
+        )
+        press: dict[int, list[str]] = defaultdict(list)
+        for title, location, details in await session.execute(stmt):
+            entries = details.get("quoted_by") if isinstance(details, Mapping) else None
+            for entry in entries or []:
+                if not isinstance(entry, Mapping) or not isinstance(entry.get("article_id"), int):
+                    continue
+                press[entry["article_id"]].append(_press_line(title, location, entry))
+        return dict(press)
+
+    def _build_capsules(
+        self, articles: Sequence[Article], copies: Mapping[int, CopyInfo] | None = None
+    ) -> List[ArticleCapsule]:
         """One capsule per article with text. A find of Zoek met AI has no text, only its digest;
         an article without either is left out instead of stopping the analysis of the whole news
         (event 8786 stayed at 5 of 17 articles from 2026-10-08)."""
@@ -270,9 +394,12 @@ class PromptBuilder:
                     fetched_at=article.fetched_at,
                     summary=summary,
                     text=_clip_text(body),
+                    body=body,
                     entities=entities,
                     is_international=article.is_international,
                     source_country=article.source_country,
+                    copy=(copies or {}).get(article.id),
+                    links=_article_links(article),
                 )
             )
         if articles and not capsules:
@@ -297,7 +424,8 @@ class PromptBuilder:
         4. the other foreign articles.
 
         Until 2026-10-06 all foreign articles came first, so eight Google News headlines could push
-        every Dutch article out of the prompt.
+        every Dutch article out of the prompt. Of one text at more outlets the first is read whole
+        and the others bring only their own sentences (``_read_copies_once``).
         """
         newest_first = sorted(capsules, key=lambda c: c.reference_time, reverse=True)
         dutch_firsts, dutch_rest = _split_first_per_source(
@@ -313,7 +441,7 @@ class PromptBuilder:
         ordered = (
             dutch_firsts[:room] + foreign_firsts + dutch_firsts[room:] + dutch_rest + foreign_rest
         )
-        selection = ordered[:limit]
+        selection = _read_copies_once(ordered, limit)
 
         selection.sort(key=lambda item: item.reference_time, reverse=True)
         LOG.info(
@@ -330,6 +458,7 @@ class PromptBuilder:
             ],
             international_count=len([s for s in selection if s.is_international]),
             dutch_count=len([s for s in selection if not s.is_international]),
+            same_text=[s.article_id for s in selection if s.copy_lead is not None],
         )
         return selection
 
@@ -364,6 +493,8 @@ class PromptBuilder:
         ]
         if international_countries:
             lines.append(f"- Landen internationale bronnen: {', '.join(international_countries)}")
+        for kind, outlets in _copy_groups(capsules):
+            lines.append(f"- Zelfde tekst bij {_join_names(outlets)}: {kind}")
         lines.append("- Spectrumverdeling (geselecteerde subset):")
         for spectrum, count in distribution.items():
             lines.append(f"  * {spectrum}: {count}")
@@ -373,26 +504,42 @@ class PromptBuilder:
         return "\n".join(lines)
 
     def _format_article_capsules(self, capsules: Sequence[ArticleCapsule]) -> str:
+        numbers = {capsule.article_id: idx for idx, capsule in enumerate(capsules, start=1)}
         blocks: List[str] = []
         for idx, capsule in enumerate(capsules, start=1):
             timeframe = capsule.reference_time.isoformat()
-            text_block = indent(capsule.text or capsule.summary, "    ")
             entity_block = ", ".join(capsule.entities[:5]) or "geen expliciete entiteiten"
             # Build source line with optional country for international sources
             source_line = f"   Bron: {capsule.source_name} | Spectrum: {capsule.spectrum} | Type: {capsule.source_type}"
             if capsule.is_international and capsule.source_country:
                 source_line += f" | Land: {capsule.source_country} (INTERNATIONAAL)"
+            copy_line, text_block = _text_lines(capsule, numbers)
+            links = "; ".join(capsule.links)
+            links_line = f"   Links in de tekst: {links}\n" if links else ""
+            press_line = "".join(f"   Uit het persbericht: {line}\n" for line in capsule.press)
             block = (
                 f"{idx}. {capsule.title}\n"
                 f"{source_line}\n"
                 f"   Gepubliceerd: {timeframe}\n"
+                f"{copy_line}"
                 f"   Samenvatting: {capsule.summary}\n"
-                f"   Tekst:\n{text_block}\n"
+                f"{text_block}"
+                f"{links_line}"
+                f"{press_line}"
                 f"   Entiteiten: {entity_block}\n"
                 f"   URL: {capsule.url}"
             )
             blocks.append(block)
-        return "\n\n".join(blocks)
+        notes = [
+            note
+            for note, present in (
+                (COPY_NOTE, any(_copy_others(capsule, numbers) for capsule in capsules)),
+                (LINK_NOTE, any(capsule.links for capsule in capsules)),
+                (PRESS_NOTE, any(capsule.press for capsule in capsules)),
+            )
+            if present
+        ]
+        return "\n\n".join([*notes, *blocks])
 
     def _trim_prompt(
         self,
@@ -431,13 +578,16 @@ class PromptBuilder:
         async with self._sessions()() as session:
             event = await self._fetch_event(session, event_id)
             articles = await self._fetch_articles(session, event_id)
+            copies = await self._fetch_copies(session, event_id)
+            press = await self._fetch_press(session, event_id)
 
         if not articles:
             raise PromptBuilderError(
                 f"Event {event_id} has no linked articles; rerun enrichment pipeline first"
             )
 
-        capsules = self._build_capsules(articles)
+        capsules = self._build_capsules(articles, copies)
+        _attach_press(capsules, press)
         selected = self._select_balanced_subset(capsules, limit=limit)
         if not selected:
             raise PromptBuilderError(
@@ -482,13 +632,16 @@ class PromptBuilder:
         async with self._sessions()() as session:
             event = await self._fetch_event(session, event_id)
             articles = await self._fetch_articles(session, event_id)
+            copies = await self._fetch_copies(session, event_id)
+            press = await self._fetch_press(session, event_id)
 
         if not articles:
             raise PromptBuilderError(
                 f"Event {event_id} has no linked articles; rerun enrichment pipeline first"
             )
 
-        capsules = self._build_capsules(articles)
+        capsules = self._build_capsules(articles, copies)
+        _attach_press(capsules, press)
         selected = self._select_balanced_subset(capsules, limit=limit)
         if not selected:
             raise PromptBuilderError(
@@ -604,6 +757,36 @@ def _article_text(article: Article) -> str:
     return ""
 
 
+def _article_links(article: Article) -> list[str]:
+    """The pages the article links to in its text, those of public bodies first."""
+
+    metadata = article.source_metadata if isinstance(article.source_metadata, Mapping) else {}
+    links = [link for link in metadata.get("links") or [] if isinstance(link, str)]
+    # Stable: within each group the order of the text
+    links.sort(key=lambda link: public_body(link) is None)
+    return links[:PROMPT_LINKS_PER_ARTICLE]
+
+
+def _press_line(title: str | None, location: str | None, entry: Mapping[str, Any]) -> str:
+    """'persbericht van Ministerie van OCW, "Titel": citaten “…”; 47 % van de eigen tekst'."""
+
+    who = f"persbericht van {location}" if location else "persbericht van de Rijksoverheid"
+    head = f'{who}, "{" ".join((title or "").split())[:120]}"'
+    parts: list[str] = []
+    quotes = [q for q in entry.get("quotes") or [] if isinstance(q, str) and q.strip()]
+    if quotes:
+        parts.append("citaten " + "; ".join(f"“{q[:PRESS_QUOTE_CHARS]}”" for q in quotes))
+    share = entry.get("share")
+    if isinstance(share, (int, float)) and share >= 0.05:
+        parts.append(f"{round(share * 100)} % van de eigen tekst")
+    return f"{head}: {'; '.join(parts)}" if parts else head
+
+
+def _attach_press(capsules: Sequence[ArticleCapsule], press: Mapping[int, list[str]]) -> None:
+    for capsule in capsules:
+        capsule.press = list(press.get(capsule.article_id, []))
+
+
 def _clip_text(text: str, limit: int = ARTICLE_TEXT_CHAR_LIMIT) -> str:
     """At most ``limit`` characters, ending at a sentence or paragraph end when one is near."""
 
@@ -651,6 +834,156 @@ def _split_sentences(text: str) -> List[str]:
     if not sentences:
         sentences = [clean]
     return sentences
+
+
+def _sentences(text: str) -> list[str]:
+    """The sentences of a text that have words (not the "[…]" of a clipped text)."""
+    return [sentence for sentence in _split_sentences(text) if TOKEN.search(sentence.lower())]
+
+
+def _words(text: str) -> int:
+    return len(TOKEN.findall(text.lower()))
+
+
+class _Seen:
+    """Text in the prompt, to tell whether a sentence of another article is in it already: most of
+    its runs of NGRAM words, or the whole of a shorter sentence."""
+
+    __slots__ = ("grams", "words")
+
+    def __init__(self, text: str = "") -> None:
+        self.grams: set[str] = set()
+        self.words = " "
+        self.add(text)
+
+    def add(self, text: str) -> None:
+        tokens = TOKEN.findall(text.lower())
+        self.grams.update(" ".join(tokens[i : i + NGRAM]) for i in range(len(tokens) - NGRAM + 1))
+        self.words += " ".join(tokens) + " "
+
+    def has(self, sentence: str) -> bool:
+        tokens = TOKEN.findall(sentence.lower())
+        if len(tokens) < NGRAM:
+            return f" {' '.join(tokens)} " in self.words
+        grams = [" ".join(tokens[i : i + NGRAM]) for i in range(len(tokens) - NGRAM + 1)]
+        return sum(gram in self.grams for gram in grams) >= SEEN_SENTENCE_SHARE * len(grams)
+
+
+def _read_copies_once(ordered: Sequence[ArticleCapsule], limit: int) -> list[ArticleCapsule]:
+    """The articles the analysis reads, in the given order, on at most ``limit`` places.
+
+    Zelfde tekst (Story 14.27): of a text that more outlets bring, the first article in the order
+    is read whole. One after it brings only its sentences that are not in the prompt yet (from its
+    whole text), and takes a place only with ``OWN_TEXT_MIN_WORDS`` of them: an ANP copy without
+    anything of its own is one line, and the places go to other voices. The first article then
+    shows which of its sentences the others have (the shared text) and which are its own. A copy
+    never takes a place that another article had without this: the first is where it was.
+    """
+    selection: list[ArticleCapsule] = []
+    places = 0
+    leads: dict[str, ArticleCapsule] = {}
+    seen: dict[str, _Seen] = {}
+    for capsule in ordered:
+        group = capsule.copy.group if capsule.copy else None
+        lead = leads.get(group) if group is not None else None
+        if lead is None:
+            if places < limit:
+                selection.append(capsule)
+                places += 1
+                if group is not None:
+                    leads[group] = capsule
+                    seen[group] = _Seen(capsule.text)
+            continue
+        sentences = _sentences(capsule.body or capsule.text)
+        own = [s for s in sentences if not seen[group].has(s)]
+        # Nothing in the prompt yet (a passage after the clipped text of the first): read it whole
+        reduced = len(own) < len(sentences)
+        own_text = _clip_text(" ".join(own)) if reduced else capsule.text
+        if not reduced or _words(own_text) >= OWN_TEXT_MIN_WORDS:
+            if places >= limit:
+                continue
+            places += 1
+        capsule.copy_lead = lead
+        capsule.reduced = reduced
+        capsule.own_text = own_text if reduced else ""
+        seen[group].add(own_text)
+        lead.copy_members.append(capsule)
+        selection.append(capsule)
+    for lead in leads.values():
+        if not lead.copy_members:
+            continue
+        others = _Seen(" ".join(member.body or member.text for member in lead.copy_members))
+        sentences = _sentences(lead.text)
+        lead.shared_text = " ".join(s for s in sentences if others.has(s))
+        lead.own_text = " ".join(s for s in sentences if not others.has(s))
+    return selection
+
+
+def _copy_others(capsule: ArticleCapsule, numbers: Mapping[int, int]) -> list[ArticleCapsule]:
+    """The articles in the prompt with the same text as this one (none when it is alone there)."""
+    lead = capsule.copy_lead or capsule
+    present = [c for c in (lead, *lead.copy_members) if c.article_id in numbers]
+    if lead.article_id not in numbers or len(present) < 2:
+        return []
+    return [c for c in present if c is not capsule]
+
+
+def _text_lines(capsule: ArticleCapsule, numbers: Mapping[int, int]) -> tuple[str, str]:
+    """The "Zelfde tekst als" line and the text of an article: the shared text at the first article
+    of a group, else only what the outlet adds; a plain text for one alone in the prompt."""
+    plain = f"   Tekst:\n{indent(capsule.text or capsule.summary, '    ')}\n"
+    others = _copy_others(capsule, numbers)
+    if not others or capsule.copy is None:
+        return "", plain
+    names = _join_names([f"{c.source_name} (artikel {numbers[c.article_id]})" for c in others])
+    # A liveblog has the text among much of its own (the event page: "bevat deze tekst")
+    within = capsule.copy.share is not None and capsule.copy.share < 0.25
+    line = (
+        f"   Zelfde tekst als {names}: {capsule.copy.kind}"
+        f"{', die dit artikel naast veel eigen tekst bevat' if within else ''}\n"
+    )
+    if capsule.copy_lead is None:
+        if not capsule.shared_text:
+            return line, plain
+        outlets = _join_names(_unique(c.source_name for c in others))
+        text = f"   Tekst die ook bij {outlets} staat:\n{indent(capsule.shared_text, '    ')}\n"
+        if capsule.own_text:
+            own = indent(capsule.own_text, "    ")
+            text += f"   Eigen tekst van {capsule.source_name}:\n{own}\n"
+        return line, text
+    lead = numbers[capsule.copy_lead.article_id]
+    if not capsule.reduced:
+        return line, plain
+    if capsule.own_text:
+        return line, (
+            f"   Eigen tekst van {capsule.source_name} (de rest staat bij artikel {lead}):\n"
+            f"{indent(capsule.own_text, '    ')}\n"
+        )
+    return line, f"   Tekst: dezelfde als bij artikel {lead}, zonder eigen zinnen\n"
+
+
+def _copy_groups(capsules: Sequence[ArticleCapsule]) -> list[tuple[str, list[str]]]:
+    """Per text that more outlets in the selection bring: what it is, and those outlets."""
+    numbers = {capsule.article_id: idx for idx, capsule in enumerate(capsules, start=1)}
+    groups: list[tuple[str, list[str]]] = []
+    for capsule in capsules:
+        if capsule.copy is None or capsule.copy_lead is not None or not capsule.copy_members:
+            continue
+        outlets = _unique(c.source_name for c in (capsule, *_copy_others(capsule, numbers)))
+        if len(outlets) >= 2:
+            groups.append((capsule.copy.kind, outlets))
+    return groups
+
+
+def _unique(names: Iterable[str]) -> list[str]:
+    return list(dict.fromkeys(names))
+
+
+def _join_names(names: Sequence[str]) -> str:
+    """Names in a sentence: A; A en B; A, B en C."""
+    if len(names) <= 1:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} en {names[-1]}"
 
 
 def _split_first_per_source(

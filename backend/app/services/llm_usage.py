@@ -26,6 +26,7 @@ from backend.app.core.logging import get_logger
 from backend.app.db.models import LlmUsage
 from backend.app.db.session import get_sessionmaker
 from backend.app.llm.usage import give_back, latest_limits, take_pending
+from backend.app.services.claude_sessions import sessions_since
 
 logger = get_logger(__name__).bind(component="LLMUsageService")
 
@@ -266,7 +267,14 @@ class LlmUsageService:
                     }
                 )
             gemini = await self._gemini(session, now)
-        return {"generated_at": now, "claude": claude, "periods": periods, "gemini": gemini}
+        week_since = next(p["since"] for p in periods if p["key"] == "seven_day")
+        return {
+            "generated_at": now,
+            "claude": claude,
+            "periods": periods,
+            "gemini": gemini,
+            "sources": {"since": week_since, "items": await sessions_since(week_since)},
+        }
 
 
 _service: LlmUsageService | None = None

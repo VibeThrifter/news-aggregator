@@ -153,6 +153,20 @@ export const DUTCH_OUTLETS: OutletProfile[] = [
     monitored: true,
   },
   {
+    // Not in the Epic 8 table: spectrum and establishment as NieuwRechts (owner 2026-10-19,
+    // "idem als NieuwRechts"); our own estimate
+    key: "dagelijkse-standaard",
+    name: "De Dagelijkse Standaard",
+    aliases: ["De Dagelijkse Standaard", "Dagelijkse Standaard", "DDS", "dagelijksestandaard"],
+    domains: ["dagelijksestandaard.nl"],
+    country: "NL",
+    mediaType: "online_news",
+    spectrum: 9,
+    establishment: -0.7,
+    ownershipType: "independent",
+    monitored: true,
+  },
+  {
     key: "andere-krant",
     name: "De Andere Krant",
     aliases: ["De Andere Krant", "de andere krant", "deanderekrant"],

@@ -3,7 +3,8 @@
  * voices that are missing, with numbered markers for the findings that hang on them.
  *
  * Numbers are fixed per event: Dutch outlets by first publication → their speakers → foreign
- * outlets → contradictions → missing voices → findings without an anchor → what the reader added
+ * outlets → contradictions → one text at more outlets → missing voices → findings without an
+ * anchor → what the reader added
  * (own.ts, in the order they added it). They do not change when the reader adds or removes
  * outlets or entries of their own. Sources the reader added join the picture after the outlets of
  * the news; they do not change how it is grouped. Pure.
@@ -11,6 +12,7 @@
 
 import { newsStart } from "./chronology";
 import { GROUP_COLORS } from "./colors";
+import { copyShortLabel } from "./copies";
 import type { Exploration } from "./exploration";
 import { frameLabel, toneLabel } from "./labels";
 import { isContextGap } from "./missing";
@@ -21,7 +23,7 @@ import type { Speaker, SpeakerModel } from "./speakers";
 import type { ExploreOutlet, Finding } from "./types";
 
 export type FigureMode = "perBron" | "perInvalshoek";
-export type MarkerType = "claim" | "statistic" | "fallacy" | "contradiction" | "error" | "gap" | "question" | "note";
+export type MarkerType = "claim" | "statistic" | "fallacy" | "contradiction" | "copy" | "error" | "gap" | "question" | "note";
 
 /** Anchors are what a finding hangs on: `outlet:<key>`, `speaker:<id>` or `gap:<findingId>`. */
 export const outletAnchor = (key: string) => `outlet:${key}`;
@@ -83,6 +85,10 @@ export interface FigureModel {
   contradictions: ContradictionLine[];
   /** Place (`placeKey`) → the contradictions on that balloon whose other side is not right next to it */
   contradictionNotes: Map<string, ContradictionNote[]>;
+  /** Lines between balloons of one text that stand right next to each other */
+  copyLines: CopyLine[];
+  /** Place (`placeKey`) → the texts of that balloon that no line joins to the others */
+  copyNotes: Map<string, CopyNote[]>;
 }
 
 /**
@@ -113,6 +119,33 @@ export interface ContradictionNote {
   against: string[];
   topic: string;
   own?: boolean;
+  lead: boolean;
+}
+
+/**
+ * Two balloons of one text (Story 14.27) that stand side by side or one under the other; with more
+ * outlets of that text, as many lines as join them.
+ */
+export interface CopyLine {
+  findingId: string;
+  number: number;
+  group: string;
+  from: string;
+  to: string;
+  between: [string, string];
+  /** Where the text comes from in a word ("ANP", "persbureau", "DPG Media") */
+  label: string;
+  /** The first place of this text: the picture scrolls there when it is shown in it */
+  lead: boolean;
+}
+
+/** A balloon of one text that no line joins to the others: which outlets have the same text. */
+export interface CopyNote {
+  findingId: string;
+  number: number;
+  /** Names of the other outlets of the text */
+  others: string[];
+  label: string;
   lead: boolean;
 }
 
@@ -169,6 +202,27 @@ function byFirstPublication(a: ExploreOutlet, b: ExploreOutlet): number {
   return ta - tb || a.name.localeCompare(b.name);
 }
 
+/**
+ * Balloons of one text side by side, so the line between them crosses nothing: the outlets of a
+ * text that has two or more of them in this group first (the biggest text first), the rest after,
+ * each in its order of first publication.
+ */
+function copiesFirst(outlets: ExploreOutlet[], copyRank: Map<string, number>): ExploreOutlet[] {
+  const count = new Map<number, number>();
+  for (const outlet of outlets) {
+    const rank = copyRank.get(outlet.key);
+    if (rank !== undefined) count.set(rank, (count.get(rank) ?? 0) + 1);
+  }
+  const rankOf = (key: string) => {
+    const rank = copyRank.get(key);
+    return rank !== undefined && (count.get(rank) ?? 0) >= 2 ? rank : Number.MAX_SAFE_INTEGER;
+  };
+  return outlets
+    .map((outlet, index) => ({ outlet, index, rank: rankOf(outlet.key) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((item) => item.outlet);
+}
+
 /** The marker a finding has on the picture (own entries by their kind), or null. */
 export function markerTypeOf(finding: Finding): MarkerType | null {
   switch (finding.body.type) {
@@ -180,6 +234,8 @@ export function markerTypeOf(finding: Finding): MarkerType | null {
       return "fallacy";
     case "contradiction":
       return "contradiction";
+    case "copy":
+      return "copy";
     case "gap":
       // Missing context is not a voice: no empty balloon, no number
       return isContextGap(finding.body.gap) ? null : "gap";
@@ -232,6 +288,10 @@ export function numberFindings(exploration: Exploration): Pick<FigureModel, "num
   }
   for (const finding of findings) {
     if (finding.body.type === "contradiction") add(finding, null);
+  }
+  // One text at more outlets: on the line between its balloons (buildFigure)
+  for (const finding of findings) {
+    if (finding.body.type === "copy") add(finding, null);
   }
   for (const finding of findings) {
     if (finding.body.type === "gap") add(finding, gapAnchor(finding.id));
@@ -320,7 +380,14 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
     ...ownOutlets.filter((outlet) => outlet.isInternational),
   ];
   const perspectives = findings.filter((finding) => finding.body.type === "perspective");
-  const mode: FigureMode = dutch.length >= 3 && perspectives.length > 0 ? "perInvalshoek" : "perBron";
+  // Two or more Dutch outlets: grouped by how they bring the news, never one group per outlet
+  const mode: FigureMode = dutch.length >= 2 && perspectives.length > 0 ? "perInvalshoek" : "perBron";
+  // Outlet → its text that more outlets have (the first, biggest, one)
+  const copies = findings.filter((finding) => finding.body.type === "copy");
+  const copyRank = new Map<string, number>();
+  copies.forEach((finding, rank) => {
+    for (const key of finding.outletKeys) if (!copyRank.has(key)) copyRank.set(key, rank);
+  });
 
   const balloon = (outlet: ExploreOutlet, estimated = false): OutletBalloonModel => ({
     anchor: outletAnchor(outlet.key),
@@ -365,7 +432,7 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
         label: finding.body.cluster.label,
         color: GROUP_COLORS[i % GROUP_COLORS.length],
         meta: null,
-        outlets: members.map((outlet) => {
+        outlets: copiesFirst(members, copyRank).map((outlet) => {
           const covered = finding.body.type === "perspective" && finding.body.stances.some((stance) => stance.outletKey === outlet.key);
           return balloon(outlet, !covered);
         }),
@@ -381,7 +448,7 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
         label: "Nog niet ingedeeld",
         color: "#94a3b8",
         meta: null,
-        outlets: rest.map((outlet) => balloon(outlet)),
+        outlets: copiesFirst(rest, copyRank).map((outlet) => balloon(outlet)),
         speakers: [],
         ghosts: [],
       });
@@ -509,6 +576,46 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
     }
   }
 
+  // One text at more outlets: lines between its balloons that stand right next to each other, as
+  // many as join them; a balloon that no line joins says which outlets have the same text
+  const copyLines: CopyLine[] = [];
+  const copyNotes = new Map<string, CopyNote[]>();
+  for (const finding of copies) {
+    const number = numbered.numbers.get(finding.id);
+    if (finding.body.type !== "copy" || !number) continue;
+    const label = copyShortLabel(finding.body.group);
+    const at = finding.outletKeys.filter((key) => visible.has(key)).flatMap((key) => places.get(outletAnchor(key)) ?? []);
+    const pairs = at
+      .flatMap((x, i) => at.slice(i + 1).map((y) => ({ x, y, distance: neighbours(x, y) })))
+      .filter((pair): pair is { x: Place; y: Place; distance: number } => pair.distance !== null)
+      .sort((p, q) => p.distance - q.distance);
+    const parent = new Map<string, string>();
+    const root = (key: string): string => {
+      const up = parent.get(key);
+      return up ? root(up) : key;
+    };
+    const joined = new Set<string>();
+    let lead = true;
+    for (const { x, y } of pairs) {
+      const kx = placeKey(x.group, x.anchor);
+      const ky = placeKey(y.group, y.anchor);
+      if (root(kx) === root(ky)) continue;
+      parent.set(root(kx), root(ky));
+      joined.add(kx);
+      joined.add(ky);
+      copyLines.push({ findingId: finding.id, number, group: x.group, from: x.anchor, to: y.anchor, between: [nameOf(x.anchor), nameOf(y.anchor)], label, lead });
+      lead = false;
+    }
+    const names = finding.outletKeys.map((key) => nameOf(outletAnchor(key)));
+    for (const item of at) {
+      const key = placeKey(item.group, item.anchor);
+      if (joined.has(key)) continue;
+      const own = nameOf(item.anchor);
+      copyNotes.set(key, [...(copyNotes.get(key) ?? []), { findingId: finding.id, number, others: names.filter((name) => name !== own), label, lead }]);
+      lead = false;
+    }
+  }
+
   // With groups per perspective the speakers are avatars in their outlet's balloon: their markers too
   let markers = numbered.markers;
   if (mode === "perInvalshoek") {
@@ -547,5 +654,5 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
     }
   }
 
-  return { mode, groups, ...numbered, markers, contradictions, contradictionNotes };
+  return { mode, groups, ...numbered, markers, contradictions, contradictionNotes, copyLines, copyNotes };
 }

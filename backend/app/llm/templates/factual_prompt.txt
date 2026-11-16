@@ -39,7 +39,7 @@ Voorbeelden eerste zin (=titel):
 - FOUT: "Op 23 december krijgt Efteling kritiek." (bevat datum)
 
 1. **STERKE OPENING** - Begin met de korte titel, daarna het verhaal:
-   - GOED: "Efteling onder vuur om AI-stemmen\n\nDe attractie Fata Morgana..."
+   - GOED: "Efteling onder vuur om AI-stemmen", een lege regel, dan "De attractie Fata Morgana..."
    - FOUT: "Op 23 december meldt De Telegraaf dat..."
 
 2. **GEAGGREGEERDE BRONVERMELDING** - Combineer individuele reacties tot stromingen:
@@ -106,12 +106,12 @@ Voorbeelden eerste zin (=titel):
    - Implicatie-analyse: wat betekent dit nieuws? (eigen duiding, gebaseerd op de feiten)
 
 10. **OPMAAK** - Maak de tekst visueel leesbaar met MARKDOWN:
-   - Korte alinea's van 2-4 zinnen, gescheiden door \n\n (dubbele newline)
+   - Korte alinea's van 2-4 zinnen, gescheiden door een lege regel
    - Gebruik MAXIMAAL 2-3 **tussenkopjes** (niet meer!)
    - Onder elk kopje: MINIMAAL 2 alinea's, bij voorkeur 3-4
    - FOUT: 5 kopjes met elk 1 alinea (te gefragmenteerd)
    - GOED: 2 kopjes met elk 3-4 alinea's (vloeiend verhaal)
-   - VERPLICHT: gebruik \n\n tussen alinea's en ** rond tussenkopjes
+   - VERPLICHT: een lege regel tussen alinea's en ** rond tussenkopjes
 
 11. **BETROKKEN LANDEN** - Identificeer landen die een rol spelen in het nieuws:
    - Landen die expliciet genoemd worden (bijv. "Rusland", "Israël")
@@ -148,10 +148,10 @@ Voorbeelden eerste zin (=titel):
 
 JSON OUTPUT SCHEMA:
 {
-  "summary": "Min 200 woorden. MOET bevatten: \\n\\n tussen alinea's en **bold** tussenkopjes. Als er internationale bronnen zijn: vergelijk NL vs internationaal perspectief.",
+  "summary": "Min 200 woorden: de korte titel, een lege regel, dan het verhaal met een lege regel tussen alinea's en **bold** tussenkopjes. Als er internationale bronnen zijn: vergelijk NL vs internationaal perspectief.",
   "timeline": [{"time": "YYYY | YYYY-MM-DD | ISO-8601 datetime", "headline": "string", "sources": ["url"], "spectrum": "mainstream"}],
   "clusters": [{
-    "label": "standpoint name",
+    "label": "the angle, never an outlet name",
     "spectrum": "mainstream",
     "source_types": ["type"],
     "summary": "1-2 sentences",
@@ -168,7 +168,8 @@ JSON OUTPUT SCHEMA:
     "name": "Country Name",
     "relevance": "Why this country is involved in this news event"
   }],
-  "search_keywords": ["English", "keywords", "for", "international", "search"]
+  "search_keywords": ["English", "keywords", "for", "international", "search"],
+  "zoektermen": ["draagmoederschap"]
 }
 
 Event context:
@@ -204,11 +205,18 @@ ANALYSIS INSTRUCTIONS:
      {"time": "2025-12-28", "headline": "Overleden op 91-jarige leeftijd"}
    ]
 3. **CLUSTERS**: Group DUTCH articles by standpoint/perspective. Don't force artificial divisions - if all agree, use one cluster.
+   - "label" (Dutch) names the angle itself: what these sources emphasise or how they bring the news, e.g. "Nadruk op onduidelijkheid en de vermoedelijke moord" or "Politiebericht en oproep aan het publiek"
+   - NEVER name an outlet or medium in "label" (not "Berichtgeving RTL Nieuws", "Telegraaf: ...", "Recensie van de Volkskrant"), also not when only one source has that angle: "sources" already says who
    - ONLY include DUTCH sources (not international) in clusters
    - Each cluster and source MUST have a valid spectrum value
 4. **CONTRADICTIONS**: Only real factual differences between DUTCH sources. Do not invent conflicts.
    - ONLY compare DUTCH sources (not international)
 5. **INVOLVED_COUNTRIES**: Identify ALL countries involved (can be multiple). Include countries mentioned directly, countries inferred from leaders/politicians, and countries inferred from cities. Exclude only NL (Netherlands).
 6. **SEARCH_KEYWORDS**: Generate 3-5 ENGLISH keywords for finding international news about this event. Focus on proper nouns (names, places, organizations) that work across languages.
+7. **ZOEKTERMEN**: At most 2 Dutch search terms that a Dutch government document about this news would have in its TITLE (council documents, Woo documents, letters, regulations). These terms search such documents.
+   - GOOD: the name of a law, plan, project, building, place or ship that the news is about: "draagmoederschap", "spreidingswet", "Silja", "Nedersaksenlijn", "Calandbrug"
+   - BAD: general words ("werkgever", "staking", "kabinet"), names of politicians, parties, companies or outlets ("Rob Jetten", "FNV", "PostNL")
+   - One word or a fixed name of at most three words; the term itself, no explanation
+   - EMPTY array [] for foreign news, sport, entertainment, crime without a policy question, and whenever no such term exists. Rather [] than a term that also finds unrelated documents
 
 Return only the JSON object.

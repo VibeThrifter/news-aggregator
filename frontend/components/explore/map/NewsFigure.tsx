@@ -13,6 +13,8 @@ import {
   speakerAnchor,
   type ContradictionLine,
   type ContradictionNote,
+  type CopyLine,
+  type CopyNote,
   type FigureGroup,
   type FoundSpeakerRef,
   type Marker,
@@ -40,9 +42,13 @@ const RING = "ring-4 ring-amber-300 ring-offset-2";
 
 /** The group a balloon is drawn in (an outlet can be in more than one perspective) */
 const GroupKey = createContext("");
-/** Contradictions per place (`placeKey`): notes on the balloon and the findings it is a side of */
-const Contradictions = createContext<{ notes: Map<string, ContradictionNote[]>; sides: Map<string, string[]> }>({
+/**
+ * Links per place (`placeKey`): notes on the balloon (contradictions, one text at more outlets) and
+ * the jump targets it rings for (`contradiction:<id>`, `copy:<id>`)
+ */
+const Contradictions = createContext<{ notes: Map<string, ContradictionNote[]>; copyNotes: Map<string, CopyNote[]>; sides: Map<string, string[]> }>({
   notes: new Map(),
+  copyNotes: new Map(),
   sides: new Map(),
 });
 
@@ -120,7 +126,14 @@ export function NewsFigure() {
       {spectrum ? (
         <SpectrumMap shown={shown} />
       ) : (
-        <FigureCanvas groups={figure.groups} markers={figure.markers} contradictions={figure.contradictions} notes={figure.contradictionNotes} />
+        <FigureCanvas
+          groups={figure.groups}
+          markers={figure.markers}
+          contradictions={figure.contradictions}
+          notes={figure.contradictionNotes}
+          copyLines={figure.copyLines}
+          copyNotes={figure.copyNotes}
+        />
       )}
     </section>
   );
@@ -131,33 +144,66 @@ function FigureCanvas({
   markers,
   contradictions,
   notes,
+  copyLines,
+  copyNotes,
 }: {
   groups: FigureGroup[];
   markers: Map<string, Marker[]>;
   contradictions: ContradictionLine[];
   notes: Map<string, ContradictionNote[]>;
+  copyLines: CopyLine[];
+  copyNotes: Map<string, CopyNote[]>;
 }) {
   const container = useRef<HTMLDivElement | null>(null);
-  // Every balloon that is a side of a contradiction rings when it is shown in the picture
+  // Every balloon that is a side of a contradiction, or has a text of more outlets, rings when that
+  // is shown in the picture
   const value = useMemo(() => {
     const sides = new Map<string, string[]>();
-    const add = (key: string, findingId: string) => sides.set(key, [...(sides.get(key) ?? []), findingId]);
+    const add = (key: string, target: string) => sides.set(key, [...(sides.get(key) ?? []), target]);
     for (const line of contradictions) {
-      add(placeKey(line.group, line.from), line.findingId);
-      add(placeKey(line.group, line.to), line.findingId);
+      add(placeKey(line.group, line.from), `contradiction:${line.findingId}`);
+      add(placeKey(line.group, line.to), `contradiction:${line.findingId}`);
     }
-    for (const [key, list] of Array.from(notes.entries())) for (const note of list) add(key, note.findingId);
-    return { notes, sides };
-  }, [contradictions, notes]);
+    for (const [key, list] of Array.from(notes.entries())) for (const note of list) add(key, `contradiction:${note.findingId}`);
+    for (const line of copyLines) {
+      add(placeKey(line.group, line.from), `copy:${line.findingId}`);
+      add(placeKey(line.group, line.to), `copy:${line.findingId}`);
+    }
+    for (const [key, list] of Array.from(copyNotes.entries())) for (const note of list) add(key, `copy:${note.findingId}`);
+    return { notes, copyNotes, sides };
+  }, [contradictions, notes, copyLines, copyNotes]);
   return (
     <Contradictions.Provider value={value}>
-      <div ref={container} className="relative space-y-3">
-        {groups.map((group) => (
-          <GroupKey.Provider key={group.key} value={group.key}>
-            <GroupView group={group} markers={markers} />
-          </GroupKey.Provider>
-        ))}
-        {contradictions.length ? <ContradictionLines container={container} lines={contradictions} /> : null}
+      <div ref={container} className="relative">
+        {/* Spacing only between the groups: a margin on the lines would move them off their places */}
+        <div className="space-y-3">
+          {groups.map((group) => (
+            <GroupKey.Provider key={group.key} value={group.key}>
+              <GroupView group={group} markers={markers} />
+            </GroupKey.Provider>
+          ))}
+        </div>
+        {copyLines.length ? (
+          <FigureLines
+            container={container}
+            lines={copyLines}
+            draw={() => ({ stroke: MARKER_STYLE.copy.color, dash: undefined, opacity: 0.55 })}
+            chip={(line) => (
+              // Only the number, like ⚡ on a line: a word would cover the text of both balloons
+              <CopyChip findingId={line.findingId} number={line.number} label={line.label} lead={line.lead} between={line.between} bare />
+            )}
+          />
+        ) : null}
+        {contradictions.length ? (
+          <FigureLines
+            container={container}
+            lines={contradictions}
+            draw={(line) => ({ stroke: "#E30613", dash: line.own ? "2 5" : "6 5", opacity: 0.75 })}
+            chip={(line) => (
+              <ContradictionChip findingId={line.findingId} number={line.number} own={line.own} lead={line.lead} between={line.between} topic={line.topic} />
+            )}
+          />
+        ) : null}
       </div>
     </Contradictions.Provider>
   );
@@ -295,18 +341,20 @@ function Anchored({
 }) {
   const [open, setOpen] = useState(false);
   const place = placeKey(useContext(GroupKey), anchor);
-  const contradictions = useContext(Contradictions);
-  const notes = contradictions.notes.get(place);
-  // Shown in the picture, a contradiction rings all its sides; its first place scrolls (ContradictionChip)
-  const sides = (contradictions.sides.get(place) ?? []).map((findingId) => `contradiction:${findingId}`);
+  const links = useContext(Contradictions);
+  const notes = links.notes.get(place);
+  const copyNotes = links.copyNotes.get(place);
+  // Shown in the picture, a contradiction rings all its sides and a text all its outlets; its first
+  // place scrolls (ContradictionChip, CopyChip)
+  const sides = links.sides.get(place) ?? [];
   const { ref, ringing } = useFocusRing<HTMLDivElement>("anchor", [anchor, ...alsoFor, ...sides], undefined, sides);
   return (
-    // z-10: above the contradiction lines (z-[5]), which run between the balloons. Notes stick out
-    // under the balloon: room for them before the next one
+    // z-10: above the lines (z-[5]), which run between the balloons. Notes stick out under the
+    // balloon: room for them before the next one
     <div
       ref={ref}
       data-anchor={anchor}
-      className={`relative z-10 rounded-[20px] transition-shadow ${ringing ? RING : ""} ${notes?.length ? "mb-4" : ""} ${className}`}
+      className={`relative z-10 rounded-[20px] transition-shadow ${ringing ? RING : ""} ${notes?.length || copyNotes?.length ? "mb-4" : ""} ${className}`}
     >
       <Balloon label={label} open={open} onOpenChange={setOpen} content={card}>
         {({ ref: triggerRef, props }) => (
@@ -316,20 +364,29 @@ function Anchored({
         )}
       </Balloon>
       <MarkerRow list={markers} />
-      <NoteRow notes={notes} />
+      <NoteRow notes={notes} copyNotes={copyNotes} />
     </div>
   );
 }
 
-/** Contradictions whose other side stands elsewhere in the picture: "⚡14 ≠ NOS" under the balloon. */
-function NoteRow({ notes }: { notes: ContradictionNote[] | undefined }) {
-  if (!notes?.length) return null;
+/**
+ * Under the balloon, what stands elsewhere in the picture: a contradiction ("⚡14 ≠ NOS") and the
+ * same text at other outlets ("=7 zelfde als AD").
+ */
+function NoteRow({ notes = [], copyNotes = [] }: { notes?: ContradictionNote[]; copyNotes?: CopyNote[] }) {
+  const all = notes.length + copyNotes.length;
+  if (!all) return null;
+  const shownCopies = copyNotes.slice(0, Math.max(0, 2 - notes.length));
   return (
     <span className="absolute -bottom-2.5 right-2 z-10 flex gap-1">
       {notes.slice(0, 2).map((note) => (
         <ContradictionChip key={note.findingId} findingId={note.findingId} number={note.number} own={note.own} lead={note.lead} against={note.against} topic={note.topic} />
       ))}
-      {notes.length > 2 ? <span className="rounded-full bg-ink-900 px-1.5 text-[10px] font-bold leading-6 text-white">+{notes.length - 2}</span> : null}
+      {shownCopies.map((note) => (
+        // Next to another note a phone has room for the number only
+        <CopyChip key={note.findingId} findingId={note.findingId} number={note.number} label={note.label} lead={note.lead} others={note.others} compact={all > 1} />
+      ))}
+      {all > 2 ? <span className="rounded-full bg-ink-900 px-1.5 text-[10px] font-bold leading-6 text-white">+{all - 2}</span> : null}
     </span>
   );
 }
@@ -555,34 +612,63 @@ function GhostPill({
   );
 }
 
+/** What a line joins: two balloons of one group */
+interface LineEnds {
+  findingId: string;
+  group: string;
+  from: string;
+  to: string;
+}
+
 /**
- * A dashed red line between two sides of a contradiction that stand right next to each other, with
- * the numbered ⚡ in the middle (`figure.ts` draws no line across other balloons).
+ * Lines between balloons that stand right next to each other (`figure.ts` draws none across other
+ * balloons), with the numbered chip in the middle: a dashed red one between two sides of a
+ * contradiction, a grey one between outlets with the same text.
  */
-function ContradictionLines({
+function FigureLines<T extends LineEnds>({
   container,
   lines,
+  draw,
+  chip,
 }: {
   container: React.MutableRefObject<HTMLDivElement | null>;
-  lines: ContradictionLine[];
+  lines: T[];
+  draw: (line: T) => { stroke: string; dash: string | undefined; opacity: number };
+  chip: (line: T) => ReactNode;
 }) {
-  const [geometry, setGeometry] = useState<(ContradictionLine & { key: string; x1: number; y1: number; x2: number; y2: number })[]>([]);
+  const [geometry, setGeometry] = useState<(T & { key: string; x1: number; y1: number; x2: number; y2: number; mx: number; my: number })[]>([]);
   const measure = () => {
     const root = container.current;
     if (!root) return;
     const box = root.getBoundingClientRect();
-    const center = (group: string, anchor: string) => {
+    const place = (group: string, anchor: string) => {
       const element = root.querySelector(`[data-group="${CSS.escape(group)}"] [data-anchor="${CSS.escape(anchor)}"]`);
       if (!element) return null;
       const rect = element.getBoundingClientRect();
-      return { x: rect.left - box.left + rect.width / 2, y: rect.top - box.top + rect.height / 2 };
+      const left = rect.left - box.left;
+      const top = rect.top - box.top;
+      return { left, top, right: left + rect.width, bottom: top + rect.height, x: left + rect.width / 2, y: top + rect.height / 2 };
     };
     const next = lines.flatMap((line) => {
-      const a = center(line.group, line.from);
-      const b = center(line.group, line.to);
-      return a && b
-        ? [{ ...line, key: `${line.findingId}|${line.group}|${line.from}`, x1: Math.round(a.x), y1: Math.round(a.y), x2: Math.round(b.x), y2: Math.round(b.y) }]
-        : [];
+      const a = place(line.group, line.from);
+      const b = place(line.group, line.to);
+      if (!a || !b) return [];
+      // The chip in the middle of the space between the two balloons, not on the text of either
+      const stacked = a.left < b.right && b.left < a.right;
+      const mx = stacked ? (a.x + b.x) / 2 : (Math.min(a.right, b.right) + Math.max(a.left, b.left)) / 2;
+      const my = stacked ? (Math.min(a.bottom, b.bottom) + Math.max(a.top, b.top)) / 2 : (a.y + b.y) / 2;
+      return [
+        {
+          ...line,
+          key: `${line.findingId}|${line.group}|${line.from}|${line.to}`,
+          x1: Math.round(a.x),
+          y1: Math.round(a.y),
+          x2: Math.round(b.x),
+          y2: Math.round(b.y),
+          mx: Math.round(mx),
+          my: Math.round(my),
+        },
+      ];
     });
     // Only a real change re-renders (measuring after every render would never end)
     setGeometry((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
@@ -601,27 +687,88 @@ function ContradictionLines({
   return (
     <>
       <svg className="pointer-events-none absolute inset-0 z-[5] h-full w-full overflow-visible" aria-hidden="true">
-        {geometry.map((line) => (
-          <line
-            key={line.key}
-            x1={line.x1}
-            y1={line.y1}
-            x2={line.x2}
-            y2={line.y2}
-            stroke="#E30613"
-            strokeWidth={2.5}
-            strokeDasharray={line.own ? "2 5" : "6 5"}
-            strokeLinecap="round"
-            opacity={0.75}
-          />
-        ))}
+        {geometry.map((line) => {
+          const style = draw(line);
+          return (
+            <line
+              key={line.key}
+              x1={line.x1}
+              y1={line.y1}
+              x2={line.x2}
+              y2={line.y2}
+              stroke={style.stroke}
+              strokeWidth={2.5}
+              strokeDasharray={style.dash}
+              strokeLinecap="round"
+              opacity={style.opacity}
+            />
+          );
+        })}
       </svg>
       {geometry.map((line) => (
-        <span key={line.key} className="absolute z-20 -translate-x-1/2 -translate-y-1/2" style={{ left: (line.x1 + line.x2) / 2, top: (line.y1 + line.y2) / 2 }}>
-          <ContradictionChip findingId={line.findingId} number={line.number} own={line.own} lead={line.lead} between={line.between} topic={line.topic} />
+        // flex: no line box under the chip, so its middle is the middle of the space
+        <span key={line.key} className="absolute z-20 flex -translate-x-1/2 -translate-y-1/2" style={{ left: line.mx, top: line.my }}>
+          {chip(line)}
         </span>
       ))}
     </>
+  );
+}
+
+/**
+ * The numbered = of one text at more outlets: on the line between them ("=7 ANP"), or on a balloon
+ * with which outlets have it too ("=7 zelfde als AD"). A tap opens it under "Wie praat?".
+ */
+function CopyChip({
+  findingId,
+  number,
+  label,
+  lead,
+  between,
+  others,
+  bare = false,
+  compact = false,
+}: {
+  findingId: string;
+  number: number;
+  label: string;
+  lead: boolean;
+  between?: [string, string];
+  others?: string[];
+  /** Only the number */
+  bare?: boolean;
+  /** Only the number on a phone */
+  compact?: boolean;
+}) {
+  const { toFinding } = useExplore();
+  const id = `copy:${findingId}`;
+  const { ref, ringing } = useFocusRing<HTMLSpanElement>("anchor", id, undefined, lead ? [] : [id]);
+  const style = MARKER_STYLE.copy;
+  const text = bare ? null : others?.length ? `zelfde als ${others[0]}${others.length > 1 ? ` +${others.length - 1}` : ""}` : label;
+  const where = between ? ` bij ${between[0]} en ${between[1]}` : others?.length ? `, ook bij ${others.join(", ")}` : "";
+  const title = `${style.label} ${number}${where} (${label})`;
+  return (
+    <span ref={ref} data-anchor={id} className={`inline-block rounded-full ${ringing ? RING : ""}`}>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          toFinding(findingId);
+        }}
+        title={title}
+        aria-label={title}
+        className="-m-1 inline-flex h-8 min-w-[32px] items-center justify-center"
+      >
+        <span
+          className="inline-flex h-5 min-w-[20px] items-center whitespace-nowrap rounded-full px-1.5 text-[10px] font-bold text-white shadow ring-2 ring-white"
+          style={{ backgroundColor: style.color }}
+        >
+          <span className="mr-0.5">{style.sign}</span>
+          {number}
+          {text ? <span className={`ml-1 max-w-[7.5rem] truncate font-semibold ${compact ? "hidden sm:inline" : ""}`}>{text}</span> : null}
+        </span>
+      </button>
+    </span>
   );
 }
 

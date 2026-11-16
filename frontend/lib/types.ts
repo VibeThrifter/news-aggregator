@@ -319,6 +319,49 @@ export interface EventRelation {
   related_last_updated_at?: string | null;
 }
 
+/**
+ * A government or party document about an event (table event_documents). Found with a search term of
+ * the analysis in Bron of Open State (Story 14.29) or officielebekendmakingen.nl (source
+ * "officielebekendmakingen"; its title has the term in it), or linked by an article of the event
+ * (Story 14.31: term empty, source "link" or "officielebekendmakingen").
+ */
+export interface EventDocument {
+  term: string;
+  /** Bron's collection (openbesluitvorming, poliflw, woogle, oor, cvdr, obk), officielebekendmakingen or link */
+  source: string;
+  /** Kind of document: "Motie", "Kamerbrief", "Antwoord op Kamervragen" (Bron: its own type) */
+  doc_type?: string | null;
+  title: string;
+  url: string;
+  published_at: string | null;
+  /** Municipality, province, ministry or party branch */
+  location?: string | null;
+  /** What it says about the news (Stories 14.33/14.34): cited articles, the vote, quoting articles */
+  details?: EventDocumentDetails | null;
+}
+
+/** event_documents.details, written by the backend job "Official Sources" (migration 024) */
+export interface EventDocumentDetails {
+  /** Kamervragen: the articles of this news the set links to */
+  cites?: { article_id: number; outlet: string | null }[];
+  /** Kamervragen: who asked, as the set writes it ("Ergin (DENK)") */
+  askers?: string | null;
+  /** A motion or amendment: how the Tweede Kamer voted (seats per fraction) */
+  vote?: KamerVote | null;
+  /** A press release: the articles that quote it word for word */
+  quoted_by?: { article_id: number; outlet: string | null; quotes: string[]; share: number }[];
+}
+
+export interface KamerVote {
+  /** "Aangenomen", "Verworpen" */
+  result: string;
+  kind?: string | null;
+  for: [string, number][];
+  against: [string, number][];
+  seats_for: number;
+  seats_against: number;
+}
+
 /** Another event in which an entity appears (event_entities lookup by alias). */
 export interface EntityAppearance {
   event_id: number;

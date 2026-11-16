@@ -10,6 +10,7 @@ from backend.app.core.logging import configure_logging, get_logger
 from backend.app.core.scheduler import get_scheduler
 from backend.app.db.session import init_db
 from backend.app.db.supabase import supabase_configured
+from backend.app.ingestion.playwright_fetch import close_browser_pool
 from backend.app.services.llm_usage import get_llm_usage_service
 from backend.app.services.publish_service import get_publish_service
 from backend.app.routers import (
@@ -55,6 +56,10 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         get_logger(__name__).warning("llm_usage_flush_failed", error=str(exc)[:300])
     await scheduler.close_connections()
+    try:  # the Playwright driver and its browser would outlive the backend
+        await close_browser_pool()
+    except Exception as exc:
+        get_logger(__name__).warning("playwright_close_failed", error=str(exc)[:300])
 
 
 app = FastAPI(title="News360 Aggregator", version="0.1.0", lifespan=lifespan)

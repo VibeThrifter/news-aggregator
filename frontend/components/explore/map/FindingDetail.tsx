@@ -2,20 +2,28 @@
 
 import type { ReactNode } from "react";
 import { ExternalLink, ScanText, UserSearch } from "lucide-react";
+import useSWR from "swr";
 
+import { pmMatch, pmNeighborhood } from "@/lib/api";
 import { objectivity } from "@/lib/explore/bias";
+import { copyGroupLabel } from "@/lib/explore/copies";
 import { findingTitle } from "@/lib/explore/findings";
+import { fundingLabel, fundingOf } from "@/lib/explore/funding";
 import { FRAME_DESCRIPTIONS, VERIFICATION_LABELS, biasTypeLabel, fallacyLabel, frameLabel } from "@/lib/explore/labels";
 import { isContextGap } from "@/lib/explore/missing";
 import { actorKeys } from "@/lib/explore/normalize";
+import { bestMatch, compatibleMatches } from "@/lib/explore/pm-graph";
 import { truncate } from "@/lib/explore/summary";
 import { formatLag } from "@/lib/explore/timeline";
 import type { Finding, OwnEntry } from "@/lib/explore/types";
 
+import { measuredCopying, measuredCopyingLabel } from "@/lib/explore/official";
+import { exploreAuxSwrOptions } from "@/lib/swr-config";
 import { useExplore } from "../ExploreContext";
 import { EntityText, OutletInline } from "../entity/EntityText";
 import { OutletChip } from "../outlet/OutletCard";
 import { Chip, SubHeading, Tag } from "../ui/primitives";
+import { CopyArticles } from "./CopyCards";
 import { DETAIL_LABELS } from "./OwnForm";
 import { FoundVoices, VoiceSearchPanel } from "./VoiceSearch";
 
@@ -68,6 +76,33 @@ export function ActorButton({ name, person = false }: { name: string; person?: b
       {keys.display}
     </Chip>
   );
+}
+
+/**
+ * "Wie betaalt" for a quoted authority: who funds it according to the propaganda model (a
+ * ministry's subsidies from Rijksfinanciën, gifts), with the register's amounts. Only when the model
+ * has nothing does the analysis's own answer show (`fallback`).
+ */
+function AuthorityFunding({ name, fallback }: { name: string; fallback?: string | null }) {
+  const { exploration } = useExplore();
+  const demo = exploration.input.event.isDemo;
+  const { aliases } = actorKeys(name);
+  const match = useSWR(aliases.length ? ["pm-match", aliases.join("|"), demo] : null, () => pmMatch(aliases, { demo }), exploreAuxSwrOptions);
+  const best = bestMatch(compatibleMatches(match.data ?? [], "org"), aliases);
+  const hood = useSWR(
+    best ? ["pm-funding", best.entity_id, demo] : null,
+    () => pmNeighborhood(best!.entity_id, { demo, limit: 80, direction: "in" }),
+    exploreAuxSwrOptions,
+  );
+  const lines = best ? fundingOf(hood.data, best.entity_id) : [];
+  if (lines.length) {
+    return (
+      <Row label="Wie betaalt">
+        <List items={lines.map(fundingLabel)} />
+      </Row>
+    );
+  }
+  return <Row label="Wie betaalt">{fallback}</Row>;
 }
 
 /**
@@ -161,7 +196,7 @@ export function FindingDetail({ finding }: { finding: Finding }) {
       return (
         <div className="space-y-3">
           <Row label="Wat klopt er niet">{body.issue.issue}</Row>
-          <Row label="Eerlijker gebracht">{body.issue.better_framing}</Row>
+          <Row label="Hoe het beter kan">{body.issue.better_framing}</Row>
         </div>
       );
 
@@ -188,7 +223,7 @@ export function FindingDetail({ finding }: { finding: Finding }) {
               </p>
             </div>
           ) : null}
-          <Row label="Wie betaalt">{a.funding_sources}</Row>
+          <AuthorityFunding name={a.authority} fallback={a.funding_sources} />
           <Row label="Onafhankelijk?">{a.independence_check}</Row>
           <Row label="Samenstelling">{a.composition_question}</Row>
           <Row label="Eerdere adviezen">{a.track_record}</Row>
@@ -230,17 +265,21 @@ export function FindingDetail({ finding }: { finding: Finding }) {
         </div>
       );
 
-    case "tone":
+    case "tone": {
+      // Measured, not the analysis's guess (it never saw the press release): the same text as
+      // other outlets (Story 14.27) and quotes that stand in a Rijksoverheid release (Story 14.34)
+      const copying = body.outletKey ? measuredCopyingLabel(measuredCopying(exploration.input, body.outletKey)) : null;
       return (
         <div className="space-y-3">
           <div className="flex flex-wrap gap-1.5">
-            {body.analysis.copy_paste_score ? <Tag tone="orange">Kopieergedrag: {body.analysis.copy_paste_score}</Tag> : null}
+            {copying ? <Tag tone="orange">{copying}</Tag> : null}
             {body.analysis.anonymous_source_count ? <Tag tone="orange">{body.analysis.anonymous_source_count} anonieme bronnen</Tag> : null}
           </div>
           <Row label="Past in het verhaal van">{body.analysis.narrative_alignment}</Row>
           <Row label="Wat als ze ongelijk hebben?">{body.analysis.what_if_wrong}</Row>
         </div>
       );
+    }
 
     case "bias":
       return (
@@ -326,6 +365,9 @@ export function FindingDetail({ finding }: { finding: Finding }) {
 
     case "timeline":
       return <Outlets keys={finding.outletKeys} />;
+
+    case "copy":
+      return <CopyArticles group={body.group} />;
 
     case "own":
       return (
@@ -445,6 +487,8 @@ export function findingHeadline(finding: Finding): { title: string; meta: string
       return { title: "Wie was er het eerst?", meta: null };
     case "timeline":
       return { title: body.item.headline, meta: body.timeLabel };
+    case "copy":
+      return { title: copyGroupLabel(body.group), meta: Array.from(new Set(body.group.articles.map(({ article }) => article.outletName))).join(", ") };
     case "own":
       return {
         title: body.entry.text,

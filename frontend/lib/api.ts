@@ -7,6 +7,7 @@ import type {
   EntityResearchKind,
   EntityResearchRequest,
   EventEntity,
+  EventDocument,
   EventRelation,
   ArticleRef,
   ArticleSearchResult,
@@ -623,6 +624,20 @@ export interface LlmUsageSummary {
     resets_at: string;
     models: Array<{ model: string; requests: number; limited: boolean }>;
   };
+  /** Claude Code per source this subscription week, from the session transcripts on this Mac. */
+  sources?: {
+    since: string;
+    items: Array<{
+      source: string;
+      sessions: number;
+      messages: number;
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_tokens: number;
+      cache_write_tokens: number;
+      tokens: number;
+    }>;
+  };
 }
 
 /**
@@ -771,8 +786,11 @@ export async function getExploration(identifier: string | number): Promise<RawEx
       id, slug, event_type, article_count, first_seen_at, last_updated_at, archived_at,
       event_articles (
         found:scoring_breakdown->found_voice,
+        copy:scoring_breakdown->copy,
         articles ( id, title, url, source_name, published_at, is_international, source_country,
-                   spectrum:source_metadata->spectrum, digest:source_metadata->digest )
+                   spectrum:source_metadata->spectrum, digest:source_metadata->digest,
+                   links:source_metadata->links, title_history:source_metadata->title_history,
+                   sponsored:source_metadata->sponsored )
       ),
       llm_insights ( ${INSIGHT_COLUMNS} )
     `)
@@ -791,7 +809,7 @@ export async function getExploration(identifier: string | number): Promise<RawEx
   const row = event as any;
   const articles: RawExploreArticle[] = (row.event_articles ?? [])
     .filter((link: any) => link.articles)
-    .map(({ articles: article, found }: any) => ({
+    .map(({ articles: article, found, copy }: any) => ({
       id: article.id,
       title: article.title,
       url: article.url,
@@ -801,12 +819,19 @@ export async function getExploration(identifier: string | number): Promise<RawEx
       source_country: article.source_country ?? null,
       spectrum: article.spectrum ?? null,
       digest: article.digest ?? null,
+      // Pages the article text links to (Story 14.30)
+      links: article.links ?? null,
+      // Earlier headlines of the article (Story 14.32) and who paid for a study it reports (14.36)
+      title_history: article.title_history ?? null,
+      sponsored: article.sponsored ?? null,
       // Added for a missing voice (Story 14.10): what was found, on the link of this event
       found: found ?? null,
+      // The same text as other articles of this event (Story 14.27)
+      copy: copy ?? null,
     }));
   const insightRow = Array.isArray(row.llm_insights) ? row.llm_insights[0] : row.llm_insights;
 
-  const [entities, relations, bias] = await Promise.all([
+  const [entities, relations, documents, bias] = await Promise.all([
     getEventEntities(row.id),
     getSupabase()
       .from('event_relations')
@@ -814,6 +839,14 @@ export async function getExploration(identifier: string | number): Promise<RawEx
       .eq('event_id', row.id)
       .order('score', { ascending: false })
       .limit(12),
+    // Story 14.29/14.31: documents about this news, written by the backend: at most 5 from Bron,
+    // 5 from officielebekendmakingen.nl and 6 the articles link to; Story 14.33/14.34: Kamervragen
+    // that cite an article and press releases that articles quote
+    getSupabase()
+      .from('event_documents')
+      .select('term, source, doc_type, title, url, published_at, location, details')
+      .eq('event_id', row.id)
+      .limit(30),
     getArticleBiasesForEvent(articles.filter((article) => !article.is_international).map((article) => article.id)),
   ]);
 
@@ -831,6 +864,7 @@ export async function getExploration(identifier: string | number): Promise<RawEx
     insight: insightRow ? mapInsightRow(insightRow) : null,
     entities: entities.error ? [] : ((entities.data ?? []) as unknown as EventEntity[]),
     relations: relations.error ? [] : ((relations.data ?? []) as EventRelation[]),
+    documents: documents.error ? [] : ((documents.data ?? []) as EventDocument[]),
     bias: Array.from(bias.values()).filter((analysis): analysis is ArticleBiasAnalysis => analysis !== null),
     availability: {
       entities: !isMissingTable(entities.error),

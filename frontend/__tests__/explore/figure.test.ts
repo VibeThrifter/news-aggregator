@@ -1,4 +1,4 @@
-import { chronology, partOf, storyThread } from "@/lib/explore/chronology";
+import { chronology, documentLabel, partOf, storyThread } from "@/lib/explore/chronology";
 import { buildExploration } from "@/lib/explore/exploration";
 import { buildFigure, numberFindings } from "@/lib/explore/figure";
 import { DEMO_EVENT, DEMO_EVENTS } from "@/lib/explore/fixtures/demo-event";
@@ -59,7 +59,22 @@ describe("figure", () => {
     expect(telegraaf.length).toBeGreaterThan((numberFindings(exploration).markers.get("outlet:telegraaf") ?? []).length);
   });
 
-  it("draws one group per outlet with its speakers when there are at most two Dutch outlets", () => {
+  it("groups two Dutch outlets by perspective too, named without the outlet", () => {
+    const raw = clone(DEMO_EVENT);
+    raw.articles = raw.articles.filter((article) => ["De Telegraaf", "de Volkskrant"].includes(article.source_name ?? "") || article.is_international);
+    raw.insight!.clusters[0].label = "Telegraaf: economische kans voor het dorp";
+    raw.insight!.clusters[1].label = "Berichtgeving de Volkskrant over natuur en gezondheid";
+    const figure = buildFigure(buildExploration(raw), (outlet) => isOutletShown(outlet));
+    expect(figure.mode).toBe("perInvalshoek");
+    const perspectives = figure.groups.filter((group) => group.kind === "perspective");
+    expect(perspectives.map((group) => [group.label, group.outlets.map((balloon) => balloon.outletKey)])).toEqual([
+      ["Economische kans voor het dorp", ["telegraaf"]],
+      ["Berichtgeving over natuur en gezondheid", ["volkskrant"]],
+    ]);
+    expect(figure.groups.some((group) => group.kind === "outlet")).toBe(false);
+  });
+
+  it("draws one group with its speakers for a single Dutch outlet", () => {
     const single = buildExploration(oneOutlet());
     const figure = buildFigure(single, (outlet) => isOutletShown(outlet));
     expect(figure.mode).toBe("perBron");
@@ -188,7 +203,7 @@ describe("chronology and story thread", () => {
   it("puts the story before, this news and the story after on one axis", () => {
     const { before, rows, after } = chronology(buildExploration(DEMO_EVENT).input);
     // 2019 and March 2025 are background, then the plan of 20 September (an earlier episode)
-    expect(before.map((row) => (row.kind === "episode" ? row.episode.eventId : row.headline.slice(0, 20)))).toEqual([
+    expect(before.map((row) => (row.kind === "episode" ? row.episode.eventId : row.kind === "moment" ? row.headline.slice(0, 20) : null))).toEqual([
       "Provincie wijst de p",
       "NordVind presenteert",
       -2,
@@ -200,6 +215,48 @@ describe("chronology and story thread", () => {
       const times = list.map((row) => row.t);
       expect([...times].sort((a, b) => a - b)).toEqual(times);
     }
+  });
+
+  it("puts documents from Bron at their own date, before or after this news (Story 14.29)", () => {
+    const raw = clone(DEMO_EVENT);
+    raw.documents = [
+      { term: "windpark", source: "openbesluitvorming", title: "Raadsvoorstel windpark", url: "https://a.nl/1", published_at: "2025-06-01T09:00:00Z", location: "Hollands Kroon" },
+      { term: "windpark", source: "poliflw", title: "Windpark nu stoppen", url: "https://a.nl/2", published_at: "2027-01-10T09:00:00Z", location: null },
+      { term: "windpark", source: "oor", title: "Windpark zonder datum", url: "https://a.nl/3", published_at: null },
+    ];
+    const { before, after } = chronology(buildExploration(raw).input);
+    expect(before.filter((row) => row.kind === "document").map((row) => row.kind === "document" && row.document.url)).toEqual(["https://a.nl/1"]);
+    expect(after.filter((row) => row.kind === "document").map((row) => row.kind === "document" && row.document.url)).toEqual(["https://a.nl/2"]);
+    for (const list of [before, after]) {
+      const times = list.map((row) => row.t);
+      expect([...times].sort((a, b) => a - b)).toEqual(times);
+    }
+  });
+
+  it("names where a document comes from", () => {
+    expect(documentLabel({ source: "openbesluitvorming", location: "Rotterdam" })).toBe("Raadsstuk · Rotterdam");
+    expect(documentLabel({ source: "oor", location: "Ministerie van Justitie en Veiligheid" })).toBe("Woo-stuk · Ministerie van Justitie en Veiligheid");
+    expect(documentLabel({ source: "poliflw", location: " " })).toBe("Partijnieuws");
+    expect(documentLabel({ source: "iets", location: null })).toBe("Overheidsstuk");
+    // Story 14.31: Kamerstukken and linked pages carry their own kind
+    expect(documentLabel({ source: "officielebekendmakingen", doc_type: "Motie", location: "Tweede Kamer" })).toBe("Motie · Tweede Kamer");
+    expect(documentLabel({ source: "link", doc_type: null, location: "Rijksoverheid" })).toBe("Rijksoverheid");
+    expect(documentLabel({ source: "link", doc_type: null, location: null })).toBe("Overheidsstuk");
+  });
+
+  it("names the outlets that link to a document (Story 14.31)", () => {
+    const raw = clone(DEMO_EVENT);
+    const brief = "https://zoek.officielebekendmakingen.nl/kst-32043-628.pdf";
+    raw.articles = raw.articles.map((article, i) => (i < 2 ? { ...article, links: [brief] } : article));
+    raw.documents = [
+      { term: "", source: "officielebekendmakingen", doc_type: "Kamerbrief", title: "Openbaarmaking adviezen", url: brief, published_at: "2023-12-08T00:00:00Z", location: "Tweede Kamer" },
+      { term: "windpark", source: "oor", title: "Windpark", url: "https://a.nl/1", published_at: "2025-06-01T09:00:00Z" },
+    ];
+    const input = buildExploration(raw).input;
+    const documents = chronology(input).before.filter((row) => row.kind === "document");
+    const linking = [...new Set(input.articles.filter((article) => article.links?.includes(brief)).map((article) => article.outletName))];
+    expect(documents.map((row) => row.kind === "document" && row.linkedBy)).toEqual([linking, []]);
+    expect(linking.length).toBeGreaterThan(0);
   });
 
   it("keeps every moment at its own date: what comes after this news goes after it", () => {

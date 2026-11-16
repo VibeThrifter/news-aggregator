@@ -32,6 +32,7 @@ from backend.app.feeds.trouw import TrouwRssReader
 from backend.app.feeds.geenstijl import GeenStijlAtomReader
 from backend.app.feeds.ninefornews import NineForNewsRssReader
 from backend.app.feeds.nieuwrechts import NieuwRechtsRssReader
+from backend.app.feeds.dagelijksestandaard import DagelijkseStandaardRssReader
 from backend.app.feeds.indepen import IndepenRssReader
 from backend.app.feeds.eenblikopdenos import EenBlikOpDeNosReader
 from backend.app.ingestion import (
@@ -197,6 +198,13 @@ class IngestService:
             self.readers[nieuwrechts_reader.id] = nieuwrechts_reader
             self.reader_profiles[nieuwrechts_reader.id] = nieuwrechts_profile
             logger.info("Registered feed reader", reader_id=nieuwrechts_reader.id, url=self.settings.rss_nieuwrechts_url)
+
+            # Register De Dagelijkse Standaard RSS reader
+            dds_profile = self._resolve_profile("dagelijksestandaard_rss", default_url=self.settings.rss_dagelijksestandaard_url)
+            dds_reader = DagelijkseStandaardRssReader(str(dds_profile.feed_url or self.settings.rss_dagelijksestandaard_url))
+            self.readers[dds_reader.id] = dds_reader
+            self.reader_profiles[dds_reader.id] = dds_profile
+            logger.info("Registered feed reader", reader_id=dds_reader.id, url=self.settings.rss_dagelijksestandaard_url)
 
             # Register INDEPEN RSS reader (the text comes from the feed)
             indepen_profile = self._resolve_profile("indepen_rss", default_url=self.settings.rss_indepen_url)
@@ -540,6 +548,17 @@ class IngestService:
         # Stored items are skipped before their page is fetched; then the read transaction ends, so
         # no transaction stays open while pages are fetched ("idle in transaction" for minutes)
         known = await repo.known_items(items)
+        # Koppen die veranderen (Story 14.32): the feed's headline of an article already stored
+        if known:
+            try:
+                changes = await repo.record_title_changes(
+                    [item for item in items if (item.guid or item.url) in known]
+                )
+                if changes["headline"]:
+                    logger_ctx.info("headlines_changed", **changes)
+            except SQLAlchemyError as exc:  # a headline is extra: never stop the poll for it
+                await session.rollback()
+                logger_ctx.warning("headline_check_failed", error=str(exc)[:200])
         await session.commit()
         cutoff = datetime.now(timezone.utc) - timedelta(hours=CURRENT_NEWS_HOURS)
         too_old = 0

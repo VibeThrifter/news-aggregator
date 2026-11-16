@@ -302,6 +302,110 @@ YOUTUBE_FEED = b"""<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
+class TestAndereKrantMetaContent:
+    """De Andere Krant's feed carries the full article text, so only the title says what an item is."""
+
+    @staticmethod
+    def item(title: str, text: str) -> FeedItem:
+        return FeedItem(
+            guid=f"https://deanderekrant.nl/{abs(hash(title))}/",
+            url=f"https://deanderekrant.nl/{abs(hash(title))}/",
+            title=title,
+            summary=text,
+            published_at=datetime(2026, 10, 19, 7, 0, tzinfo=timezone.utc),
+            source_metadata={},
+        )
+
+    @pytest.mark.parametrize(
+        "title, text",
+        [
+            # 2026-10-19: dropped as a "table of contents" for using ook, verder and bovendien
+            (
+                "Kabinet Jetten jaagt huishoudens op kosten met verplichte slimme warmtepomp",
+                "Het kabinet wil ook de bestaande ketels vervangen. Verder moeten huishoudens "
+                "bovendien een slimme meter nemen.",
+            ),
+            # 2026-10-19: dropped as a promotion for the word "abonnementen" in the text
+            (
+                "Tweede Kamer bespreekt ‘recht op leven zonder digitale identiteit’",
+                "Diploma's, banksaldo, medische gegevens, abonnementen, contractuele relaties.",
+            ),
+        ],
+    )
+    def test_news_with_such_words_in_its_text_stays(self, title, text):
+        from backend.app.feeds.anderekrant import AndereKrantRssReader
+
+        reader = AndereKrantRssReader("https://deanderekrant.nl/feed/")
+        assert not reader._is_meta_content(self.item(title, text))
+
+    @pytest.mark.parametrize(
+        "title",
+        ["2026 – Uitgave 42", "Deze week in De Andere Krant", "Neem een abonnement", "Bestel nu de krant"],
+    )
+    def test_editions_and_promotions_go(self, title):
+        from backend.app.feeds.anderekrant import AndereKrantRssReader
+
+        reader = AndereKrantRssReader("https://deanderekrant.nl/feed/")
+        assert reader._is_meta_content(self.item(title, "Lees ook dit verder en bovendien dat."))
+
+
+DDS_FEED = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <channel>
+        <title>News - Dagelijksestandaard.nl</title>
+        <link>https://www.dagelijksestandaard.nl/sitemap/news.xml</link>
+        <item>
+            <title>Macron praat, Parijs brandt</title>
+            <link>https://www.dagelijksestandaard.nl/buitenland/macron-tv-toespraak-parijs</link>
+            <guid isPermaLink="false">urn:uuid:3b64d167b128cd8ae0c5a7b4f76c8e44</guid>
+            <description><![CDATA[ Je zit thuis, de televisie aan &#8211; en de president belooft orde... <img src="https://r.testifier.nl/x/macron.jpg" class="type:primaryImage"> ]]></description>
+            <enclosure url="https://r.testifier.nl/x/macron.jpg" length="0" type="image/jpeg"></enclosure>
+            <pubDate>Mon, 19 Oct 2026 15:00:00 +0200</pubDate>
+        </item>
+    </channel>
+</rss>
+"""
+
+
+class TestDagelijkseStandaardReader:
+    """De Dagelijkse Standaard: RSS at /sitemap/news.xml with a teaser; the page gives the text."""
+
+    @pytest.mark.asyncio
+    async def test_items_carry_teaser_date_and_image(self):
+        from contextlib import asynccontextmanager
+
+        from backend.app.feeds.dagelijksestandaard import DagelijkseStandaardRssReader
+
+        response = MagicMock()
+        response.content = DDS_FEED
+        response.raise_for_status = MagicMock()
+        client = AsyncMock()
+        client.get = AsyncMock(return_value=response)
+
+        @asynccontextmanager
+        async def mock_http_client(*args, **kwargs):
+            yield client
+
+        url = "https://www.dagelijksestandaard.nl/sitemap/news.xml"
+        reader = DagelijkseStandaardRssReader(url)
+        with patch("backend.app.feeds.dagelijksestandaard.http_client", mock_http_client):
+            items = await reader.fetch()
+
+        client.get.assert_called_once_with(url)
+        assert reader.id == "dagelijksestandaard_rss"
+        [item] = items
+        assert item.guid == "urn:uuid:3b64d167b128cd8ae0c5a7b4f76c8e44"
+        assert item.url == "https://www.dagelijksestandaard.nl/buitenland/macron-tv-toespraak-parijs"
+        assert item.title == "Macron praat, Parijs brandt"
+        assert item.summary == "Je zit thuis, de televisie aan – en de president belooft orde..."
+        assert item.published_at == datetime(2026, 10, 19, 13, 0, tzinfo=timezone.utc)
+        assert item.image_url == "https://r.testifier.nl/x/macron.jpg"
+        assert item.source_metadata["name"] == "De Dagelijkse Standaard"
+        assert item.source_metadata["spectrum"] == 9
+        # No full text in the feed: the ingest fetches the page
+        assert "full_text_from_feed" not in item.source_metadata
+
+
 INDEPEN_FEED = b"""<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"
     xmlns:content="http://purl.org/rss/1.0/modules/content/"
     xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -453,13 +557,14 @@ class TestIngestService:
             mock_settings.return_value.rss_geenstijl_url = "https://mock-geenstijl.nl/atom"
             mock_settings.return_value.rss_ninefornews_url = "https://mock-ninefornews.nl/feed"
             mock_settings.return_value.rss_nieuwrechts_url = "https://mock-nieuwrechts.nl/rss"
+            mock_settings.return_value.rss_dagelijksestandaard_url = "https://mock-dagelijksestandaard.nl/sitemap/news.xml"
             mock_settings.return_value.rss_indepen_url = "https://mock-indepen.eu/feed/"
             mock_settings.return_value.rss_eenblikopdenos_url = "https://mock-xcancel.com/eenblikopdenos/rss"
             self.service = IngestService()
 
     def test_reader_registration(self):
         """Test that readers are properly registered."""
-        assert len(self.service.readers) == 14
+        assert len(self.service.readers) == 15
         assert "nos_rss" in self.service.readers
         assert "nunl_rss" in self.service.readers
         assert "ad_rss" in self.service.readers
@@ -472,13 +577,14 @@ class TestIngestService:
         assert "geenstijl_atom" in self.service.readers
         assert "ninefornews_rss" in self.service.readers
         assert "nieuwrechts_rss" in self.service.readers
+        assert "dagelijksestandaard_rss" in self.service.readers
         assert "indepen_rss" in self.service.readers
         assert "eenblikopdenos_rss" in self.service.readers
 
     def test_get_reader_info(self):
         """Test reader info retrieval."""
         info = self.service.get_reader_info()
-        assert info["total_count"] == 14
+        assert info["total_count"] == 15
         assert "nos_rss" in info["readers"]
         assert "nunl_rss" in info["readers"]
         assert "ad_rss" in info["readers"]
@@ -491,6 +597,7 @@ class TestIngestService:
         assert "geenstijl_atom" in info["readers"]
         assert "ninefornews_rss" in info["readers"]
         assert "nieuwrechts_rss" in info["readers"]
+        assert "dagelijksestandaard_rss" in info["readers"]
         assert "indepen_rss" in info["readers"]
         assert "eenblikopdenos_rss" in info["readers"]
 
@@ -530,10 +637,10 @@ class TestIngestService:
 
         # Verify results
         assert results["success"] is True
-        assert results["total_readers"] == 14
-        assert results["successful_readers"] == 14
+        assert results["total_readers"] == 15
+        assert results["successful_readers"] == 15
         assert results["failed_readers"] == 0
-        assert results["total_items"] == 14  # 1 item per reader
+        assert results["total_items"] == 15  # 1 item per reader
         assert len(results["errors"]) == 0
 
     @pytest.mark.asyncio
@@ -571,9 +678,9 @@ class TestIngestService:
 
         # Verify results
         assert results["success"] is False
-        assert results["successful_readers"] == 13  # 13 out of 14 succeed
+        assert results["successful_readers"] == 14  # 14 out of 15 succeed
         assert results["failed_readers"] == 1
-        assert results["total_items"] == 13
+        assert results["total_items"] == 14
         assert len(results["errors"]) == 1
         assert "Test error" in results["errors"][0]["error"]
 
@@ -608,8 +715,8 @@ class TestIngestService:
         results = await self.service.test_readers()
 
         # Verify all readers tested
-        assert len(results) == 14
-        for reader_id in ["nos_rss", "nunl_rss", "ad_rss", "rtl_rss", "telegraaf_rss", "volkskrant_rss", "parool_rss", "anderekrant_rss", "trouw_rss", "geenstijl_atom", "ninefornews_rss", "nieuwrechts_rss", "indepen_rss", "eenblikopdenos_rss"]:
+        assert len(results) == 15
+        for reader_id in ["nos_rss", "nunl_rss", "ad_rss", "rtl_rss", "telegraaf_rss", "volkskrant_rss", "parool_rss", "anderekrant_rss", "trouw_rss", "geenstijl_atom", "ninefornews_rss", "nieuwrechts_rss", "dagelijksestandaard_rss", "indepen_rss", "eenblikopdenos_rss"]:
             assert reader_id in results
             assert results[reader_id]["status"] == "ok"
 

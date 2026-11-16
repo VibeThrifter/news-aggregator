@@ -88,6 +88,7 @@ const SOURCE_DOMAINS: Record<string, string> = {
   "GeenStijl": "geenstijl.nl",
   "NineForNews": "ninefornews.nl",
   "NieuwRechts": "nieuwrechts.nl",
+  "De Dagelijkse Standaard": "dagelijksestandaard.nl",
   "INDEPEN": "indepen.eu",
 };
 
