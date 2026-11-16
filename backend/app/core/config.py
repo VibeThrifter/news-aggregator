@@ -759,6 +759,13 @@ class Settings(BaseSettings):
         default=True,
         description="Precompute event entities and related events for the exploration UI",
     )
+    event_places_enabled: bool = Field(
+        default=True,
+        description=(
+            "Waar speelt het nieuws? (Story 14.38): compute the places of a news item "
+            "(event_places) in the exploration refresh"
+        ),
+    )
     exploration_entities_max_per_event: int = Field(
         default=40,
         ge=1,

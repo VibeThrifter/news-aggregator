@@ -1,0 +1,82 @@
+# Hand list next to GeoNames for "Waar speelt het nieuws?" (Story 14.38). Keys are slugs
+# (backend/app/nlp/entity_keys.py: slugify). Keep it small: every line is a measured error or gap.
+
+# Never a place in Dutch news: squares, words and names that GeoNames also has as a hamlet or country
+never:
+  - dam            # de Dam in Amsterdam, not the hamlet Dam
+  - markt
+  - centrum
+  - jordan         # a person; the country is Jordanie
+  - europa
+  - afrika
+  - azie
+  - amerika-s
+  - midden-oosten
+  - westen
+  - oosten
+  - noorden
+  - zuiden
+  # measured 2026-11-16: words and names that GeoNames has as a place
+  - van            # Van Dijk; a city in Turkey
+  - man            # "Man krijgt celstraf"; Isle of Man
+  - ajax           # the club; a town in Canada
+  - brand          # Russell Brand; a hamlet
+  - oost
+  - west
+  - noord
+  - zuid
+  - straat         # Straat van Hormuz
+  - oranje         # the national team
+  - een            # "Een huis vol"; a village in Drenthe
+  - mitte
+  - roer           # "Het Roer Om" (tv)
+  - brits          # "Brits eiland"; a town in South Africa
+
+# Dutch places that are also words: they count only right after a preposition ("in Best")
+needs_preposition:
+  - best
+  - echt
+  - made
+  - heel
+  - well
+  - nes
+  - born
+  - lent
+  - mill
+  - elst
+  - appel
+  - loo
+  - est
+  - linde
+  - manen
+  - goes        # "goes" is no Dutch word, but English text in articles has it
+  - sloten
+  - ool
+
+# A name that means another place than the one GeoNames picks first
+aliases:
+  kiev: g:703448                 # Kyiv
+  kyiv: g:703448
+  sint-maarten: c:SX             # not the French half, not the village in Noord-Holland
+  krim: g:703883
+  de-krim: g:703883
+  gazastrook: c:PS
+  amerika: c:US
+  engeland: c:GB
+  schotland: c:GB
+  wales: c:GB
+  noord-ierland: c:GB
+
+# A place a name can also mean, next to what GeoNames gives (the news item's countries decide)
+also:
+  newcastle: g:2641673           # Newcastle upon Tyne, next to Newcastle in Australia and South Africa
+
+# Places GeoNames does not give us (or not with a usable name)
+places:
+  - {id: westelijke-jordaanoever, name: Westelijke Jordaanoever, cc: PS, lat: 31.95, lon: 35.25, names: [westelijke-jordaanoever, westbank]}
+  - {id: bonaire, name: Bonaire, cc: BQ, lat: 12.15, lon: -68.27, names: [bonaire]}
+  - {id: saba, name: Saba, cc: BQ, lat: 17.63, lon: -63.24, names: [saba]}
+  - {id: sint-eustatius, name: Sint Eustatius, cc: BQ, lat: 17.49, lon: -62.97, names: [sint-eustatius, statia]}
+  - {id: siberie, name: Siberië, cc: RU, lat: 60.0, lon: 100.0, names: [siberie]}
+  - {id: bali, name: Bali, cc: ID, lat: -8.4, lon: 115.19, names: [bali], kind: region}
+  - {id: hollywood, name: Hollywood, cc: US, lat: 34.098, lon: -118.327, names: [hollywood]}

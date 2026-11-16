@@ -12,6 +12,7 @@ from backend.app.core.scheduler import get_scheduler
 from backend.app.services.article_digest import get_article_digest_service
 from backend.app.services.background_documents import get_background_documents_service
 from backend.app.services.copy_detection import get_copy_detection_service
+from backend.app.services.event_places import get_event_places_service
 from backend.app.services.official_sources import get_official_sources_service
 from backend.app.services.enrich_service import ArticleEnrichmentService
 from backend.app.services.entity_research.service import get_entity_research_service
@@ -760,6 +761,51 @@ async def trigger_copy_detection_event(event_id: int):
     if not stats["events"]:
         raise HTTPException(status_code=404, detail=f"Event {event_id} has no articles")
     return {"event_id": event_id, **stats, "groups": await service.stored_groups(event_id)}
+
+
+# Kaart (Epic 14, Story 14.38): where a news item takes place, without AI
+@router.post("/trigger/event-places")
+async def trigger_event_places(days: int = 45, dry_run: bool = False):
+    """Recompute the places of every news item that started in the last ``days`` days (the
+    exploration refresh does this after every analysis and every day).
+
+    Args:
+        days: Window in days (1-3650, default 45)
+        dry_run: Only count the rows that would be inserted, updated or deleted
+    """
+    if days < 1 or days > 3650:
+        raise HTTPException(status_code=400, detail="days must be between 1 and 3650")
+    return await get_event_places_service().refresh_recent(days=days, dry_run=dry_run)
+
+
+@router.post("/trigger/event-places/{event_id}")
+async def trigger_event_places_event(event_id: int):
+    """Recompute the places of one news item now and return them."""
+
+    service = get_event_places_service()
+    inputs = await service.load_inputs([event_id])
+    if event_id not in inputs:
+        raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
+    result = await service.refresh_events([event_id])
+    return {
+        "event_id": event_id,
+        **result.as_dict(),
+        "places": [
+            {
+                key: row[key]
+                for key in (
+                    "place_key",
+                    "kind",
+                    "name",
+                    "iso_code",
+                    "region",
+                    "article_count",
+                    "in_title",
+                )
+            }
+            for row in service.build_rows(inputs[event_id])
+        ],
+    }
 
 
 # Achtergrondstukken (Epic 14, Story 14.29): documents in Bron about a news item

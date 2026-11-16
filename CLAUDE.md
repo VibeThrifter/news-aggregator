@@ -161,6 +161,15 @@ make clean             # Clean up generated files
   NU.nl, AD, De Telegraaf, Het Parool, de Volkskrant and Trouw), 120 per page sorted on `first_seen_at`; "Meer nieuws"
   loads the next page (`FEED_PAGE_SIZE`). Never sort the feed on `last_updated_at`: maintenance and re-analyses move it
 - **LLM provider per step**: `llm_config` keys `provider_<step>` (event assignment, classification, factual, critical, digest, voice search, bias) via `backend/app/llm/providers.py`; never hard-wire a provider. Values: mistral, deepseek, deepseek-r1, gemini, `gemini-fast[:model]` (Gemini 3.5 Flash with minimal thinking, 1-3 s a call; `backend/app/llm/gemini_fast.py`) or `claude-code[:haiku|sonnet|opus]`, which runs the local Claude Code CLI (`claude -p`, the owner's subscription, no API key; `backend/app/llm/claude_code.py`, `CLAUDE_CODE_*`). Selectable on /admin/llm-config. Since 2026-10-04 every step runs on Claude Code (DeepSeek credit ran out); since 2026-10-14 every Claude Code step runs on Haiku, the analyses too (owner: Sonnet used too much of the subscription), and a bare `claude-code` means Haiku (`CLAUDE_CODE_MODEL`). At most `CLAUDE_CODE_MAX_PARALLEL` (2) calls run at once; a waiting call of the news pipeline (classification, event assignment) gets the next free slot before analyses, digests and the rest (`NEWS_PIPELINE_PRIORITY`): the analyses that every link starts held both slots while the poll waited (2026-10-08). Every call runs with `--effort medium` (`CLAUDE_CODE_EFFORT`, owner 2026-10-09; without it Sonnet ran on medium and Haiku probably on high)
+- **Kaart (Story 14.38)**: `/kaart` shows where the news happens: the Netherlands per place (CBS provinces) and the
+  world per country (a globe, d3-geo, no map service). A place counts when the headline, or the start of at least
+  half of the Dutch articles after "in/te/bij/op", names it (`backend/app/services/event_places.py`, no AI; places
+  from GeoNames in `backend/app/data/gazetteer/`, rebuilt with `scripts/build_gazetteer.py`, hand rules in
+  `extra.yaml`). A country, a capital or Den Haag needs that preposition (they also stand for a government); sport
+  gets no places; at most 3 per news item; an item without an analysis title gets none. Table `event_places`
+  (migration 026, published), computed in the exploration refresh after the entities. Blind: Netherlands 92.5 %,
+  abroad 88 % "speelt hier"; measure again (`scripts/measure_event_places.py`, two blind judges) before changing
+  the rule
 - **Besluitvorming (Epic 15)**: the propaganda model holds decision-making in the same network (owner decision
   2026-10-07): five categories next to the filters (formele_macht, belangen, kennis_advies, polder, werving; after
   Domhoff), relation types ambt/zeggenschap/controle/geschenk, `bestuurslaag` on organisations and the office as the
@@ -211,7 +220,7 @@ make clean             # Clean up generated files
 | LLM Usage | 60 s | "AI-gebruik" in Beheer: every LLM call is noted (provider, model, step, tokens; `backend/app/llm/usage.py`) and written to the local table `llm_usage` (local only, migration 020, kept 90 days; `LLM_USAGE_*`). Claude Code runs with `--output-format stream-json` and reports the subscription's limits with every call (share of the 5-hour window and the week, reset times); Gemini's free tier counts requests per model per day (`GEMINI_FREE_DAILY_REQUESTS`). `GET /admin/llm-usage` |
 | Bias Analysis | 6 hours | Per-sentence bias detection (Epic 10, disabled by default) |
 | Bias Requests | 5 s | Gekleurde zinnen op verzoek (Story 10.7): a code with role admin or pro starts the per-sentence bias of one news item under "Hoe gebracht?" (`bias_requests`, migration 019, Supabase only; 20 per code a day, 100 in all). The job listens (`LISTEN bias_request`, else every 5 minutes) and analyses the Dutch articles with text and no analysis, the newest of every outlet first, at most `BIAS_REQUEST_ARTICLE_CAP` (16). The analyses are published, so every reader sees them (`backend/app/services/bias_requests.py`) |
-| Exploration Refresh | 24 hours (na Event Maintenance) | Event Maintenance → daarna Exploration refresh (entiteiten + gerelateerde events, Epic 11) |
+| Exploration Refresh | 24 hours (na Event Maintenance) | Event Maintenance → daarna Exploration refresh (entiteiten + gerelateerde events, Epic 11; daarna de plekken van de kaart, Story 14.38) |
 | Entity Research | 15 min | Wie is dit? (Epic 12): triage van namen in het nieuws (rol + belang; kunstenaars, sporters en verzonnen personages zonder rol in het netwerk gaan er niet heen: uit de tekst, anders Wikidata, nooit op "overleden"; `wikidata.py`), onderzoeksdoelen naar het propagandamodel en resultaten ophalen. De rondes van de pm-agent `nieuws-scout` plant het propagandamodel zelf (launchd, elke 2 uur, max 6/dag, 08–22); de nieuws-app start ze niet (sinds 2026-10-09 is die code weg) en toont in de status alleen wat de pm-runs melden. `ENTITY_RESEARCH_ENABLED`, `ENTITY_RESEARCH_*`; vereist migratie 006 + draaiende pm-server |
 | Article Digest | 15 min | "Wat schreef …?": haalt de tekst van nieuwe buitenlandse artikelen op (Google News geeft alleen de kop) en laat de LLM een Nederlandse kern van hoogstens twee zinnen schrijven in `source_metadata.digest`; de tekst zelf wordt niet opgeslagen. Alleen artikelen van de laatste 72 uur, oudere via de admin-backfill (`ARTICLE_DIGEST_*`; provider: `llm_config.provider_digest`, anders die van de feitenanalyse) |
 | Copy Detection | 60 s | Zelfde tekst (Story 14.27): groups the articles of a news item that are the same text (agency copy, or one article of a publisher in several titles) by comparing the texts word for word (passages of 12+ words in the same order, quotes left out; no AI) and stores per link `event_articles.scoring_breakdown.copy` (share, chance calibrated on pairs judged blind: precision 100 %, recall 93 % on new pairs; source: persbureau when the owners differ or a text names ANP, uitgever when the titles share one article code). Only news items that got an article in the last 72 h and changed. The event page shows each text as a numbered finding (`=7`): a line between the balloons in "Wie zegt wat?", a card under "Wie praat?", a pill per article under "Alle bronnen en artikelen"; the analysis reads it once (`COPY_DETECTION_*`, `backend/app/services/copy_detection.py`) |
@@ -381,6 +390,10 @@ curl -X POST "http://localhost:8000/admin/trigger/article-digest/{article_id}"
 
 # Gist batch for foreign articles of active news without one (leave out max_age_hours = backfill all)
 curl -X POST "http://localhost:8000/admin/trigger/article-digests?limit=50"
+
+# Kaart (Story 14.38): places of the news items of the last N days (dry_run=true only counts), or of one news item
+curl -X POST "http://localhost:8000/admin/trigger/event-places?days=45&dry_run=true"
+curl -X POST "http://localhost:8000/admin/trigger/event-places/{event_id}"
 
 # Zelfde tekst (Story 14.27): compare the news items of the last N hours now (force=true also unchanged ones,
 # include_archived=true a backfill, dry_run=true only counts), or one news item (returns its groups)

@@ -2251,3 +2251,70 @@ Geen AI-aanroep in een van de vijf; elke regel zegt wat er staat, nooit waarom.
 - "Onafhankelijk?" en "Eerdere adviezen" komen nog uit de analyse.
 - Niet gemeten: of citaten uit Kamerdebatten terug te vinden zijn in het debatverslag.
 - De koppen zijn één avond gemeten; na een week draaien kijken hoeveel er echt veranderen.
+
+## Story 14.38: Kaart — waar speelt het nieuws?
+
+**Status**: ✅ Gebouwd (2026-11-16), nog niet gecommit; de backend moet opnieuw starten voor de haak en de
+beheer-endpoints. Idee van de eigenaar (2026-11-16): "Wereldbol of kaart pagina met waar
+nieuws vandaan komt zou cool zijn. Apart kaart voor binnenlands nieuws en buitenlands nieuws?"
+
+Een pagina `/kaart` met twee beelden: Nederland (platte kaart, bollen per plaats) en Wereld (draaibare wereldbol,
+landen getint). Een plek betekent: de kop of het begin van de Nederlandse artikelen noemt haar. Geen AI, geen
+kaartdienst van buiten (eigen tekening met d3-geo). Alleen nieuws met een artikel van een hoofdbron, zoals de
+voorpagina.
+
+### Meting vooraf (2026-11-16, lokale database, alleen gelezen)
+Proef: GPE/LOC-namen in de eerste 400 tekens van elk Nederlands artikel, opgezocht in GeoNames (NL-plaatsen,
+steden vanaf 100.000 inwoners) en de landenlijst van de app; een plek telt als minstens de helft van de artikelen
+van het nieuwsitem haar zo noemt.
+- 4.294 nieuwsitems in 45 dagen: 691 (16 %) krijgen een Nederlandse plaats, 1.225 (29 %) een land of stad in het
+  buitenland, 85 beide, 2.463 (57 %) geen plek.
+- 60 items met de hand bekeken: ongeveer 85 % plausibel (niet blind, één beoordelaar).
+- Foutsoorten: naamgenoten (Newcastle → Australië, Sint Maarten → dorp in Noord-Holland, Californië → gehucht in
+  Limburg, Porto → Bordeaux via namen in andere talen), sportclubs als stad (Liverpool), verhalen met veel
+  plaatsen, Engelse namen (The Hague), landen die de landenlijst mist (Verenigd Koninkrijk, Saudi-Arabië),
+  regio's en wijken niet herkend (Texas, Sicilië, Floradorp), "Tel Aviv" in tweeën.
+- De tekst begint niet bij elke bron met de kop (De Telegraaf en GeenStijl nooit): de kop wordt apart gelezen.
+
+### Meting van de regel (blind, 2026-11-16)
+Twee beoordelaars (agents) per steekproef, zonder de regel te kennen: speelt het nieuws op deze plek ("hier"),
+wordt ze alleen genoemd, of is het de verkeerde plek? Een plek telt als half goed als één van de twee "hier" zegt.
+
+| Steekproef | Nederland | Buitenland | Opmerking |
+| --- | --- | --- | --- |
+| 1 (eerste regel) | 77 % | 64 % | daarna bijgesteld op deze steekproef (92 % / 91 %) |
+| 2 (nieuw, 217 plekken) | 88,6 % | 81,2 % | poort niet gehaald; fouten: landen als speler ("afhankelijk van de VS"), Den Haag als politiek, "Het Roer Om", "Brits", "The New York Times" |
+| 3 (nieuw, 210 plekken, regel na steekproef 2) | **92,5 %** (87–97,5) | **88,0 %** (82–94) | eens in 203 van 210 oordelen; 0 % fout in Nederland, 2,9 % buitenland |
+| 3 na twee naamgenoten (Newcastle, Virginia) | 92,5 % | 89,9 % | niet meer blind: bijgesteld op deze steekproef |
+
+- De poort van 90 % is voor Nederland gehaald, voor het buitenland net niet blind (88 %, na bijstellen 89,9 %).
+  Wat overblijft is vooral "genoemd": een herkomst, een bestemming, een land als vergelijking. Echt fout is
+  ongeveer 1 op 35 buitenlandse plekken.
+- Bijstellingen na steekproef 2: een land, een hoofdstad of Den Haag telt alleen met een voorzetsel van plaats
+  ("in Rusland", niet "Rusland valt aan"); een naam in de kop die gevolgd wordt door een woord met een hoofdletter
+  is een langere naam ("New York Times"); roer en brits zijn nooit een plek. Na steekproef 3: Newcastle kan ook
+  Newcastle upon Tyne zijn (de landen van het nieuwsitem beslissen); een staat wint van een kleinere stad met
+  dezelfde naam elders (Virginia).
+- Dekking (45 dagen, 3.210 nieuwsitems met een analysetitel): 8 % krijgt een Nederlandse plek, 12 % een plek in
+  het buitenland, 81 % geen. Liever geen stip dan een foute.
+- Gevuld op 2026-11-16: 648 rijen voor 621 nieuwsitems, lokaal en in Supabase gelijk.
+
+### Taken
+- [x] Plaatsenlijst uit GeoNames (`scripts/build_gazetteer.py` → `backend/app/data/gazetteer/places.json`, 14.827
+      plekken), alleen Nederlandse namen en een paar afkortingen, plus een kleine lijst met de hand (`extra.yaml`:
+      nooit, alleen met voorzetsel, aliassen, ook-namen, eigen plekken)
+- [x] Regel per nieuwsitem (`backend/app/services/event_places.py`), 30 tests (`test_event_places.py`)
+- [x] Blinde meting (`scripts/measure_event_places.py`), zie hierboven
+- [x] Tabel `event_places` (migratie 026 op beide databases, RLS, alleen lezen voor anon, gepubliceerd), berekend in
+      de exploration refresh na de entiteiten; beheer: `/admin/trigger/event-places?days=45&dry_run=true` en
+      `/admin/trigger/event-places/{event_id}`
+- [x] Pagina `/kaart` (`frontend/components/kaart/`, `frontend/lib/kaart/data.ts` + jest): Nederland (provincies
+      van CBS, bollen per plaats) en Wereld (wereldbol van Natural Earth, landen getint, kleine landen een stip),
+      periode, categorie (zonder sport), nieuws per plek, keuze in de URL, link "Kaart" in de kop
+- [x] Schermafbeeldingen 1440 en 390 px (geen horizontaal scrollen, geen fouten in de console), `CLAUDE.md`
+
+### Open
+- Filter per bron ("wat brengt NOS waar?"): `outlets` staat al in de tabel.
+- Kaartje op de eventpagina en de voorpagina.
+- Wijken, gebouwen en natuurgebieden (Floradorp, Vondelpark, Noordzee); plaatsregels uit de dateline.
+- Meer dekking: meten of de hele tekst (niet alleen het begin) meer plekken geeft zonder fouten.

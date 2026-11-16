@@ -7,6 +7,9 @@ events with reasons) up to date:
 - ``refresh_active``: after the daily event maintenance (stale entities + all active events)
 - ``backfill``: paged recomputation for existing events (admin endpoint)
 
+Right after the entities it also recomputes the places of the same events (``event_places``,
+Story 14.38, ``services/event_places.py``); a failure there never stops the exploration.
+
 Inputs are read from and the derived tables written to the backend's database. The ``events``
 table is never written.
 """
@@ -31,6 +34,7 @@ from backend.app.services.event_entity_service import (
     EventEntityService,
     SessionFactory,
 )
+from backend.app.services.event_places import EventPlacesService
 from backend.app.services.related_events_service import (
     EntityRef,
     RelatedEventsService,
@@ -94,6 +98,7 @@ class ExplorationService:
         entity_service: EventEntityService | None = None,
         related_service: RelatedEventsService | None = None,
         country_mapping: CountryMapping | CountryIndex | None = None,
+        places_service: EventPlacesService | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self._read = read_session_factory or _default_read_factory
@@ -109,6 +114,9 @@ class ExplorationService:
             read_session_factory=self._read,
             write_session_factory=self._write,
             entity_session_factory=self._write,
+        )
+        self.places_service = places_service or EventPlacesService(
+            settings=self.settings, session_factory=self._write
         )
         # Serialises refreshes within this process (hook, scheduler and admin triggers).
         self._lock = asyncio.Lock()
@@ -151,6 +159,23 @@ class ExplorationService:
             **details,
         }
 
+    async def _refresh_places(self, event_ids: Sequence[int], correlation_id: str | None) -> int:
+        """Places of the events whose entities were recomputed (rows written; never raises)."""
+
+        if not event_ids or not self.places_service.enabled:
+            return 0
+        try:
+            result = await self.places_service.refresh_events(event_ids)
+        except Exception as exc:  # the map may lag; the exploration goes on
+            logger.warning(
+                "event_places_refresh_failed",
+                error=str(exc),
+                events=len(event_ids),
+                correlation_id=correlation_id,
+            )
+            return 0
+        return result.rows_inserted + result.rows_updated + result.rows_deleted
+
     def _disabled(self, **details: Any) -> dict[str, Any]:
         return {"skipped": True, "reason": "disabled", **details}
 
@@ -176,6 +201,7 @@ class ExplorationService:
                 )
                 if event_id in entities.missing:
                     raise EventNotFoundError(f"Event {event_id} not found")
+                places_changed = await self._refresh_places([event_id], correlation_id)
                 await self.related_service.refresh_cache()
                 self._apply_entities_to_cache(entities)
                 title = extract_title_from_summary(summary) if summary else None
@@ -194,6 +220,7 @@ class ExplorationService:
             "entities_written": entities.rows_written,
             "relations_written": relations.rows_written,
             "relations_deleted": relations.deleted_rows + relations.pruned_rows,
+            "places_changed": places_changed,
         }
         self._record("event_refresh", started, started_at, success=True, **outcome)
         logger.info("exploration_event_refreshed", correlation_id=correlation_id, **outcome)
@@ -216,6 +243,7 @@ class ExplorationService:
                 entities = await self.entity_service.refresh_events(
                     stale, correlation_id=correlation_id
                 )
+                places_changed = await self._refresh_places(entities.events_written, correlation_id)
                 self._apply_entities_to_cache(entities)
                 relations = await self.related_service.refresh(
                     active, refresh_cache=False, correlation_id=correlation_id
@@ -229,6 +257,7 @@ class ExplorationService:
             "entities_written": entities.rows_written,
             "relations_written": relations.rows_written,
             "relations_deleted": relations.deleted_rows + relations.pruned_rows,
+            "places_changed": places_changed,
         }
         self._record("refresh_active", started, started_at, success=True, **stats)
         logger.info("exploration_active_refreshed", correlation_id=correlation_id, **stats)
@@ -272,6 +301,7 @@ class ExplorationService:
                 entities = await self.entity_service.refresh_events(
                     to_compute, correlation_id=correlation_id
                 )
+                await self._refresh_places(entities.events_written, correlation_id)
                 self._apply_entities_to_cache(entities)
                 relations: RelationRefreshResult = await self.related_service.refresh(
                     page, refresh_cache=False, correlation_id=correlation_id

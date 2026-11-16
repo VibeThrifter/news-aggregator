@@ -76,6 +76,7 @@ PUBLISHED_TABLES: tuple[PublishedTable, ...] = (
     PublishedTable("event_entities"),
     PublishedTable("event_relations"),
     PublishedTable("event_documents"),
+    PublishedTable("event_places", key=("event_id", "place_key")),
     PublishedTable("pm_entities"),
     PublishedTable("pm_relations"),
     PublishedTable("pm_sources"),

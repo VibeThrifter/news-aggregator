@@ -370,6 +370,48 @@ Index(
 )
 
 
+class EventPlace(Base):
+    """Where a news item takes place (Epic 14, Story 14.38, migration 026).
+
+    Derived without AI (``services/event_places.py``): places the headline or the start of the
+    Dutch articles names, looked up in the GeoNames place list. Display fields (``event_*``) are
+    denormalised like ``event_entities``; ``event_title`` is always the LLM title. Published.
+    """
+
+    __tablename__ = "event_places"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('country','city','region','place','municipality')",
+            name="ck_event_places_kind",
+        ),
+        Index("idx_event_places_first_seen", "event_first_seen_at"),
+    )
+
+    event_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("events.id", ondelete="CASCADE", name="fk_event_places_event"),
+        primary_key=True,
+    )
+    # place:<geonameid>, place:x-<id> (hand list) or country:<iso>
+    place_key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    iso_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    region: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    lat: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    lon: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    article_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    in_title: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # The Dutch outlets of the news item (the website keeps news of a main source)
+    outlets: Mapped[list[str]] = mapped_column(JSONBType, nullable=False, default=list)
+    event_slug: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    event_title: Mapped[str] = mapped_column(String(512), nullable=False)
+    event_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    event_first_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class EventRelation(Base):
     """Precomputed related events with reasons (Epic 11, Story 11.8).
 
