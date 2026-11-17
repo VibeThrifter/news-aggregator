@@ -106,13 +106,16 @@ export function storyThread(input: Pick<ExploreInput, "event" | "relations" | "a
 
 /**
  * A row of this news: the first article of an outlet, a moment from the analysis, outlets that
- * published within two minutes (Story 14.35), or an article that got another headline (Story 14.32)
+ * published within two minutes (Story 14.35), an article that got another headline (Story 14.32),
+ * or another episode or a document dated between the first and the last article
  */
 export type ChronologyRow =
   | { kind: "publication"; t: number; outletKey: string; lagMinutes: number }
   | { kind: "moment"; t: number; headline: string; timelineIndex: number }
   | { kind: "together"; t: number; outletKeys: string[] }
-  | { kind: "headline"; t: number; change: HeadlineChangeRow };
+  | { kind: "headline"; t: number; change: HeadlineChangeRow }
+  | { kind: "episode"; t: number; episode: Episode }
+  | { kind: "document"; t: number; document: EventDocument; linkedBy: string[] };
 
 /**
  * A row before or after this news: a moment from the analysis, another episode of the story, a
@@ -125,7 +128,7 @@ export type StoryRow =
   | { kind: "headline"; t: number; change: HeadlineChangeRow };
 
 /** Rows at the same minute: a moment, then the outlets together, their articles, a new headline */
-const ROW_ORDER: Record<ChronologyRow["kind"], number> = { moment: 0, together: 1, publication: 2, headline: 3 };
+const ROW_ORDER: Record<ChronologyRow["kind"], number> = { moment: 0, document: 1, together: 2, publication: 3, episode: 4, headline: 5 };
 
 /** What kind of document it is, by Bron's collection */
 const DOCUMENT_KIND: Record<string, string> = {
@@ -199,18 +202,22 @@ export function chronology(input: ExploreInput): Chronology {
     else result[part === "after" ? "after" : "before"].push({ kind: "moment", t, yearOnly: parsed.yearOnly, headline: item.headline, timelineIndex });
   });
 
+  // Before the first Dutch article, between it and the last article (on the black line, in time
+  // order with the publications), or after the last article
   const thread = storyThread(input);
   const newsAt = newsStart(input);
+  const place = (row: Extract<StoryRow, { kind: "episode" | "document" }>) => {
+    if (row.t < newsAt) result.before.push(row);
+    else if (row.t > span.end) result.after.push(row);
+    else result.rows.push(row);
+  };
   for (const episode of [...thread.earlier, ...thread.alongside, ...thread.later]) {
-    const t = time(episode.firstSeenAt);
-    result[t < newsAt ? "before" : "after"].push({ kind: "episode", t, episode });
+    place({ kind: "episode", t: time(episode.firstSeenAt), episode });
   }
   // A document without a date has no place on the axis
   for (const document of input.documents ?? []) {
     const t = time(document.published_at);
-    if (!Number.isNaN(t)) {
-      result[t < newsAt ? "before" : "after"].push({ kind: "document", t, document, linkedBy: outletsLinking(input.articles, document.url) });
-    }
+    if (!Number.isNaN(t)) place({ kind: "document", t, document, linkedBy: outletsLinking(input.articles, document.url) });
   }
 
   // Outlets that published within two minutes (Story 14.35)

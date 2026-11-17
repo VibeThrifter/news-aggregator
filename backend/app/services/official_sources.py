@@ -5,8 +5,9 @@ One scheduled job, three steps, all open data without a key and without an LLM c
 1. new Kamervragen on officielebekendmakingen.nl that link to an article of the news
    (``parliament_citations``);
 2. the Kamer's votes on the motions and amendments in the Tijdlijn (``parliament_citations``);
-3. new news releases of the Rijksoverheid, compared word for word with the articles around them
-   (``press_releases``).
+3. new news releases of the Rijksoverheid and the other senders of ``release_sites`` (OM, Politie,
+   Koninklijk Huis, Defensie, ProRail, Rechtspraak, CBS, …), compared word for word with the
+   articles around them (``press_releases``, Stories 14.34 and 14.39).
 
 What a step finds goes into ``event_documents`` (published); the Tijdlijn shows it. A step that
 fails (a site down) does not stop the others; the next run tries again.
@@ -61,7 +62,10 @@ class OfficialSourcesService:
                     logger.warning("official_sources_kamervragen_failed", error=str(exc)[:200])
             if "persberichten" in steps:
                 try:
-                    result["persberichten"] = await self.press.run(client, days=window)
+                    # A window asked for (a backfill) reads every sender now, also the hourly ones
+                    result["persberichten"] = await self.press.run(
+                        client, days=window, backfill=days is not None
+                    )
                 except (httpx.HTTPError, ValueError) as exc:
                     result["persberichten"] = {"error": str(exc)[:300]}
                     logger.warning("official_sources_press_failed", error=str(exc)[:200])

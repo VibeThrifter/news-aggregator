@@ -9,6 +9,7 @@ import {
   measuredCopying,
   measuredCopyingLabel,
   pressQuotesByArticle,
+  pressReleaseLines,
   sponsoredLabel,
   togetherClusters,
   voteSummary,
@@ -122,6 +123,41 @@ describe("Citaat uit het persbericht (Story 14.34) and Kamervragen (Story 14.33)
     const question = input.documents!.find((d) => d.source === "kamervragen")!;
     expect(documentOutlets(question, input.articles)).toEqual([input.articles.find((article) => article.id === b.id)!.outletName]);
     expect(chronology(input).after.some((row) => row.kind === "document" && row.document.source === "kamervragen")).toBe(true);
+  });
+
+  it("tells a quote from running text taken over", () => {
+    const raw = clone(DEMO_EVENT);
+    const [a, b] = raw.articles;
+    const input = buildExploration(raw).input;
+    const nameOf = (id: number) => input.articles.find((article) => article.id === id)!.outletName;
+    const press: EventDocument = {
+      ...PRESS,
+      details: {
+        quoted_by: [
+          { article_id: a.id, outlet: a.source_name, quotes: ["Deze objecten hebben een grote waarde voor Indonesië"], share: 0.004 },
+          { article_id: b.id, outlet: b.source_name, quotes: [], share: 0.47 },
+        ],
+      },
+    };
+    expect(pressReleaseLines(press, input.articles)).toEqual([`Letterlijk geciteerd door ${nameOf(a.id)}`, `Tekst overgenomen door ${nameOf(b.id)} (47 %)`]);
+    expect(pressReleaseLines({ ...PRESS, details: { quoted_by: [] } }, input.articles)).toEqual([]);
+  });
+
+  it("puts a document dated between the first and the last article on the news line, in time order", () => {
+    const raw = clone(DEMO_EVENT);
+    raw.articles = raw.articles.map((article, i) => ({ ...article, published_at: new Date(Date.UTC(2026, 9, 14, 13, 0) + i * 3_600_000).toISOString() }));
+    const last = Date.UTC(2026, 9, 14, 13, 0) + (raw.articles.length - 1) * 3_600_000;
+    const inside = new Date(Date.UTC(2026, 9, 14, 13, 30)).toISOString();
+    const later = new Date(last + 86_400_000).toISOString();
+    raw.documents = [
+      { ...PRESS, url: "https://example.org/binnen", published_at: inside },
+      { ...PRESS, url: "https://example.org/later", published_at: later },
+    ];
+    const { rows, after } = chronology(buildExploration(raw).input);
+    const at = rows.findIndex((row) => row.kind === "document");
+    expect(at).toBeGreaterThan(0);
+    expect(rows.map((row) => row.t)).toEqual([...rows.map((row) => row.t)].sort((x, y) => x - y));
+    expect(after.map((row) => (row.kind === "document" ? row.document.url : null))).toEqual(["https://example.org/later"]);
   });
 
   it("labels the new kinds of documents by their own type", () => {

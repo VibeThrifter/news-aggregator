@@ -267,7 +267,7 @@ export function FindingDetail({ finding }: { finding: Finding }) {
 
     case "tone": {
       // Measured, not the analysis's guess (it never saw the press release): the same text as
-      // other outlets (Story 14.27) and quotes that stand in a Rijksoverheid release (Story 14.34)
+      // other outlets (Story 14.27) and quotes that stand in a press release (Stories 14.34/14.39)
       const copying = body.outletKey ? measuredCopyingLabel(measuredCopying(exploration.input, body.outletKey)) : null;
       return (
         <div className="space-y-3">

@@ -97,8 +97,8 @@ function ArticleTraces({ article, press, questions }: { article: ExploreArticle;
       ))}
       {questions.map((document) => (
         <a key={document.url} href={document.url} target="_blank" rel="noopener noreferrer" className="block underline-offset-2 hover:text-ink-900 hover:underline">
-          {document.doc_type === "Antwoord op Kamervragen" ? "Antwoord op Kamervragen" : "Kamervragen"} over dit artikel
-          {document.details?.askers ? ` (${document.details.askers})` : ""} ↗
+          {document.doc_type === "Antwoord op Kamervragen" ? "Antwoord op Kamervragen" : "Kamervragen"}
+          {document.details?.askers ? ` van ${document.details.askers}` : ""} over dit artikel ↗
         </a>
       ))}
     </span>

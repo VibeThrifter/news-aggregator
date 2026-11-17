@@ -2246,7 +2246,7 @@ Geen AI-aanroep in een van de vijf; elke regel zegt wat er staat, nooit waarom.
     zodra de uurronde ze goedkeurt en de backend (Propagandamodel Sync) draait.
 
 ### Open
-- Alleen persberichten van de Rijksoverheid; die van gemeenten, de EU of bedrijven niet.
+- Persberichten van gemeenten, de EU en bedrijven niet (Story 14.39 leest 17 afzenders).
 - Geldregisters die nog niet gemeten zijn: ANBI-verantwoordingen en overheidsopdrachten (TenderNed).
 - "Onafhankelijk?" en "Eerdere adviezen" komen nog uit de analyse.
 - Niet gemeten: of citaten uit Kamerdebatten terug te vinden zijn in het debatverslag.
@@ -2318,3 +2318,62 @@ wordt ze alleen genoemd, of is het de verkeerde plek? Een plek telt als half goe
 - Kaartje op de eventpagina en de voorpagina.
 - Wijken, gebouwen en natuurgebieden (Floradorp, Vondelpark, Noordzee); plaatsregels uit de dateline.
 - Meer dekking: meten of de hele tekst (niet alleen het begin) meer plekken geeft zonder fouten.
+
+## Story 14.39: Persberichten van meer afzenders
+
+**Status**: ✅ Gebouwd (2026-11-16), nog niet gecommit. Vraag van de eigenaar (2026-11-16): meten welke persberichten
+van andere organisaties letterlijk worden overgenomen ("kijk naar meerdere mogelijkheden… andere velden"), daarna
+een lezer voor de sites die met een sitemap te lezen zijn, "met" de politie.
+
+### Meting (2026-11-16)
+Persberichten van 6 tot 18 oktober tegen 8.118 Nederlandse artikelen (15 september tot 21 oktober), dezelfde
+vergelijking als Story 14.34 (citaat van 8+ woorden of doorlopende tekst), standaardzinnen per afzender eruit,
+controle met een venster tien dagen eerder.
+
+- 733 persberichten van 44 van de 71 geprobeerde organisaties; 38 (5 %) komen letterlijk terug in 53 artikelen.
+  Controle: 1. Van de 79 berichten waar de media over schreven (tf-idf ≥ 0,30) zijn er 38 overgenomen.
+- Per afzender: Rijksoverheid 25 % (11 van 44), Koninklijk Huis 22 %, OM 15 % (3 van 20), Defensie 12 %, ProRail
+  10 %, Politie 7 % (8 van 112), Rechtspraak 4 %, CBS 4 %. Het ANP-persportaal 2 % (2 van 106, commerciële pr);
+  bedrijven, universiteiten, partijen en ngo's bijna nooit.
+- Alle treffers met de hand nagekeken: echt, op één na (Ajax "Outlet Sale": tekst uit de zijbalk).
+- Niet te lezen zonder eigen lezer: DNB, gemeenten, KNVB en andere sites die gewone verzoeken weigeren.
+
+### Gebouwd
+- `backend/app/services/release_sites.py`: 17 afzenders (`SITES`), drie soorten:
+  - **platform** (het systeem van rijksoverheid.nl: genummerde sitemaps, nieuwste eerst, de dag in het adres,
+    `DCTERMS.issued` op de pagina): Rijksoverheid, OM, Koninklijk Huis, NVWA, Algemene Rekenkamer, NCTV, IGJ. Alleen
+    bij de Rijksoverheid noemt `DCTERMS.creator` de afzender (het ministerie); bij OM en Koninklijk Huis staat daar
+    het ministerie erboven, dus die houden hun eigen naam.
+  - **sitemap** (één sitemap of een nieuws-sitemap, `lastmod` of `news:publication_date`): Defensie, ProRail,
+    Rechtspraak, CBS, Raad van State, Nationale ombudsman, Tweede Kamer, Rijkswaterstaat, Ajax. Grote sitemaps één
+    keer per uur. Tijd: `DCTERMS.issued`, `article:published_time`, `datePublished`, de datum die trafilatura leest,
+    het adres, `lastmod`. Een datum zonder tijd wordt middernacht UTC; de Tijdlijn toont dan geen klok.
+  - **politie**: politie.nl weigert gewone HTTP-verzoeken (Akamai, ook robots.txt). De open-data-API
+    (`api.politie.nl/v4/nieuws`, per dag, 25 per pagina) antwoordt wel aan de Playwright-browser, met de eigen
+    user agent van die browser: de vaste Chrome 120 van de pool krijgt 403 (`get_context(own_user_agent=True)`).
+    De API geeft de hele tekst; elke 30 minuten. Uit te zetten met `PRESS_RELEASES_POLITIE_ENABLED=false`.
+- `press_releases.py`: leest per afzender (een afzender die faalt houdt de rest niet tegen, cijfers per afzender),
+  hoogstens 40 nieuwe per afzender per ronde; een pagina zonder tekst wordt niet opnieuw opgehaald.
+- **Standaardzinnen**: woordreeksen die in minstens 3 en 3 % van de laatste 200 berichten van een afzender staan
+  (zoals de tiplijn van de politie) tellen niet als overgenomen tekst. Een citaat telt wel.
+- **Stille afzender**: een afzender zonder nieuw bericht na `quiet_days` (politie 1 dag, NCTV 30) komt in het log
+  (`press_release_sites_quiet`) en in het antwoord van `/admin/trigger/official-sources`: een lezer die stopt
+  omdat een site haar pagina's veranderde, zegt anders niets.
+- De analyse (`PRESS_NOTE`) spreekt van "een persbericht (van een ministerie, het OM, de politie of een andere
+  afzender)". De app hoefde niet te veranderen: de Tijdlijn toont "Persbericht · {afzender}".
+- Geen migratie: `press_releases.publisher` is de sleutel van de afzender, `organisation` de naam.
+- Tests: `backend/tests/unit/test_release_sites.py` (afzenders, sitemaps, tijden, titels, politie-API,
+  standaardzinnen, stille afzenders).
+- Eerste ronde (2026-11-16, 21 dagen terug): 406 berichten gelezen, geen fouten; met wat er al was 646 berichten
+  van 17 afzenders (politie 156, OM 44, Defensie 44, Koninklijk Huis 23, NVWA 28). Doordat de backend van 22 oktober
+  tot 13 november uit stond, zijn alleen de laatste dagen te vergelijken: 7 berichten letterlijk terug in 10
+  artikelen, waarvan 9 van de nieuwe afzenders, allemaal met de hand nagekeken en echt (NVWA over speelgoed bij AD
+  en RTL Nieuws, de Rechtspraak over McDonald's bij de Volkskrant, de politie over de Kralingse Plas bij NU.nl en
+  GeenStijl, de zin over de Cruyff Foundation uit het Ajax-bericht bij Het Parool en AD).
+- Een oude pagina waarvan de `lastmod` veranderde (Ajax uit 2022) wordt met haar eigen datum bewaard: dan is ze
+  bekend en wordt ze niet opnieuw opgehaald; vergelijken doet alleen recente berichten.
+
+### Open
+- Gemeenten, provincies, de EU en sites die alleen een browser toelaten (DNB, KNVB).
+- Bedrijven en het ANP-persportaal: bijna nooit overgenomen, daarom niet gelezen.
+

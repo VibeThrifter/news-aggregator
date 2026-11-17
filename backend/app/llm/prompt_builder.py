@@ -59,13 +59,14 @@ LINK_NOTE = (
     "waar het artikel naar linkt. Of het stuk de bewering draagt, is niet gelezen."
 )
 
-# Story 14.34: quotes (and text) of an article that stand word for word in a news release of the
-# Rijksoverheid (job "Official Sources", event_documents source "persbericht")
+# Stories 14.34/14.39: quotes (and text) of an article that stand word for word in a news release
+# of the Rijksoverheid, the OM, the Politie, … (job "Official Sources", event_documents source
+# "persbericht")
 PRESS_NOTE = (
-    "Uit het persbericht: bij een artikel staan de citaten die letterlijk in een persbericht van de "
-    "Rijksoverheid staan. Zo'n citaat komt uit het persbericht; of de journalist de spreker zelf "
-    "sprak, staat er niet. Tel het niet als een gesprek van dat medium, en schrijf wat er staat toe "
-    "aan het persbericht van dat ministerie."
+    "Uit het persbericht: bij een artikel staan de citaten die letterlijk in een persbericht staan "
+    "(van een ministerie, het OM, de politie of een andere afzender). Zo'n citaat komt uit het "
+    "persbericht; of de journalist de spreker zelf sprak, staat er niet. Tel het niet als een "
+    "gesprek van dat medium, en schrijf wat er staat toe aan het persbericht van die afzender."
 )
 PRESS_QUOTE_CHARS = 160
 
@@ -188,7 +189,7 @@ class ArticleCapsule:
     body: str = ""
     # Pages the text links to (Story 14.30), those of public bodies first
     links: list[str] = field(default_factory=list)
-    # What of the text stands word for word in a Rijksoverheid release (Story 14.34)
+    # What of the text stands word for word in a press release (Stories 14.34/14.39)
     press: list[str] = field(default_factory=list)
 
     @property

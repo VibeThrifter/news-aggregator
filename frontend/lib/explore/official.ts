@@ -4,8 +4,8 @@
  * - Koppen die veranderen (14.32): the earlier headlines of an article (`titleHistory`).
  * - Kamervragen (14.33): sets of written questions that link to an article of this news, who asked.
  * - Stemming (14.33): how the Tweede Kamer voted on a motion or amendment in the Tijdlijn.
- * - Citaat uit het persbericht (14.34): quotes and text of a Rijksoverheid release that stand word
- *   for word in an article.
+ * - Citaat uit het persbericht (14.34, 14.39): quotes and text of a press release (Rijksoverheid,
+ *   OM, Politie, …) that stand word for word in an article.
  * - Tegelijk verschenen (14.35): three or more outlets that publish this news within two minutes.
  * - Onderzoek in opdracht van (14.36): who ordered a study an article reports.
  *
@@ -79,6 +79,32 @@ export function documentOutlets(document: EventDocument, articles: ExploreArticl
   return names;
 }
 
+/**
+ * What the outlets did with a press release (Story 14.34), as the Tijdlijn shows it under it:
+ * "Letterlijk geciteerd door NOS en AD" for a quote that stands in it, "Tekst overgenomen door De
+ * Telegraaf (47 %)" for running text that stands in it (share of the article's own text).
+ */
+export function pressReleaseLines(document: EventDocument, articles: ExploreArticle[]): string[] {
+  const quoted: string[] = [];
+  const copied = new Map<string, number>();
+  for (const entry of document.details?.quoted_by ?? []) {
+    const name = articles.find((article) => article.id === entry?.article_id)?.outletName ?? entry?.outlet ?? null;
+    if (!name) continue;
+    const quotes = Array.isArray(entry.quotes) ? entry.quotes.filter((quote) => typeof quote === "string" && quote.trim()) : [];
+    const share = typeof entry.share === "number" && Number.isFinite(entry.share) ? entry.share : 0;
+    if (quotes.length && !quoted.includes(name)) quoted.push(name);
+    const percent = Math.round(share * 100);
+    if (percent > 0) copied.set(name, Math.max(copied.get(name) ?? 0, percent));
+  }
+  const lines: string[] = [];
+  if (quoted.length) lines.push(`Letterlijk geciteerd door ${joinDutch(quoted)}`);
+  if (copied.size) {
+    const list = [...copied].sort((a, b) => b[1] - a[1]).map(([name, percent]) => `${name} (${percent} %)`);
+    lines.push(`Tekst overgenomen door ${joinDutch(list)}`);
+  }
+  return lines;
+}
+
 /** "Aangenomen: voor D66, PRO, VVD en 4 andere (88 zetels), tegen PVV en JA21 (62)" */
 export function voteSummary(vote: KamerVote | null | undefined, shown = 3): string | null {
   if (!vote?.result) return null;
@@ -105,7 +131,7 @@ export interface MeasuredCopying {
   sameTextShare: number | null;
   /** The outlets it shares that text with */
   sameTextWith: string[];
-  /** Quotes from Rijksoverheid releases that stand word for word in its articles */
+  /** Quotes from press releases that stand word for word in its articles */
   pressQuotes: number;
   /** The organisations of those releases */
   pressFrom: string[];

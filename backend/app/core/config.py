@@ -287,6 +287,11 @@ class Settings(BaseSettings):
         le=1440,
         description="How often the job looks for new Kamervragen and press releases",
     )
+    press_releases_politie_enabled: bool = Field(
+        default=True,
+        description="Read the Politie's news (Story 14.39) from its open data API through the "
+        "Playwright browser (politie.nl refuses plain HTTP clients)",
+    )
     official_sources_window_days: int = Field(
         default=4,
         ge=1,

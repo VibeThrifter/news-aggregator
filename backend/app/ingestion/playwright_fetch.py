@@ -97,16 +97,21 @@ class PlaywrightBrowserPool:
                 self._logger.warning("playwright_stop_failed", error=str(exc))
 
     @asynccontextmanager
-    async def get_context(self) -> AsyncIterator:
-        """Get a browser context for fetching pages; at most `max_contexts` are open at a time."""
+    async def get_context(self, *, own_user_agent: bool = False) -> AsyncIterator:
+        """Get a browser context for fetching pages; at most `max_contexts` are open at a time.
+
+        ``own_user_agent`` keeps the browser's own user agent: api.politie.nl (Akamai) refuses the
+        fixed Chrome 120 one, which does not match the engine (Story 14.39)."""
         async with self._slots:
             await self._ensure_browser()
 
-            context = await self._browser.new_context(
-                viewport={"width": 1280, "height": 800},
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                java_script_enabled=True,
-            )
+            options = {"viewport": {"width": 1280, "height": 800}, "java_script_enabled": True}
+            if not own_user_agent:
+                options["user_agent"] = (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, "
+                    "like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )
+            context = await self._browser.new_context(**options)
 
             try:
                 yield context

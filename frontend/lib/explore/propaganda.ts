@@ -67,7 +67,7 @@ export function eventFilterSignals(
         if (COUNTERPOWER_TONES.has(tone)) {
           push("tegenmacht", `Kritische toon bij ${name(body.outletKey)}`, finding, body.outletKey ? [body.outletKey] : []);
         }
-        // Measured, not guessed: quotes that stand word for word in a Rijksoverheid release
+        // Measured, not guessed: quotes that stand word for word in a press release
         // (Story 14.34), and most of a text the same as another outlet's (Story 14.27)
         if (body.outletKey) {
           const measured = measuredCopying(input, body.outletKey);

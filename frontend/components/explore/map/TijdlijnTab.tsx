@@ -10,6 +10,7 @@ import {
   PERSBERICHT_SOURCE,
   TOGETHER_WINDOW_MINUTES,
   documentOutlets,
+  pressReleaseLines,
   voteSummary,
   type HeadlineChangeRow,
 } from "@/lib/explore/official";
@@ -41,6 +42,7 @@ function dayLabel(t: number): string {
 const dayKey = (t: number) => new Date(t).toDateString();
 /** A date without a time ("2026-09-29") is parsed as local midnight */
 const hasClock = (t: number) => new Date(t).getHours() !== 0 || new Date(t).getMinutes() !== 0;
+const dayOnly = (t: number) => new Date(t).getUTCHours() === 0 && new Date(t).getUTCMinutes() === 0;
 
 /** Older moments than this many before this news fold away */
 const BEFORE_SHOWN = 3;
@@ -241,6 +243,10 @@ function newsItem(row: ChronologyRow | Own, i: number): AxisItem {
   if (row.kind === "headline") {
     return { key: `h${row.change.articleId}-${row.t}`, part: "news", when, dot: "moment", dotY: 16, body: <HeadlineChange change={row.change} /> };
   }
+  // Another episode or a document between the first and the last article: as in the story around it
+  // A document dated by day only (stored as midnight UTC) gets no clock
+  if (row.kind === "document") return { ...storyItem(row, "news", i), when: dayOnly(row.t) ? null : when };
+  if (row.kind === "episode") return { ...storyItem(row, "news", i), when };
   return {
     key: `m${row.timelineIndex}-${i}`,
     part: "news",
@@ -327,7 +333,7 @@ function DocumentLink({ document, linkedBy }: { document: EventDocument; linkedB
     if (details?.askers) lines.push(`Vragen van ${details.askers}`);
     if (outlets.length) lines.push(`Over het bericht van ${joinNames(outlets)}`);
   } else if (document.source === PERSBERICHT_SOURCE) {
-    if (outlets.length) lines.push(`Letterlijk geciteerd door ${joinNames(outlets)}`);
+    lines.push(...pressReleaseLines(document, exploration.input.articles));
   } else if (linkedBy.length) {
     lines.push(`Gelinkt door ${joinNames(linkedBy)}`);
   }
