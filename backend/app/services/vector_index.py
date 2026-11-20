@@ -65,6 +65,9 @@ class VectorIndexService:
         self._labels: set[int] = set()
         self._event_timestamps: Dict[int, datetime] = {}
         self._lock = asyncio.Lock()
+        # Everything that assigns articles with this index does so one article at a time: two
+        # assignments at the same moment do not see the item the other is about to start
+        self.assignment_lock = asyncio.Lock()
         self._file_lock = FileLock(str(self.index_path) + ".lock")
         self._max_elements = self.max_elements_default
 
@@ -350,3 +353,28 @@ class VectorIndexService:
     def _read_metadata(self) -> Dict[str, object]:
         with self.metadata_path.open("r", encoding="utf-8") as handle:
             return json.load(handle)
+
+
+_shared: Dict[tuple[str, str, int], VectorIndexService] = {}
+
+
+def shared_vector_index() -> VectorIndexService:
+    """The one index of this process, for every service that is not given its own.
+
+    Every event service and Event Maintenance used to load its own copy of the index file. An
+    item one of them started was not in the copy of another: after a poll that timed out the
+    scheduler makes a new ingest service while the old one is still assigning, and the next
+    article on the same news started a second item (2026-11-19: De Dagelijkse Standaard and AD
+    on the same police inquiry, 88 seconds apart). Maintenance took archived items out of its
+    own copy only.
+    """
+
+    settings = get_settings()
+    key = (
+        str(settings.vector_index_path),
+        str(settings.vector_index_metadata_path),
+        int(settings.embedding_dimension),
+    )
+    if key not in _shared:
+        _shared[key] = VectorIndexService()
+    return _shared[key]

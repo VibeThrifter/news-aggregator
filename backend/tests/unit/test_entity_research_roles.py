@@ -31,6 +31,7 @@ from backend.app.services.entity_research.roles import (
     is_foreign_head,
     is_foreign_head_label,
     is_non_actor,
+    name_defect,
 )
 
 
@@ -323,12 +324,33 @@ def test_decide_not_needed_when_enough_relations() -> None:
     assert decision.decision == prio.NOT_NEEDED and "5 verbanden" in decision.reason
 
 
-def test_decide_private_and_foreign_persons_are_skipped() -> None:
+def test_decide_private_persons_are_skipped_and_foreigners_come_after_dutch() -> None:
     assert _decide(category=PRIVE).decision == prio.SKIP
-    assert _decide(is_foreign=True).decision == prio.SKIP
-    # foreign organisations are not skipped, only lower priority
+    # a foreigner can be tied to Dutch politics (owner 2026-11-18): researched, after Dutch names
+    foreign = _decide(is_foreign=True)
+    assert foreign.auto and foreign.priority < _decide().priority
+    once = prio.Prominence(articles=1, outlets=1, events=1)
+    assert _decide(is_foreign=True, prominence=once).decision == prio.ON_REQUEST
+    assert _decide(prominence=once).auto
     org = _decide(kind="org", category=ORGANISATIE, is_foreign=True)
     assert org.decision == prio.ON_REQUEST and org.priority < 60
+
+
+def test_only_entertainment_or_sport_news_is_on_request() -> None:
+    presenter = _decide(category=JOURNALIST, leisure_only=True)
+    assert presenter.decision == prio.ON_REQUEST and presenter.reason == prio.ONLY_LEISURE
+    museum = _decide(kind="org", category=ORGANISATIE, leisure_only=True)
+    assert museum.decision == prio.ON_REQUEST and museum.reason == prio.ONLY_LEISURE
+    columnist = _decide(category=JOURNALIST, sport_only=True, leisure_only=True)
+    assert columnist.reason == prio.ONLY_SPORT
+    assert _decide(leisure_only=True).auto  # a politician in entertainment news
+    assert _decide(category=JOURNALIST).auto
+
+
+def test_an_organisation_name_that_is_no_name_is_on_request() -> None:
+    word = _decide(kind="org", category=ORGANISATIE, not_a_name=prio.PLAIN_WORD)
+    assert word.decision == prio.ON_REQUEST and word.reason == prio.PLAIN_WORD
+    assert prio.PLAIN_WORD in prio.HELD_REASONS and prio.ONLY_LEISURE in prio.HELD_REASONS
 
 
 def test_decide_single_name_person_is_skipped() -> None:
@@ -507,3 +529,85 @@ def test_decide_skips_persons_without_a_place_in_the_network() -> None:
     # organisations never
     org = _decide(kind="org", category=ORGANISATIE, not_in_network="x")
     assert org.decision == prio.RESEARCH
+
+
+# ------------------------------------------------------- names that are no names (2026-11-17)
+@pytest.mark.parametrize(
+    ("name", "defect"),
+    [
+        ("bdquo;alle middelen&rdquo", "opmaakrest"),
+        ("offici&euml;le&nbsp;website", "opmaakrest"),
+        ('maken."\nFC Groningen', "opmaakrest"),
+        ("VS\nEen", "opmaakrest"),
+        ("Google-favorietMemphis Depay", "tekst van de pagina"),
+        ("RTL je Google-favorietOlympisch", "tekst van de pagina"),
+        ("2-4-zege", "uitslag"),
+        ("VVD voted against it", "zinsdeel"),
+        ("Turnsters gaan de afgelopen", "zinsdeel"),
+        ("Talpa gewoon zegt", "zinsdeel"),
+        ("ministerie van Defensie gaat het om een missie met een defensief doel", "zinsdeel"),
+        ("Artsen waarschuwen voor groene knolamani", "zinsdeel"),
+    ],
+)
+def test_name_defect(name: str, defect: str) -> None:
+    assert name_defect(name) == defect
+    assert is_non_actor(name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Islamitische Stichting Nederland",
+        "Raad voor de rechtspraak",
+        "Raad voor de leefomgeving en infrastructuur",
+        "Ministerie van Volksgezondheid, Welzijn en Sport",
+        "Artsen zonder Grenzen",
+        "Partij voor de Dieren",
+        "Die Linke",
+        "Het Parool",
+        "Ernst & Young",
+        "C&A",
+        "D66",
+        "50PLUS",
+        "Hayat Tahrir al-Sham",
+        "ondernemersvereniging Deltalinqs",
+        "Wageningen University & Research",
+    ],
+)
+def test_names_are_no_defect(name: str) -> None:
+    assert name_defect(name) is None
+    assert not is_non_actor(name)
+
+
+def test_cut_off_club_is_no_actor() -> None:
+    assert is_non_actor("FC") and not is_non_actor("FC Groningen")
+
+
+def test_organisation_named_once_is_on_request() -> None:
+    once = prio.Prominence(articles=1, outlets=1, events=1)
+    twice = prio.Prominence(articles=2, outlets=1, events=1)
+    decision = _decide(kind="org", category=ORGANISATIE, prominence=once, has_role=False)
+    assert decision.decision == prio.ON_REQUEST and decision.reason == prio.NAMED_ONCE
+    assert decision.priority > 0  # a tap still sends it
+    # a role in the analysis or a second article is a reason
+    assert _decide(kind="org", category=ORGANISATIE, prominence=once).auto
+    assert _decide(kind="org", category=ORGANISATIE, prominence=twice, has_role=False).auto
+    # persons are judged on their role, not on this rule
+    assert _decide(prominence=once, has_role=False).auto
+
+
+def test_media_figures_count_as_much_as_politicians() -> None:
+    assert prio.BASE_PRIORITY[JOURNALIST] == prio.BASE_PRIORITY[POLITICUS]
+    for word in ("columnist", "presentator", "opiniemaker", "talkshowhost", "hoofdredacteur"):
+        assert classify_word(word) == JOURNALIST
+    # a following alone is on request: reality stars came out above politicians
+    for word in ("influencer", "vlogger", "podcastmaker", "blogger"):
+        assert classify_word(word) == OVERIG
+    assert _decide(category=JOURNALIST).priority == _decide(category=POLITICUS).priority
+    assert _decide(category=OVERIG).decision == prio.ON_REQUEST
+
+
+def test_organisation_only_in_sport_news_is_on_request() -> None:
+    decision = _decide(kind="org", category=ORGANISATIE, sport_only=True)
+    assert decision.decision == prio.ON_REQUEST and decision.reason == prio.ONLY_SPORT
+    assert _decide(sport_only=True).auto  # a politician in sport news

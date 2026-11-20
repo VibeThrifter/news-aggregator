@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import get_logger
-from backend.app.db.models import Article, Event, EventArticle, EventDocument
+from backend.app.db.models import Article, Event, EventArticle, EventDocument, PressRelease
 from backend.app.db.session import get_sessionmaker
 from backend.app.services.background_sources import public_body
 from backend.app.services.copy_detection import NGRAM, TOKEN
@@ -33,6 +33,18 @@ DEFAULT_SUMMARY_CHAR_LIMIT = 320
 # read only the first three sentences, so whatever came later (a quote, the precedent) was
 # "missing" and Zoek met AI looked for what was already in the news (event 8786).
 ARTICLE_TEXT_CHAR_LIMIT = 4000
+# The texts of one prompt share the room of the article cap (16 x 4,000 characters). A news item
+# with few or short articles gives what it leaves to its long ones, up to this length: one in four
+# Dutch articles is longer than 4,000 characters (2.9 % longer than 8,000, 1.1 % than 12,000;
+# 3,052 articles, 2026-11-17). Event 11671: of NieuwRechts' 5,366 characters the analysis read
+# 4,000, so the chairman of the mosque board (quoted after that) was "niet aan het woord" and the
+# 1.6 million the community raised was "missing".
+ARTICLE_TEXT_MAX_CHARS = 12000
+CLIP_NOTE = (
+    'Ingekort: bij "Tekst (ingekort)" staat alleen het begin van een lang artikel, tot […]. Wat '
+    "daarna komt, is niet gelezen. Reken wat in dat deel kan staan (een stem die later aan het "
+    "woord komt, een cijfer, een bron, achtergrond) bij dat medium niet als ontbrekend."
+)
 # Zelfde tekst (Story 14.27): an article with the same text as one the analysis reads already brings
 # only the sentences that are not in the prompt yet, and takes a place of the cap only with this
 # many words of its own. Until 2026-10-19 three ANP copies took three places, and the analysis wrote
@@ -69,6 +81,21 @@ PRESS_NOTE = (
     "gesprek van dat medium, en schrijf wat er staat toe aan het persbericht van die afzender."
 )
 PRESS_QUOTE_CHARS = 160
+# Story 14.40: the analysis reads the text of the press releases about the news (event_documents
+# source "persbericht", text in the local press_releases): the quoted ones first, then the best
+# topic score; at most this many, each up to this length (at a sentence end)
+RELEASES_IN_PROMPT = 2
+RELEASE_TEXT_CHARS = 3000
+RELEASE_NOTE = (
+    "Persberichten: onder de artikelen staat de eigen tekst van een afzender over dit nieuws (een "
+    "ministerie, het OM, de politie, een rechtbank, het CBS of een andere). Een persbericht is "
+    "geen artikel en geen medium: tel het niet mee bij de bronnen of de media, en een afzender "
+    "die alleen in zijn persbericht spreekt, komt in de artikelen niet aan het woord. Het is de "
+    'versie van de afzender: schrijf wat erin staat toe aan die afzender ("volgens het '
+    'persbericht van het OM"), niet als vaststaand feit. Leg het naast de artikelen: wat nemen ze '
+    "over, wat laten ze weg, waar wijken ze af. Wat in een persbericht staat dat later verscheen "
+    "dan een artikel, ontbreekt niet in dat artikel."
+)
 
 
 def _load_template(filename: str = "pluriform_prompt.txt") -> str:
@@ -191,6 +218,8 @@ class ArticleCapsule:
     links: list[str] = field(default_factory=list)
     # What of the text stands word for word in a press release (Stories 14.34/14.39)
     press: list[str] = field(default_factory=list)
+    # The prompt has only the start of the text (see CLIP_NOTE)
+    clipped: bool = False
 
     @property
     def reference_time(self) -> datetime:
@@ -364,6 +393,33 @@ class PromptBuilder:
                 press[entry["article_id"]].append(_press_line(title, location, entry))
         return dict(press)
 
+    async def _fetch_releases(self, session: AsyncSession, event_id: int) -> list[ReleaseCapsule]:
+        """Persberichten over dit nieuws (Story 14.40): the texts of the releases of the news."""
+        stmt = (
+            select(
+                EventDocument.title,
+                EventDocument.location,
+                EventDocument.url,
+                EventDocument.published_at,
+                EventDocument.details,
+                PressRelease.text,
+            )
+            .join(PressRelease, PressRelease.url == EventDocument.url)
+            .where(EventDocument.event_id == event_id, EventDocument.source == "persbericht")
+        )
+        return _pick_releases(
+            ReleaseCapsule(
+                title=title,
+                sender=location,
+                url=url,
+                published_at=published_at,
+                text=body,
+                quoted=bool(details.get("quoted_by")) if isinstance(details, Mapping) else False,
+                topic=_float(details.get("topic")) if isinstance(details, Mapping) else 0.0,
+            )
+            for title, location, url, published_at, details, body in await session.execute(stmt)
+        )
+
     def _build_capsules(
         self, articles: Sequence[Article], copies: Mapping[int, CopyInfo] | None = None
     ) -> List[ArticleCapsule]:
@@ -442,6 +498,13 @@ class PromptBuilder:
         ordered = (
             dutch_firsts[:room] + foreign_firsts + dutch_firsts[room:] + dutch_rest + foreign_rest
         )
+        # The longest texts that can take the places: whichever articles do, they fit the room
+        longest = sorted((len(c.body) for c in ordered), reverse=True)[:limit]
+        level = _text_level(longest, budget=limit * ARTICLE_TEXT_CHAR_LIMIT)
+        for capsule in ordered:
+            if capsule.body:
+                capsule.text = _clip_text(capsule.body, level)
+                capsule.clipped = len(capsule.body) > level
         selection = _read_copies_once(ordered, limit)
 
         selection.sort(key=lambda item: item.reference_time, reverse=True)
@@ -535,6 +598,7 @@ class PromptBuilder:
             note
             for note, present in (
                 (COPY_NOTE, any(_copy_others(capsule, numbers) for capsule in capsules)),
+                (CLIP_NOTE, any(capsule.clipped for capsule in capsules)),
                 (LINK_NOTE, any(capsule.links for capsule in capsules)),
                 (PRESS_NOTE, any(capsule.press for capsule in capsules)),
             )
@@ -581,6 +645,7 @@ class PromptBuilder:
             articles = await self._fetch_articles(session, event_id)
             copies = await self._fetch_copies(session, event_id)
             press = await self._fetch_press(session, event_id)
+            releases = await self._fetch_releases(session, event_id)
 
         if not articles:
             raise PromptBuilderError(
@@ -596,7 +661,7 @@ class PromptBuilder:
             )
 
         context_block = self._format_event_context(event, selected, total=len(capsules))
-        capsule_block = self._format_article_capsules(selected)
+        capsule_block = _with_releases(self._format_article_capsules(selected), releases)
 
         # Load template from database, fallback to file-based
         template = await _get_prompt_from_db("factual", _FILE_FACTUAL_TEMPLATE)
@@ -635,6 +700,7 @@ class PromptBuilder:
             articles = await self._fetch_articles(session, event_id)
             copies = await self._fetch_copies(session, event_id)
             press = await self._fetch_press(session, event_id)
+            releases = await self._fetch_releases(session, event_id)
 
         if not articles:
             raise PromptBuilderError(
@@ -650,7 +716,7 @@ class PromptBuilder:
             )
 
         context_block = self._format_event_context(event, selected, total=len(capsules))
-        capsule_block = self._format_article_capsules(selected)
+        capsule_block = _with_releases(self._format_article_capsules(selected), releases)
 
         # Load template from database, fallback to file-based
         template = await _get_prompt_from_db("critical", _FILE_CRITICAL_TEMPLATE)
@@ -783,9 +849,95 @@ def _press_line(title: str | None, location: str | None, entry: Mapping[str, Any
     return f"{head}: {'; '.join(parts)}" if parts else head
 
 
+@dataclass(slots=True)
+class ReleaseCapsule:
+    """A press release about the news (Story 14.40)."""
+
+    title: str
+    sender: str | None
+    url: str
+    published_at: datetime | None
+    text: str
+    # An article of the news quotes it (14.34) / its tf-idf score with the news (14.40)
+    quoted: bool = False
+    topic: float = 0.0
+
+
+def _float(value: Any) -> float:
+    return float(value) if isinstance(value, (int, float)) else 0.0
+
+
+def _pick_releases(releases: Iterable[ReleaseCapsule]) -> list[ReleaseCapsule]:
+    """The quoted ones first, then the best topic score, then the earliest; one per text."""
+    far = datetime.max.replace(tzinfo=None)
+    ordered = sorted(
+        (release for release in releases if release.text.strip()),
+        key=lambda r: (
+            not r.quoted,
+            -r.topic,
+            r.published_at.replace(tzinfo=None) if r.published_at else far,
+        ),
+    )
+    picked: list[ReleaseCapsule] = []
+    for release in ordered:
+        # The same release on rijksoverheid.nl and on the site of the body (NVWA, Defensie)
+        if any(release.text[:300] == other.text[:300] for other in picked):
+            continue
+        picked.append(release)
+        if len(picked) == RELEASES_IN_PROMPT:
+            break
+    return picked
+
+
+def _format_releases(releases: Sequence[ReleaseCapsule]) -> str:
+    """The note and per release its sender, time, title and text (up to RELEASE_TEXT_CHARS)."""
+    if not releases:
+        return ""
+    blocks = [RELEASE_NOTE]
+    for release in releases:
+        sender = release.sender or "de afzender"
+        title = " ".join(release.title.split())
+        when = release.published_at.isoformat() if release.published_at else "onbekend"
+        body = _clip_text(" ".join(release.text.split()), RELEASE_TEXT_CHARS)
+        blocks.append(
+            f'Persbericht van {sender}: "{title}"\n'
+            f"   Gepubliceerd: {when}\n"
+            f"   Tekst:\n{indent(body, '    ')}\n"
+            f"   URL: {release.url}"
+        )
+    return "\n\n".join(blocks)
+
+
+def _with_releases(capsule_block: str, releases: Sequence[ReleaseCapsule]) -> str:
+    block = _format_releases(releases)
+    return f"{capsule_block}\n\n{block}" if block else capsule_block
+
+
 def _attach_press(capsules: Sequence[ArticleCapsule], press: Mapping[int, list[str]]) -> None:
     for capsule in capsules:
         capsule.press = list(press.get(capsule.article_id, []))
+
+
+def _text_level(
+    lengths: Sequence[int],
+    *,
+    budget: int,
+    floor: int = ARTICLE_TEXT_CHAR_LIMIT,
+    ceiling: int = ARTICLE_TEXT_MAX_CHARS,
+) -> int:
+    """How long a text may be so that texts of these lengths fit ``budget`` together.
+
+    Short texts take what they need, the long ones share the rest equally: three articles of
+    1,500, 3,300 and 5,400 characters are read whole, sixteen long ones 4,000 each. Never under
+    ``floor`` (what every article gets) or over ``ceiling``.
+    """
+    remaining = budget
+    for position, length in enumerate(sorted(lengths)):
+        share = remaining // (len(lengths) - position)
+        if length > share:
+            return max(floor, min(ceiling, share))
+        remaining -= length
+    return ceiling
 
 
 def _clip_text(text: str, limit: int = ARTICLE_TEXT_CHAR_LIMIT) -> str:
@@ -932,7 +1084,8 @@ def _copy_others(capsule: ArticleCapsule, numbers: Mapping[int, int]) -> list[Ar
 def _text_lines(capsule: ArticleCapsule, numbers: Mapping[int, int]) -> tuple[str, str]:
     """The "Zelfde tekst als" line and the text of an article: the shared text at the first article
     of a group, else only what the outlet adds; a plain text for one alone in the prompt."""
-    plain = f"   Tekst:\n{indent(capsule.text or capsule.summary, '    ')}\n"
+    head = "Tekst (ingekort)" if capsule.clipped else "Tekst"
+    plain = f"   {head}:\n{indent(capsule.text or capsule.summary, '    ')}\n"
     others = _copy_others(capsule, numbers)
     if not others or capsule.copy is None:
         return "", plain

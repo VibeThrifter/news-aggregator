@@ -9,6 +9,13 @@ prints the news items they are in, so their analyses can be made again (--reanal
 
     PYTHONPATH=. .venv/bin/python scripts/refetch_article_text.py \
         --since 2026-10-19T12:00Z --until 2026-10-20T18:00Z --dry-run
+
+--wrong-text takes instead all NU.nl articles of the period and stores the text of the page when
+it differs from the stored one (2026-11-19): the stored text was the block "Stel een vraag" that
+stood in the article (38 of 228 in a week), or its paragraphs were joined by a written-out
+backslash-n (half of them since October). The parser now takes NU.nl's text from the page's own
+data. Only the news items of an article whose stored text did not hold the article are analysed
+again; the analysis could read the other kind.
 """
 
 from __future__ import annotations
@@ -58,6 +65,28 @@ async def _summary_only(since: datetime, until: datetime) -> list[tuple[int, str
         return [tuple(row) for row in rows.all()]
 
 
+WRITTEN_BREAK = "\\n"
+
+
+def _holds_article(stored: str, text: str) -> bool:
+    """Whether the stored text had the article: the start of its first paragraph after the
+    headline stands in it."""
+    lines = text.split("\n")
+    start = (lines[1] if len(lines) > 1 else lines[0])[:80]
+    return start in stored.replace(WRITTEN_BREAK, "\n")
+
+
+async def _nunl(since: datetime, until: datetime) -> list[tuple[int, str, str, str]]:
+    async with get_sessionmaker()() as session:
+        rows = await session.execute(
+            select(Article.id, Article.source_name, Article.url, Article.content)
+            .where(Article.fetched_at.between(since, until))
+            .where(Article.source_name == "NU.nl")
+            .order_by(Article.id)
+        )
+        return [tuple(row) for row in rows.all()]
+
+
 async def _event_ids(article_ids: list[int]) -> list[int]:
     async with get_sessionmaker()() as session:
         rows = await session.execute(
@@ -88,8 +117,12 @@ async def _enrich(article_ids: list[int]) -> dict:
 async def main(args: argparse.Namespace) -> None:
     since = datetime.fromisoformat(args.since.replace("Z", "+00:00"))
     until = datetime.fromisoformat(args.until.replace("Z", "+00:00"))
-    articles = await _summary_only(since, until)
-    print(f"{len(articles)} articles with only their summary")
+    if args.wrong_text:
+        articles = await _nunl(since, until)
+        print(f"{len(articles)} NU.nl articles")
+    else:
+        articles = await _summary_only(since, until)
+        print(f"{len(articles)} articles with only their summary")
     if args.dry_run:
         for article_id, source, url, _ in articles:
             print(f"  {article_id} {source} {url}")
@@ -97,6 +130,8 @@ async def main(args: argparse.Namespace) -> None:
 
     profiles = load_source_profiles()
     fixed: list[int] = []
+    # Articles whose analysis read something else than the article
+    unread: list[int] = []
     failed = 0
     try:
         async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
@@ -104,12 +139,17 @@ async def main(args: argparse.Namespace) -> None:
                 profile = profiles.get(READERS[source])
                 try:
                     html = await fetch_article_html(url, profile=profile, client=client)
-                    text = parse_article_html(html, url=url).text
+                    text = parse_article_html(
+                        html, url=url, page_data=bool(profile and profile.parser == "page_data")
+                    ).text
                 except (ArticleFetchError, ArticleParseError) as exc:
                     print(f"  failed {article_id} {source}: {exc}")
                     failed += 1
                     continue
-                if len(text.strip()) <= len(summary.strip()):
+                if args.wrong_text:
+                    if text == summary:
+                        continue
+                elif len(text.strip()) <= len(summary.strip()):
                     print(f"  no longer text {article_id} {source} ({len(text)} chars)")
                     failed += 1
                     continue
@@ -119,7 +159,11 @@ async def main(args: argparse.Namespace) -> None:
                     )
                     await session.commit()
                 fixed.append(article_id)
-                print(f"  {article_id} {source}: {len(summary)} -> {len(text)} chars")
+                held = args.wrong_text and _holds_article(summary, text)
+                if not held:
+                    unread.append(article_id)
+                note = "" if held or not args.wrong_text else " (was not the article)"
+                print(f"  {article_id} {source}: {len(summary)} -> {len(text)} chars{note}")
     finally:
         await close_browser_pool()
 
@@ -127,8 +171,8 @@ async def main(args: argparse.Namespace) -> None:
     if not fixed:
         return
     print("enriched:", await _enrich(fixed))
-    event_ids = await _event_ids(fixed)
-    print(f"{len(event_ids)} news items:", " ".join(map(str, event_ids)))
+    event_ids = await _event_ids(unread) if unread else []
+    print(f"{len(event_ids)} news items to analyse again:", " ".join(map(str, event_ids)))
     if args.reanalyse:
         async with httpx.AsyncClient(timeout=900.0) as client:
             for event_id in event_ids:
@@ -145,6 +189,11 @@ if __name__ == "__main__":
     )
     parser.add_argument("--until", required=True, help="fetched_at until, ISO")
     parser.add_argument("--dry-run", action="store_true", help="only list the articles")
+    parser.add_argument(
+        "--wrong-text",
+        action="store_true",
+        help="all NU.nl articles of the period: store the page's text when it differs",
+    )
     parser.add_argument(
         "--reanalyse", action="store_true", help="make the analyses of their news items again"
     )

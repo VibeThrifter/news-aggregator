@@ -405,7 +405,10 @@ function OutletBalloon({ balloon, markers, color, wide = false }: { balloon: Out
       alsoFor={wide ? [] : balloon.speakers.map((speaker) => `speaker:${speaker.id}`)}
     >
       <span
-        className={`relative flex items-start gap-2 rounded-[20px] border-2 bg-white px-3 py-2 shadow-bubble ${balloon.estimated ? "border-dashed" : ""}`}
+        // On a phone the balloon is half the picture wide: the numbers on its top edge would cover the name
+        className={`relative flex items-start gap-2 rounded-[20px] border-2 bg-white px-3 py-2 shadow-bubble ${balloon.estimated ? "border-dashed" : ""} ${
+          !wide && markers.get(balloon.anchor)?.length ? "max-sm:pt-5" : ""
+        }`}
         style={{ borderColor: color }}
       >
         <Favicon name={outlet.name} domain={outlet.domain} size={20} className="mt-0.5" />

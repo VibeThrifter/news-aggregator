@@ -19,7 +19,9 @@ sources:
     feed_url: https://www.nu.nl/rss/Algemeen
     fetch_strategy: playwright
     user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
-    parser: trafilatura
+    # The article text from the page's own data (JSON-LD articleBody): the extraction returned
+    # "Stel een vraag" or the readers' comments instead of the article (2026-11-19)
+    parser: page_data
     requires_js: true
     cookie_ttl_minutes: 0
     # No news: calls for readers' stories

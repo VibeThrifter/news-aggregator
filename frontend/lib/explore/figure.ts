@@ -17,7 +17,7 @@ import type { Exploration } from "./exploration";
 import { frameLabel, toneLabel } from "./labels";
 import { isContextGap } from "./missing";
 import { perspectiveEstimates } from "./nearest";
-import { outletSentences } from "./outlet-sentences";
+import { outletVoiceSentences } from "./outlet-sentences";
 import { OWN_KINDS, ownEntryOf, resolveOwnAgainst, resolveOwnAnchor, sourceOutletKey } from "./own";
 import type { Speaker, SpeakerModel } from "./speakers";
 import type { ExploreOutlet, Finding } from "./types";
@@ -314,14 +314,16 @@ export function numberFindings(exploration: Exploration): Pick<FigureModel, "num
 function outletText(
   outlet: ExploreOutlet,
   exploration: Exploration,
-  sentences: ReturnType<typeof outletSentences>,
+  sentences: ReturnType<typeof outletVoiceSentences>,
+  group?: Finding,
 ): Pick<OutletBalloonModel, "text" | "textKind"> {
   if (outlet.own) {
     // A source the reader added: what they wrote it brings
     const entry = exploration.findings.map(ownEntryOf).find((item) => item?.kind === "source" && sourceOutletKey(item.url) === outlet.key);
     return entry ? { text: entry.text, textKind: "own" } : { text: null, textKind: "none" };
   }
-  for (const finding of exploration.findings) {
+  // First what the outlet says in the perspective it stands in, not its stance in an earlier one
+  for (const finding of group ? [group, ...exploration.findings] : exploration.findings) {
     if (finding.body.type !== "perspective") continue;
     const stance = finding.body.stances.find((entry) => entry.outletKey === outlet.key)?.stance?.trim();
     if (stance) return { text: stance, textKind: "stance" };
@@ -336,10 +338,11 @@ function outletText(
     const digest = outlet.articleIds.map((id) => exploration.index.article(id)?.digest).find(Boolean);
     return digest ? { text: digest.text, textKind: "digest" } : (foundText ?? { text: null, textKind: "none" });
   }
+  // Only a sentence in its own voice: "Volgens GeenStijl laat Trouw …" is GeenStijl speaking
   const first = sentences.get(outlet.key)?.[0];
   if (first) return { text: first.map((part) => part.text).join(""), textKind: "sentence" };
   if (foundText) return foundText;
-  // No sentence names it (it joined after the analysis read the news): its own headline, not "1 artikel"
+  // No sentence of its own (it joined after the analysis read the news): its own headline, not "1 artikel"
   const headline = articles.find((article) => article && !article.foundVoice)?.title.trim();
   return headline ? { text: headline, textKind: "headline" } : { text: null, textKind: "none" };
 }
@@ -366,11 +369,34 @@ function offDate(outlet: ExploreOutlet, exploration: Exploration): string | null
   return Math.abs(published - start) > OFF_DATE_DAYS * 86_400_000 ? day.format(new Date(published)) : null;
 }
 
+/**
+ * The perspective an outlet stands in: the one with most of its articles, the first of equals
+ * (the analysis puts the main angle first). Outlet key → index of the perspective.
+ */
+export function outletHomes(perspectives: Finding[], index: Exploration["index"]): Map<string, number> {
+  const best = new Map<string, { index: number; count: number }>();
+  for (const finding of perspectives) {
+    if (finding.body.type !== "perspective") continue;
+    const articles = new Map<string, Set<string>>();
+    for (const source of finding.body.cluster.sources ?? []) {
+      const { outletKey } = index.resolveUrl(source.url);
+      if (outletKey) articles.set(outletKey, (articles.get(outletKey) ?? new Set<string>()).add(source.url));
+    }
+    // An outlet with a stance here always counts, also when its link did not resolve to an article
+    for (const stance of finding.body.stances) if (!articles.has(stance.outletKey)) articles.set(stance.outletKey, new Set([stance.outletKey]));
+    for (const [key, urls] of articles) {
+      const current = best.get(key);
+      if (!current || urls.size > current.count) best.set(key, { index: finding.body.index, count: urls.size });
+    }
+  }
+  return new Map(Array.from(best, ([key, value]) => [key, value.index] as const));
+}
+
 /** The picture for the outlets the reader shows. */
 export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOutlet) => boolean): FigureModel {
   const { input, findings, speakers } = exploration;
   const numbered = numberFindings(exploration);
-  const sentences = outletSentences(input);
+  const sentences = outletVoiceSentences(input);
   const dutch = input.outlets.filter((outlet) => !outlet.isInternational && shown(outlet)).sort(byFirstPublication);
   // Sources the reader added: after the outlets of the news, never a reason to group differently
   const ownOutlets = (exploration.ownOutlets ?? []).filter(shown);
@@ -389,10 +415,10 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
     for (const key of finding.outletKeys) if (!copyRank.has(key)) copyRank.set(key, rank);
   });
 
-  const balloon = (outlet: ExploreOutlet, estimated = false): OutletBalloonModel => ({
+  const balloon = (outlet: ExploreOutlet, estimated = false, group?: Finding): OutletBalloonModel => ({
     anchor: outletAnchor(outlet.key),
     outletKey: outlet.key,
-    ...outletText(outlet, exploration, sentences),
+    ...outletText(outlet, exploration, sentences, group),
     estimated,
     via: speakers.via.get(outlet.key) ?? [],
     speakers: speakers.byOutlet.get(outlet.key) ?? [],
@@ -416,14 +442,15 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
     });
   } else {
     const estimates = perspectiveEstimates(input, findings, exploration.index);
+    // A simple division: every outlet stands once, in the perspective most of its articles are in
+    // (De Dagelijkse Standaard stood in three of six groups, event 12055). A perspective whose
+    // outlets all stand elsewhere is not drawn; the tab "Invalshoeken" has them all.
+    const homes = outletHomes(perspectives, exploration.index);
     const placed = new Set<string>();
     perspectives.forEach((finding, i) => {
       if (finding.body.type !== "perspective") return;
-      const members = dutch.filter(
-        (outlet) =>
-          (finding.body.type === "perspective" && finding.body.stances.some((stance) => stance.outletKey === outlet.key)) ||
-          (!placed.has(outlet.key) && estimates.get(outlet.key)?.index === (finding.body.type === "perspective" ? finding.body.index : -1)),
-      );
+      const index = finding.body.index;
+      const members = dutch.filter((outlet) => (homes.has(outlet.key) ? homes.get(outlet.key) === index : !placed.has(outlet.key) && estimates.get(outlet.key)?.index === index));
       if (members.length === 0) return;
       members.forEach((outlet) => placed.add(outlet.key));
       groups.push({
@@ -432,10 +459,7 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
         label: finding.body.cluster.label,
         color: GROUP_COLORS[i % GROUP_COLORS.length],
         meta: null,
-        outlets: copiesFirst(members, copyRank).map((outlet) => {
-          const covered = finding.body.type === "perspective" && finding.body.stances.some((stance) => stance.outletKey === outlet.key);
-          return balloon(outlet, !covered);
-        }),
+        outlets: copiesFirst(members, copyRank).map((outlet) => balloon(outlet, !homes.has(outlet.key), finding)),
         speakers: [],
         ghosts: [],
       });
@@ -502,7 +526,7 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
     ghosts,
   });
 
-  // Where each balloon stands: an outlet can be in more than one perspective
+  // Where each balloon stands
   const places = new Map<string, Place[]>();
   const place = (anchor: string, group: string, index: number, cols: number) =>
     places.set(anchor, [...(places.get(anchor) ?? []), { anchor, group, index, cols }]);
@@ -622,7 +646,7 @@ export function buildFigure(exploration: Exploration, shown: (outlet: ExploreOut
     markers = new Map(numbered.markers);
     for (const group of groups) {
       for (const balloon of group.outlets) {
-        const own = markers.get(balloon.anchor) ?? [];
+        const own = numbered.markers.get(balloon.anchor) ?? [];
         const fromSpeakers = balloon.speakers.flatMap((speaker) => numbered.markers.get(speakerAnchor(speaker.id)) ?? []);
         if (fromSpeakers.length) markers.set(balloon.anchor, [...own, ...fromSpeakers].sort((a, b) => a.number - b.number));
       }

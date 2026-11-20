@@ -1,6 +1,6 @@
 import { DEMO_EVENT } from "@/lib/explore/fixtures/demo-event";
 import { buildExploreInput } from "@/lib/explore/input";
-import { outletSentences, type OutletSentence } from "@/lib/explore/outlet-sentences";
+import { outletSentences, outletSentencesIn, outletVoiceSentences, type OutletSentence } from "@/lib/explore/outlet-sentences";
 import { splitSentences, summarySentences } from "@/lib/explore/summary";
 
 const text = (sentence: OutletSentence) => sentence.map((part) => part.text).join("");
@@ -40,17 +40,33 @@ describe("what an outlet wrote according to the analysis", () => {
     expect((sentences.get(keyOf("VRT NWS")) ?? []).map(text)).toEqual(["De Vlaamse VRT meldt dat hetzelfde bedrijf ook in Vlaanderen op verzet stuit."]);
   });
 
-  it("keeps the order of the summary and does not count a name inside another outlet's name", () => {
+  it("puts its own voice first, keeps the order of the summary and does not count a name inside another outlet's name", () => {
     const nos = sentences.get(keyOf("NOS")) ?? [];
     expect(nos.map(text)).toEqual([
       "De gemeenteraad van Dijkerhoven heeft ingestemd met een windpark van de Duitse ontwikkelaar NordVind, meldt NOS.",
-      "Over het aantal turbines lopen de berichten uiteen: het AD spreekt van 18 turbines, NOS van 12.",
       "Het onderzoek naar laagfrequent geluid van de turbines is nog niet afgerond, schrijft NOS.",
+      // Another outlet named first: after its own sentences
+      "Over het aantal turbines lopen de berichten uiteen: het AD spreekt van 18 turbines, NOS van 12.",
       "Het account Een Blik op de NOS verwijt de NOS dat omwonenden in de eerste berichtgeving ontbraken.",
     ]);
     // "Een Blik op de NOS" is its own outlet; NOS is the second name in that sentence
     expect(own(nos[3])).toEqual(["NOS"]);
     expect(own((sentences.get(keyOf("Een Blik op de NOS")) ?? [])[0])).toEqual(["Een Blik op de NOS"]);
+    // Its balloon only says what NOS itself wrote
+    expect((outletVoiceSentences(input).get(keyOf("NOS")) ?? []).map(text)).toEqual(nos.slice(0, 2).map(text));
+  });
+
+  it("never gives one outlet's view of another as that outlet's own words", () => {
+    const outlets = ["GeenStijl", "Trouw"].map((name) => ({ key: name, name, profile: { aliases: [] } }));
+    const body =
+      "Volgens GeenStijl laat Trouw in het kader van de festiviteiten architect Erdal Önder aan het woord. GeenStijl kiest een spottende toon.";
+    const voice = outletSentencesIn(body, outlets, { ownVoice: true });
+    expect(voice.has("Trouw")).toBe(false);
+    expect((voice.get("GeenStijl") ?? []).map(text)).toHaveLength(2);
+    // Under "Wat schreef …?" the sentence still names Trouw, after anything in its own voice
+    expect((outletSentencesIn(body, outlets).get("Trouw") ?? []).map(text)).toEqual([
+      "Volgens GeenStijl laat Trouw in het kader van de festiviteiten architect Erdal Önder aan het woord.",
+    ]);
   });
 
   const withSummary = (body: string) => outletSentences({ ...input, summary: { title: null, body, firstParagraph: "" } });

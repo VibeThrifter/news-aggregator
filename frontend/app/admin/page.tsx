@@ -13,6 +13,7 @@ import {
 import { getSpectrumLabel, isAlternativeSource } from "@/lib/format";
 import { AccessCodeForm } from "@/components/admin/AccessCodeForm";
 import { AiUsage } from "@/components/admin/AiUsage";
+import { PauseSwitch } from "@/components/admin/PauseSwitch";
 import { ReportedShared } from "@/components/admin/ReportedShared";
 import { AdminHeader, BUTTON_SECONDARY, Notice, Toggle } from "@/components/admin/ui";
 import { Favicon } from "@/components/explore/ui/primitives";
@@ -215,6 +216,7 @@ export default function AdminPage() {
         }
       />
 
+      <PauseSwitch />
       <AccessCodeForm />
       <ReportedShared />
       <AiUsage />

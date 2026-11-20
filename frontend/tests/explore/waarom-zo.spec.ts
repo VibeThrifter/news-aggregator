@@ -43,12 +43,15 @@ test.describe("Waarom zo?", () => {
     }
   });
 
-  test("Wie zit erachter? in an outlet balloon opens the network focused on that outlet", async ({ page }) => {
+  test("Wie zit erachter? next to Wie praat? opens the network of this news, not from inside an outlet balloon", async ({ page }) => {
     await page.goto("/event/demo");
     await page.locator('[data-anchor="outlet:nu-nl"] > button').first().click();
     const balloon = page.getByRole("dialog", { name: "Over NU.nl" });
-    await balloon.getByRole("link", { name: "Wie zit erachter?" }).click();
-    await expect(page).toHaveURL(/\/event\/demo\/netwerk\?focus=pm%3A7|\/event\/demo\/netwerk\?focus=pm:7/);
+    await expect(balloon).toBeVisible();
+    await expect(balloon.getByRole("link", { name: "Wie zit erachter?" })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.getByRole("region", { name: "Bevindingen" }).getByRole("link", { name: "Wie zit erachter?" }).click();
+    await expect(page).toHaveURL(/\/event\/demo\/netwerk$/);
     await expect(page.getByText("Dit nieuws", { exact: true })).toBeVisible({ timeout: 20_000 });
   });
 });

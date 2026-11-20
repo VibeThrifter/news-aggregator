@@ -50,9 +50,11 @@ export interface PerspectiveEstimate {
  * The perspective the headlines lean to, or null without a clear winner. Every headline word votes
  * with its share of use per perspective ("vissers": 5 of 6 times in "Vissers in het nauw"), so words
  * all perspectives use are spread out; the winner needs half a word's vote and 1.5× the runner-up.
+ * One perspective gives no estimate: there is nothing to compare, and every article of the news
+ * shares its topic words (Trouw's interview with the architect landed in GeenStijl's satire).
  */
 export function nearestPerspective(titles: string[], perspectives: PerspectiveText[]): PerspectiveEstimate | null {
-  if (perspectives.length === 0) return null;
+  if (perspectives.length < 2) return null;
   const counts = perspectives.map((perspective) => {
     const tf = new Map<string, number>();
     for (const word of words(`${perspective.label} ${perspective.text}`)) tf.set(word, (tf.get(word) ?? 0) + 1);

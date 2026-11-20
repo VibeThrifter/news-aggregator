@@ -84,6 +84,22 @@ BACKGROUND_DOCUMENTS_TIMEOUT_SECONDS = 600
 # Officiële bronnen: an SRU page, up to 60 sets and 60 releases read with a pause, the comparison
 OFFICIAL_SOURCES_TIMEOUT_SECONDS = 900
 LOCAL_BACKUP_INTERVAL_HOURS = 24
+# Pauze (owner 2026-11-19, to save AI tokens): the admin switches off everything that looks for
+# something new. These jobs stop: the news and its analyses. What the website needs goes on:
+# publishing, what a reader or the admin asks for with a button (Zoek met AI, gekleurde zinnen),
+# maintenance, backups. Everything of the propaganda model goes on as well (owner: "de wachtrij
+# moet worden afgewerkt"): Entity Research and Evidence Research keep filling the queue from the
+# news that is there and pull the results, and the pm's agents keep their rounds. The switch is
+# kept in the state file, so a restart stays paused
+PAUSED_JOB_IDS = (
+    "poll_rss_feeds",
+    "insight_backfill",
+    "international_enrichment",
+    "bias_analysis",
+    "article_digest",
+    "background_documents",
+    "official_sources",
+)
 
 logger = structlog.get_logger()
 
@@ -1177,6 +1193,54 @@ class NewsAggregatorScheduler:
             self.scheduler.start()
             self._is_running = True
             logger.info("Scheduler started")
+            if self.paused_since() is not None:
+                self._apply_pause(True)
+                logger.info("Scheduler starts paused", since=self.paused_since())
+
+    def paused_since(self) -> str | None:
+        """Since when the admin paused the backend (ISO time), or None when it works."""
+
+        return _read_state(self._state_file).get("paused_since") or None
+
+    def pause_state(self) -> dict:
+        since = self.paused_since()
+        return {
+            "paused": since is not None,
+            "since": since,
+            "paused_jobs": [
+                job.name
+                for job in (self.scheduler.get_job(job_id) for job_id in PAUSED_JOB_IDS)
+                if job is not None
+            ]
+            if since is not None and self._is_running
+            else [],
+        }
+
+    def set_paused(self, paused: bool) -> dict:
+        """Pause or resume everything that looks for something new (see PAUSED_JOB_IDS). A job
+        that is running finishes; on resume the feeds are polled right away."""
+
+        if paused != (self.paused_since() is not None):
+            _write_state(
+                self._state_file,
+                paused_since=datetime.now(timezone.utc).isoformat() if paused else "",
+            )
+            self._apply_pause(paused)
+            logger.info("Scheduler paused" if paused else "Scheduler resumed")
+        return self.pause_state()
+
+    def _apply_pause(self, paused: bool) -> None:
+        if not self._is_running:
+            return
+        for job_id in PAUSED_JOB_IDS:
+            if self.scheduler.get_job(job_id) is None:
+                continue
+            if paused:
+                self.scheduler.pause_job(job_id)
+            else:
+                self.scheduler.resume_job(job_id)
+        if not paused and self.scheduler.get_job("poll_rss_feeds") is not None:
+            self.scheduler.modify_job("poll_rss_feeds", next_run_time=datetime.now(timezone.utc))
 
     def shutdown(self) -> None:
         """Shutdown the scheduler gracefully."""
@@ -1230,6 +1294,7 @@ class NewsAggregatorScheduler:
             "official_sources_last_run": self._official_sources_last_run,
                 "official_sources_last_run": self._official_sources_last_run,
                 "storage": self._storage_status(),
+                "pause": self.pause_state(),
             }
 
         jobs = []
@@ -1258,6 +1323,7 @@ class NewsAggregatorScheduler:
             "background_documents_last_run": self._background_documents_last_run,
             "official_sources_last_run": self._official_sources_last_run,
             "storage": self._storage_status(),
+            "pause": self.pause_state(),
         }
 
     async def run_poll_feeds_now(self) -> dict:
@@ -1327,6 +1393,17 @@ class NewsAggregatorScheduler:
             limit=limit,
             dry_run=dry_run,
             correlation_id=correlation_id,
+        )
+
+    async def move_articles_now(
+        self, *, article_ids: list[int], to_event: int, from_event: int | None = None
+    ) -> dict:
+        """Put articles in another news item (admin), on the poll's own event service: it shares
+        its vector index and takes its turn with the assignments of a running poll."""
+        correlation_id = str(uuid.uuid4())
+        event_service = self._get_ingest_service().event_service
+        return await event_service.move_articles(
+            article_ids, to_event, from_event_id=from_event, correlation_id=correlation_id
         )
 
     async def run_catch_up_now(self, *, limit: int, max_age_hours: float) -> dict:

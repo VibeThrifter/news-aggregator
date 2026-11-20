@@ -16,7 +16,7 @@ from backend.app.db.models import Article, ArticleBiasAnalysis, Event, EventArti
 from backend.app.db.session import get_sessionmaker
 from backend.app.repositories import EventMaintenanceBundle, EventRepository
 from backend.app.repositories.event_repo import round_centroid
-from backend.app.services.vector_index import VectorIndexService
+from backend.app.services.vector_index import VectorIndexService, shared_vector_index
 
 log = get_logger(__name__)
 
@@ -152,6 +152,35 @@ def _min_timestamp(values: Iterable[datetime | None], fallback: datetime) -> dat
     return best
 
 
+def refresh_centroid(event: Event, articles: Sequence[Article]) -> list[float] | None:
+    """Set the event's centroids, article count and first and last moment from its articles.
+
+    Returns the centroid embedding (None: the event has no place in the vector index).
+    """
+
+    embeddings = [_decode_embedding(article.embedding) for article in articles]
+    tfidf_vectors = [article.tfidf_vector or {} for article in articles]
+    entity_groups = [article.entities or [] for article in articles]
+
+    if any(_vectors_pruned(article) for article in articles):
+        # An archived event that came back: the vectors of its old articles were pruned,
+        # but its stored centroid already holds them (plus the new article), so keep it.
+        centroid_embedding = event.centroid_embedding
+        centroid_tfidf = event.centroid_tfidf
+    else:
+        centroid_embedding = round_centroid(_average_dense(embeddings))
+        centroid_tfidf = _average_tfidf(tfidf_vectors)
+    moments = [article.published_at or article.fetched_at for article in articles]
+
+    event.centroid_embedding = centroid_embedding
+    event.centroid_tfidf = centroid_tfidf
+    event.centroid_entities = _merge_entities(entity_groups)
+    event.article_count = len(articles)
+    event.last_updated_at = _max_timestamp(moments, event.last_updated_at)
+    event.first_seen_at = _min_timestamp(moments, event.first_seen_at)
+    return centroid_embedding
+
+
 class EventMaintenanceService:
     """Service coordinating centroid refresh, archiving, and index maintenance."""
 
@@ -163,7 +192,8 @@ class EventMaintenanceService:
     ) -> None:
         self.settings = get_settings()
         self.session_factory = session_factory or get_sessionmaker()
-        self.vector_index = vector_index or VectorIndexService()
+        # The index the event services use: an item archived here is no candidate there anymore
+        self.vector_index = vector_index or shared_vector_index()
         self.log = log.bind(component="EventMaintenanceService")
 
     async def run(self, *, correlation_id: str | None = None) -> MaintenanceStats:
@@ -236,29 +266,7 @@ class EventMaintenanceService:
             if not articles:
                 continue
 
-            embeddings = [_decode_embedding(article.embedding) for article in articles]
-            tfidf_vectors = [article.tfidf_vector or {} for article in articles]
-            entity_groups = [article.entities or [] for article in articles]
-
-            if any(_vectors_pruned(article) for article in articles):
-                # An archived event that came back: the vectors of its old articles were pruned,
-                # but its stored centroid already holds them (plus the new article), so keep it.
-                centroid_embedding = event.centroid_embedding
-                centroid_tfidf = event.centroid_tfidf
-            else:
-                centroid_embedding = round_centroid(_average_dense(embeddings))
-                centroid_tfidf = _average_tfidf(tfidf_vectors)
-            centroid_entities = _merge_entities(entity_groups)
-            last_candidates = [article.published_at or article.fetched_at for article in articles]
-            first_candidates = [article.published_at or article.fetched_at for article in articles]
-
-            event.centroid_embedding = centroid_embedding
-            event.centroid_tfidf = centroid_tfidf
-            event.centroid_entities = centroid_entities
-            event.article_count = len(articles)
-            event.last_updated_at = _max_timestamp(last_candidates, event.last_updated_at)
-            event.first_seen_at = _min_timestamp(first_candidates, event.first_seen_at)
-
+            centroid_embedding = refresh_centroid(event, articles)
             if centroid_embedding:
                 vector_updates.append(
                     VectorUpdate(

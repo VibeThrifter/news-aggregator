@@ -123,7 +123,7 @@ export function ExploreHeader() {
               className="overflow-hidden"
             >
               <FullStory markdown={body} />
-              <p className="mt-4 text-xs text-ink-500">Samenvatting door AI, op basis van de gekoppelde artikelen.</p>
+              <p className="mt-4 text-xs text-ink-500">Samenvatting door AI.</p>
             </motion.section>
           ) : (
             <div ref={teaser}>

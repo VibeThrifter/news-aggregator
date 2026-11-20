@@ -151,6 +151,11 @@ class AuthorityAnalysis(BaseModel):
     authority: str = Field(..., min_length=1, description="Naam van de autoriteit/organisatie")
     authority_type: str = Field(..., description="Beschrijf accuraat - vermijd generieke labels")
     article_url: HttpUrl | None = Field(default=None, description="URL van het artikel waarin deze autoriteit wordt geciteerd")
+    speaks: str = Field(
+        default="",
+        description="ja: het artikel laat haar zelf aan het woord (citaat, of wat zij zegt of "
+        "bevestigt); nee: zij wordt alleen genoemd of besproken. Leeg voor 2026-11-17",
+    )
     claimed_expertise: str = Field(..., min_length=1, description="Op welk terrein claimen zij expertise")
     actual_role: str = Field(default="", description="Wat doen/zijn ze daadwerkelijk")
     scope_creep: str = Field(default="", description="Adviseert buiten mandaat? Bijv. gezondheidsexpert over economie")
@@ -168,11 +173,14 @@ class AuthorityAnalysis(BaseModel):
         if isinstance(data, dict):
             nullable_fields = [
                 "actual_role", "scope_creep", "composition_question",
-                "funding_sources", "track_record", "independence_check"
+                "funding_sources", "track_record", "independence_check", "speaks"
             ]
             for field in nullable_fields:
                 if field in data and data[field] is None:
                     data[field] = ""
+            # "ja: Trouw citeert hem uitgebreid" -> "ja" (the model adds its reason)
+            speaks = str(data.get("speaks") or "").strip().lower()
+            data["speaks"] = "nee" if speaks.startswith("nee") else "ja" if speaks.startswith("ja") else ""
         return data
 
 

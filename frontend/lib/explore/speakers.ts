@@ -64,6 +64,21 @@ export interface SpeakerModel {
 export const ANONYMOUS = /\b(anoniem|anonieme|niet nader|naamloze?|niet bij naam|onbekende?|ingewijden?|bronnen rond|bronnen dicht)\b/i;
 /** The outlet itself: "(eigen bewering)", "(redactie)", "(het medium zelf)", "(titel en lead)" */
 const OWN_NOTE = /\b(eigen|redactie|het medium|medium zelf|titel|kop|lead|impliciet|als nieuwsmedium|liveblog|auteur|introductie|parafrase|weergave|samenvatting)\b/i;
+/** What the analysis writes about a party it says the articles do not quote */
+const NOT_QUOTED = /\bniet\s+(?:zelf\s+|direct\s+|rechtstreeks\s+)?(?:geciteerd|aan het woord)\b/i;
+
+/**
+ * Whether the article gives an authority the word. `authority_analysis` lists every authority of
+ * the story, also the one the news is about: Diyanet stood as a speaker of NieuwRechts while the
+ * mosque board's website spoke about it (2026-11-17). Since then the analysis says so (`speaks`);
+ * older analyses only in their own words ("Diyanet wordt in de artikelen niet zelf geciteerd").
+ */
+export function speaksItself(authority: { speaks?: string | null; actual_role?: string | null; authority_type?: string | null }): boolean {
+  const speaks = authority.speaks?.trim().toLowerCase();
+  if (speaks) return !speaks.startsWith("nee");
+  return !NOT_QUOTED.test(`${authority.actual_role ?? ""} ${authority.authority_type ?? ""}`);
+}
+
 /** Meta sources that are not a speaker at all */
 const META = /\b(fase[- ]?1|factual summary|samenvatting|analyse)\b/i;
 /** "via X", "geciteerd in/door/via X", "volgens X" */
@@ -283,6 +298,8 @@ export function buildSpeakers(input: ExploreInput, findings: Finding[], index: A
       addVia(outletKey, parsed.name);
       continue;
     }
+    // Only named or discussed, not given the word: no speaker (its claims still make it one)
+    if (!speaksItself(authority)) continue;
     // Being paid by someone is no interest by itself (the RIVM is paid by a ministry): named
     // interests, or an analysis that calls the party not independent / an interested party
     const interest =

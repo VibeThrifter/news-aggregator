@@ -24,6 +24,17 @@ A release with a match goes into ``event_documents`` of the news item (source ``
 the articles and their quotes; the Tijdlijn shows it with "Letterlijk geciteerd door …" or "Tekst
 overgenomen door …" and the sources list marks the article. It says what is there: the quote stands
 in the release, not that the reporter did not speak to anyone. No LLM call.
+
+Story 14.40 puts a release also in the news it is about when no outlet quotes it: most releases
+an outlet writes about are rewritten (of 126 releases of 13 to 17 November, 32 were about news we
+had and 15 of those quoted). The words of the release and of the articles from a day before to
+three days after it are compared with tf-idf (``TOPIC_*``; the vectorizer is fitted on the Dutch
+articles of two weeks and kept for some hours, so a score does not move with every run). A news
+item whose best article scores ``TOPIC_MIN`` gets the release, without quotes, with its score in
+``details.topic``. Measured blind on 118 pairs (2026-11-17, one judge who did not see the scores):
+of the new pairs at 0.30 without Ajax, 28 of 31 belong to the news (90 %), 3 are related (another
+bird flu farm), none other news; 70 % of the pairs that belong are found. The analysis reads the
+release text itself (``prompt_builder``).
 """
 
 from __future__ import annotations
@@ -39,6 +50,7 @@ from typing import Any
 
 import httpx
 import structlog
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sqlalchemy import and_, delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -58,6 +70,7 @@ from .copy_detection import (
 from .release_sites import (
     POLITIE_MAX_OFFSET,
     POLITIE_PAGE,
+    SITE_BY_KEY,
     SITES,
     ReleaseSite,
     newest_lastmod,
@@ -100,6 +113,21 @@ BOILER_MIN = 3
 BOILER_SHARE = 0.03
 BOILER_MIN_RELEASES = 6
 BOILER_CACHE_SECONDS = 3600
+# Story 14.40: a release in news it is about. The best article of the news item scores at least
+# TOPIC_MIN (TOPIC_KEEP for one that has it already, so a refit does not take it away again)
+TOPIC_MIN = 0.30
+TOPIC_KEEP = 0.25
+# Articles from a day before the release (the news often comes out before the page) to AFTER
+TOPIC_BEFORE = timedelta(days=1)
+# A release in at most this many news items (one news split in two items)
+TOPIC_MAX_EVENTS = 3
+# The vectorizer learns which words are rare from the Dutch articles of these days, refitted
+# after TOPIC_REFIT_SECONDS; too few texts and there is no topic match
+TOPIC_CORPUS_DAYS = 14
+TOPIC_REFIT_SECONDS = 6 * 3600
+TOPIC_MIN_CORPUS = 200
+TOPIC_TEXT_CHARS = 4000
+TOPIC_TOKEN = r"(?u)\b[^\W\d_]{3,}\b"  # noqa: S105 - a regex, not a secret
 
 
 # ---------------------------------------------------------------------------------------------
@@ -217,15 +245,65 @@ def release_text(release: Any, boiler: set[str]) -> ReleaseText:
     )
 
 
+def releases_about(publisher: str) -> bool:
+    """Whether a sender's releases go into news they are about (``ReleaseSite.about``)."""
+
+    site = SITE_BY_KEY.get(publisher)
+    return site.about if site else True
+
+
+def topic_text(title: str | None, body: str | None) -> str:
+    return f"{title or ''} {(body or '')[:TOPIC_TEXT_CHARS]}"
+
+
+def topic_vectorizer() -> TfidfVectorizer:
+    """Words of three letters or more; a word in under two texts or in over 30 % of them counts
+    for nothing (as measured)."""
+
+    return TfidfVectorizer(token_pattern=TOPIC_TOKEN, min_df=2, max_df=0.3, sublinear_tf=True)
+
+
+def topic_events(
+    release_at: datetime,
+    scores: Iterable[float],
+    articles: Iterable[Any],
+    kept: Iterable[int] = (),
+) -> dict[int, float]:
+    """The news items a release is about: per news item the best score of its articles published
+    from ``TOPIC_BEFORE`` before to ``AFTER`` after the release, kept when it is ``TOPIC_MIN`` or
+    more (``TOPIC_KEEP`` for one in ``kept``); the best ``TOPIC_MAX_EVENTS``.
+    ``articles`` have ``published_at`` and ``event_id``, in the order of ``scores``."""
+
+    kept = set(kept)
+    best: dict[int, float] = {}
+    for score, row in zip(scores, articles, strict=False):
+        if score < TOPIC_KEEP or row.published_at is None:
+            continue
+        if not release_at - TOPIC_BEFORE <= row.published_at < release_at + AFTER:
+            continue
+        if score > best.get(row.event_id, 0.0):
+            best[row.event_id] = float(score)
+    chosen = [(e, score) for e, score in best.items() if score >= TOPIC_MIN or e in kept]
+    chosen.sort(key=lambda item: (-item[1], item[0]))
+    return {event: round(score, 3) for event, score in chosen[:TOPIC_MAX_EVENTS]}
+
+
 # ---------------------------------------------------------------------------------------------
 # Database
 
 ARTICLES_SQL = """
-SELECT a.id, a.source_name, a.content, a.published_at, ea.event_id
+SELECT a.id, a.title, a.source_name, a.content, a.published_at, ea.event_id
 FROM articles a
 JOIN event_articles ea ON ea.article_id = a.id
 WHERE NOT a.is_international AND a.published_at >= :start AND a.published_at < :end
   AND length(a.content) > 200
+"""
+
+# What the topic vectorizer learns from: the Dutch articles of TOPIC_CORPUS_DAYS
+TOPIC_CORPUS_SQL = """
+SELECT a.title, left(a.content, :chars) AS content
+FROM articles a
+WHERE NOT a.is_international AND a.published_at >= :start AND length(a.content) > 200
 """
 
 
@@ -239,6 +317,8 @@ class PressReleasesService:
         # Pages that gave no release (a video, a page without text): not fetched again
         self._no_release: set[str] = set()
         self._boiler: dict[str, tuple[float, set[str]]] = {}
+        # The topic vectorizer and when it was fitted (Story 14.40)
+        self._topic: tuple[float, TfidfVectorizer] | None = None
 
     def _sessions(self) -> async_sessionmaker[AsyncSession]:
         return self._session_factory or get_sessionmaker()
@@ -435,11 +515,65 @@ class PressReleasesService:
         self._boiler[publisher] = (time.monotonic(), boiler)
         return boiler
 
+    async def _topic_vectorizer(self, session: AsyncSession) -> TfidfVectorizer | None:
+        """The vectorizer that knows which words are rare (``TOPIC_CORPUS_DAYS`` of articles),
+        fitted again after ``TOPIC_REFIT_SECONDS``."""
+
+        if self._topic and time.monotonic() - self._topic[0] < TOPIC_REFIT_SECONDS:
+            return self._topic[1]
+        start = datetime.now(timezone.utc) - timedelta(days=TOPIC_CORPUS_DAYS)
+        rows = (
+            await session.execute(
+                text(TOPIC_CORPUS_SQL), {"start": start, "chars": TOPIC_TEXT_CHARS}
+            )
+        ).all()
+        if len(rows) < TOPIC_MIN_CORPUS:
+            return None
+        corpus = [topic_text(row.title, row.content) for row in rows]
+        vectorizer = await asyncio.to_thread(topic_vectorizer().fit, corpus)
+        self._topic = (time.monotonic(), vectorizer)
+        return vectorizer
+
+    async def _topics(
+        self, session: AsyncSession, releases: list[PressRelease], articles: list[Any]
+    ) -> dict[str, dict[int, float]]:
+        """Release url -> the news items it is about with their score (``topic_events``)."""
+
+        about = [r for r in releases if releases_about(r.publisher)]
+        if not about or not articles:
+            return {}
+        vectorizer = await self._topic_vectorizer(session)
+        if vectorizer is None:
+            return {}
+        stored = await session.execute(
+            select(EventDocument.url, EventDocument.event_id, EventDocument.details).where(
+                EventDocument.source == SOURCE,
+                EventDocument.url.in_([r.url for r in about]),
+            )
+        )
+        kept: dict[str, set[int]] = defaultdict(set)
+        for url, event_id, details in stored:
+            if isinstance(details, dict) and details.get("topic") is not None:
+                kept[url].add(event_id)
+
+        def scores() -> Any:
+            r = vectorizer.transform([topic_text(x.title, x.text) for x in about])
+            a = vectorizer.transform([topic_text(x.title, x.content) for x in articles])
+            return (r @ a.T).toarray()
+
+        matrix = await asyncio.to_thread(scores)
+        result: dict[str, dict[int, float]] = {}
+        for row, release in zip(matrix, about, strict=True):
+            found = topic_events(release.published_at, row, articles, kept.get(release.url, ()))
+            if found:
+                result[release.url] = found
+        return result
+
     async def match(self, *, days: int = MATCH_DAYS) -> dict[str, int]:
         """Compare the releases of the last ``days`` days with the articles around them and put
-        the ones that are quoted in their news items."""
+        the ones that are quoted in their news items, and those that are about news (14.40)."""
 
-        stats = {"releases": 0, "quoted": 0, "articles": 0, "events": 0}
+        stats = {"releases": 0, "quoted": 0, "articles": 0, "events": 0, "about": 0}
         since = datetime.now(timezone.utc) - timedelta(days=days)
         async with self._sessions()() as session:
             releases = (
@@ -457,12 +591,13 @@ class PressReleasesService:
                 publisher: await self._boilerplate(session, publisher)
                 for publisher in {release.publisher for release in releases}
             }
-            start = min(release.published_at for release in releases) - BEFORE
+            start = min(release.published_at for release in releases) - TOPIC_BEFORE
             end = max(release.published_at for release in releases) + AFTER
             articles = (
                 await session.execute(text(ARTICLES_SQL), {"start": start, "end": end})
             ).all()
-        articles = sorted(articles, key=lambda row: row.published_at)
+            articles = sorted(articles, key=lambda row: row.published_at)
+            topics = await self._topics(session, list(releases), articles)
         prints: dict[int, TextPrint] = {}
         quotes: dict[int, list[tuple[str, str]]] = {}
         stats["releases"] = len(releases)
@@ -480,29 +615,42 @@ class PressReleasesService:
                 found, share = compare(prints[row.id], row.content, target, quotes[row.id])
                 if found or share > 0:
                     per_event[row.event_id][row.id] = Quoted(row.id, row.source_name, found, share)
+            about = topics.get(release.url, {})
             async with self._sessions()() as session:
-                await self._store(session, release, per_event)
+                await self._store(session, release, per_event, about)
                 await session.commit()
             if per_event:
                 stats["quoted"] += 1
                 stats["events"] += len(per_event)
                 stats["articles"] += len({a for quoted in per_event.values() for a in quoted})
+            if set(about) - set(per_event):
+                stats["about"] += 1
         return stats
 
     async def _store(
-        self, session: AsyncSession, release: PressRelease, per_event: dict[int, dict[int, Quoted]]
+        self,
+        session: AsyncSession,
+        release: PressRelease,
+        per_event: dict[int, dict[int, Quoted]],
+        about: dict[int, float] | None = None,
     ) -> None:
-        """The release in each news item whose articles quote it; gone where none does any more."""
+        """The release in each news item whose articles quote it or that it is about (with the
+        score in ``details.topic``); gone where neither holds any more."""
 
+        about = about or {}
+        events = set(per_event) | set(about)
         stale = and_(EventDocument.url == release.url, EventDocument.source == SOURCE)
-        if per_event:
-            stale = and_(stale, EventDocument.event_id.notin_(list(per_event)))
+        if events:
+            stale = and_(stale, EventDocument.event_id.notin_(list(events)))
         await session.execute(delete(EventDocument).where(stale))
-        for event_id, quoted in per_event.items():
+        for event_id in sorted(events):
             ordered = sorted(
-                quoted.values(), key=lambda q: (-len(q.quotes), -q.share, q.article_id)
+                per_event.get(event_id, {}).values(),
+                key=lambda q: (-len(q.quotes), -q.share, q.article_id),
             )
-            details = {"quoted_by": [q.payload() for q in ordered]}
+            details: dict[str, Any] = {"quoted_by": [q.payload() for q in ordered]}
+            if event_id in about:
+                details["topic"] = about[event_id]
             await session.execute(
                 insert(EventDocument)
                 .values(

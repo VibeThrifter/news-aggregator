@@ -59,6 +59,40 @@ describe("figure", () => {
     expect(telegraaf.length).toBeGreaterThan((numberFindings(exploration).markers.get("outlet:telegraaf") ?? []).length);
   });
 
+  it("puts an outlet once in the picture: in the perspective most of its articles are in", () => {
+    // Event 12055: De Dagelijkse Standaard stood in three of six groups, with its numbers at each
+    const raw = clone(DEMO_EVENT);
+    const [first, second] = raw.insight!.clusters!;
+    const telegraaf = first.sources!.find((source) => source.stance?.startsWith("Wie nu nee zegt"))!;
+    second.sources!.push({ ...telegraaf, stance: "Ook De Telegraaf noemt de zorgen over het geluid" });
+    const once = buildFigure(buildExploration(raw), (outlet) => isOutletShown(outlet));
+    const places = (figure: typeof once) =>
+      figure.groups.filter((group) => group.kind === "perspective").flatMap((group) => group.outlets.filter((balloon) => balloon.outletKey === "telegraaf").map((balloon) => [group.key, balloon.text]));
+    // Two of its articles in the first perspective, one in the second
+    expect(places(once)).toEqual([["p:0", "Het omgevingsfonds maakt van Dijkerhoven een winnaar"]]);
+    const ids = (once.markers.get("outlet:telegraaf") ?? []).map((marker) => marker.findingId);
+    expect(new Set(ids).size).toBe(ids.length);
+
+    // Most of its articles in the second: it stands there, with what it says there
+    first.sources = first.sources!.filter((source) => source !== telegraaf);
+    second.sources!.push({ ...first.sources.find((source) => source.stance?.startsWith("Het omgevingsfonds"))!, stance: "Het fonds weegt niet op tegen het geluid" });
+    const moved = buildFigure(buildExploration(raw), (outlet) => isOutletShown(outlet));
+    expect(places(moved)).toEqual([["p:1", "Ook De Telegraaf noemt de zorgen over het geluid"]]);
+  });
+
+  it("stands in the first of two perspectives with as many of its articles, and leaves out a perspective without outlets", () => {
+    const raw = clone(DEMO_EVENT);
+    const clusters = raw.insight!.clusters!;
+    const volkskrant = clusters[1].sources!.find((source) => source.stance?.startsWith("Klimaatwinst"))!;
+    clusters.push({ ...clusters[1], label: "Lezers oordelen hard", sources: [{ ...volkskrant, stance: "Lezers zijn er klaar mee" }] });
+    const figure = buildFigure(buildExploration(raw), (outlet) => isOutletShown(outlet));
+    const drawn = figure.groups.filter((group) => group.kind === "perspective");
+    expect(drawn.map((group) => group.key)).toEqual(["p:0", "p:1", "p:2"]);
+    expect(drawn[1].outlets.map((balloon) => balloon.outletKey)).toContain("volkskrant");
+    // The list under the picture still has every perspective
+    expect(buildExploration(raw).byTab.get("invalshoeken")).toHaveLength(4);
+  });
+
   it("groups two Dutch outlets by perspective too, named without the outlet", () => {
     const raw = clone(DEMO_EVENT);
     raw.articles = raw.articles.filter((article) => ["De Telegraaf", "de Volkskrant"].includes(article.source_name ?? "") || article.is_international);

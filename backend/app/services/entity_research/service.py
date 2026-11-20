@@ -60,7 +60,6 @@ from backend.app.services.entity_research.roles import (
     NO_NETWORK_SUFFIX,
     ONBEKEND,
     ORGANISATIE,
-    POLITICUS,
     MentionContext,
     RoleAssessment,
     assess_organisation,
@@ -68,7 +67,6 @@ from backend.app.services.entity_research.roles import (
     classify_word,
     clean_person_name,
     infer_kind,
-    is_foreign_head_label,
     is_non_actor,
 )
 from backend.app.services.entity_research.runner import PmAgentConfig, PmAgentRuns
@@ -108,13 +106,31 @@ REQUEST_WINDOW = timedelta(days=7)
 RETRY_FAILED_AFTER = timedelta(days=1)
 MAX_MENTIONS_PER_ARTICLE = 6
 SUMMARY_LIMIT = 2000
-# Kept in ``prominence`` when the triage rewrites it: the Wikidata verdict and the admin's force
-CARRIED_PROMINENCE: tuple[str, ...] = ("wikidata", "forced")
+# Kept in ``prominence`` when the triage rewrites it: the Wikidata verdict, the admin's force and
+# the rules under which the target was last sent (``sent_version``)
+CARRIED_PROMINENCE: tuple[str, ...] = ("wikidata", "forced", "sent_version")
 # Raised when the triage rules change: persons that may still be sent and were triaged under older
 # rules are assessed again (the watermark alone only re-reads names whose news changed).
 # 2 = no place in the network (artists, athletes, Wikidata), "betrokken partij" (2026-10-16)
 # 3 = the full name of a mention marked only by its last name, 8 articles read (2026-10-19)
-TRIAGE_VERSION = 3
+# 4 = organisations too: pieces of sentences and markup are no names, one mention or only sport
+#     news is on request, the sentences that name it go along (2026-11-17)
+# 5 = media figures count as much as politicians (2026-11-17)
+# 6 = opinion makers and talk show hosts are media figures; influencers, vloggers and podcast
+#     makers stay on request (2026-11-18)
+# 7 = foreign persons are researched, after Dutch ones; whoever is only in entertainment or sport
+#     news is on request (politicians excepted); an organisation's name that is an ordinary word
+#     or a person's surname is on request (2026-11-18)
+TRIAGE_VERSION = 7
+# Sentences of the articles that name the entity, sent along as context ("Cultureel Centrum" says
+# nothing by itself): at most this many, each at most this long
+MAX_MENTION_SENTENCES = 3
+MENTION_SENTENCE_CHARS = 280
+# News of at most this age goes first in the automatic queue (the owner's rule: current news)
+FRESH_NEWS = timedelta(hours=24)
+SPORT_EVENT_TYPES: frozenset[str] = frozenset({"sports", "sport"})
+LEISURE_EVENT_TYPES: frozenset[str] = SPORT_EVENT_TYPES | {"entertainment"}
+_LETTER_WORD = re.compile(r"[^\W\d_]+(?:-[^\W\d_]+)*")
 
 
 def _default_read_factory() -> AbstractAsyncContextManager[AsyncSession]:
@@ -217,6 +233,67 @@ def mention_contexts(
     return contexts
 
 
+_SENTENCE_END = re.compile(r"[.!?](?=\s|$)|\n")
+
+
+def _sentence_around(content: str, start: int, end: int) -> str:
+    """The sentence that holds ``content[start:end]``, on one line and clipped."""
+
+    begin = 0
+    for match in _SENTENCE_END.finditer(content, 0, start):
+        begin = match.end()
+    stop = _SENTENCE_END.search(content, end)
+    sentence = " ".join(content[begin : stop.end() if stop else len(content)].split())
+    return _clip(sentence, MENTION_SENTENCE_CHARS) or ""
+
+
+def mention_sentences(
+    articles: Sequence[Mapping[str, Any]],
+    name: str,
+    aliases: set[str],
+    limit: int = MAX_MENTION_SENTENCES,
+) -> list[dict[str, Any]]:
+    """Sentences that name the entity, for whoever researches it: the first mention of every
+    article first (it introduces the name), then later ones. Found by the NER offsets, else by
+    the name itself."""
+
+    per_article: list[list[dict[str, Any]]] = []
+    seen: set[str] = set()
+    for article in articles:
+        content = str(article.get("content") or "")
+        if not content:
+            continue
+        offsets: list[tuple[int, int]] = []
+        for entity in article.get("entities") or []:
+            if not isinstance(entity, Mapping):
+                continue
+            start, end = entity.get("start"), entity.get("end")
+            if not isinstance(start, int) or not isinstance(end, int):
+                continue
+            if 0 <= start < end <= len(content) and span_matches(content[start:end], aliases):
+                offsets.append((start, end))
+        if not offsets and name:
+            position = content.find(name)
+            while position != -1 and len(offsets) < limit + 1:
+                offsets.append((position, position + len(name)))
+                position = content.find(name, position + len(name))
+        found: list[dict[str, Any]] = []
+        for start, end in sorted(offsets):
+            sentence = _sentence_around(content, start, end)
+            if len(sentence) <= len(name) + 3 or sentence in seen:
+                continue  # only the name itself (a heading, a caption)
+            seen.add(sentence)
+            found.append({"bron": article.get("source_name"), "zin": sentence})
+        if found:
+            per_article.append(found)
+    sentences: list[dict[str, Any]] = []
+    for rank in range(limit):
+        for found in per_article:
+            if rank < len(found) and len(sentences) < limit:
+                sentences.append(found[rank])
+    return sentences
+
+
 _WORD_BEFORE = re.compile(r"(\S+)\s+$")
 
 
@@ -284,6 +361,19 @@ class Candidate:
     last_seen: datetime | None = None
     canonical: str | None = None  # an actor key resolved to an entity key
     authorities: list[Mapping[str, Any]] = field(default_factory=list)
+    event_types: set[str] = field(default_factory=set)
+
+    @property
+    def sport_only(self) -> bool:
+        """Every news item that names it is sport news."""
+
+        return bool(self.event_types) and self.event_types <= SPORT_EVENT_TYPES
+
+    @property
+    def leisure_only(self) -> bool:
+        """Every news item that names it is entertainment or sport news."""
+
+        return bool(self.event_types) and self.event_types <= LEISURE_EVENT_TYPES
 
     @property
     def prominence(self) -> prio.Prominence:
@@ -319,12 +409,39 @@ def aggregate_candidates(
         candidate.mentions += int(row.mention_count or 0)
         if row.event_id not in candidate.event_ids:
             candidate.event_ids.append(row.event_id)
+            candidate.event_types.add(row.event_type or "")
             if len(candidate.events) < 3:
                 candidate.events.append({"slug": row.event_slug, "titel": row.event_title})
         seen = _utc(row.event_last_updated_at)
         if seen and (candidate.last_seen is None or seen > candidate.last_seen):
             candidate.last_seen = seen
     return candidates
+
+
+def not_a_name(name: str, articles: Sequence[Mapping[str, Any]]) -> str | None:
+    """Why an organisation's name is no name, read from the articles that have it: one word (or
+    words in capitals) that the text also uses as an ordinary lowercase word ("Kom", "Verder",
+    "HIERONDER DIRECT"), or the surname of a person in the same article ("Wilders" next to
+    "Geert Wilders"). The pm agent skipped these one by one (2026-11-18)."""
+
+    tokens = name.split()
+    if not tokens or not (len(tokens) == 1 or name.isupper()):
+        return None
+    lowercase: set[str] = set()
+    surnames: set[str] = set()
+    for article in articles:
+        content = str(article.get("content") or "")
+        lowercase.update(word for word in _LETTER_WORD.findall(content) if word.islower())
+        for entity in article.get("entities") or []:
+            if isinstance(entity, Mapping) and entity.get("label") == "PERSON":
+                parts = str(entity.get("text") or "").split()
+                if len(parts) > 1:
+                    surnames.add(parts[-1])
+    if all(token.lower() in lowercase for token in tokens):
+        return prio.PLAIN_WORD
+    if len(tokens) == 1 and tokens[0] in surnames:
+        return prio.PERSON_NAME
+    return None
 
 
 def doel_payload(row: EntityResearch, base_url: str | None = None) -> dict[str, Any]:
@@ -351,6 +468,7 @@ def doel_payload(row: EntityResearch, base_url: str | None = None) -> dict[str, 
             "artikelen": context.get("artikelen") or [],
             "organisaties": context.get("organisaties") or [],
             "rolzinnen": context.get("rolzinnen") or [],
+            "zinnen": context.get("zinnen") or [],
         },
         "prioriteit": round(float(row.priority or 0.0), 2),
     }
@@ -482,13 +600,15 @@ class EntityResearchService:
 
     # ------------------------------------------------------------------ triage
     async def _stale(self, repo: EntityResearchRepository, limit: int) -> list[EntityResearch]:
-        """Persons that may still be sent (queued, or researchable) but were triaged under older
-        rules: queued ones first, then tapped ones, then by priority."""
+        """Persons and organisations that may still be sent (queued, or researchable) but were
+        triaged under older rules: queued ones first, then tapped ones, then by priority."""
 
         stale = [
             row
-            for row in await repo.people(("nieuw", "wachtrij"))
-            if int((row.prominence or {}).get("triage_version") or 1) < TRIAGE_VERSION
+            for row in await repo.by_status(("nieuw", "wachtrij"))
+            if row.kind in ("person", "org")
+            and not row.entity_key.startswith("actor:")
+            and int((row.prominence or {}).get("triage_version") or 1) < TRIAGE_VERSION
             and (row.prominence or {}).get("decision") in (prio.RESEARCH, prio.ON_REQUEST)
         ]
         stale.sort(key=lambda row: (row.status != "wachtrij", row.last_requested_at is None))
@@ -597,7 +717,8 @@ class EntityResearchService:
     async def _assess(
         self, candidates: Mapping[str, Candidate]
     ) -> dict[str, tuple[RoleAssessment, dict[int, dict[str, Any]]]]:
-        """Role assessment per candidate (reads article prefixes for persons only)."""
+        """Role assessment per candidate. Reads the start of the articles: for the role cues of
+        persons, and for the sentences that name the entity (sent along as context)."""
 
         max_articles = self.settings.entity_research_max_articles
         person_ids: set[int] = set()
@@ -611,10 +732,9 @@ class EntityResearchService:
                 ref_ids.update(candidate.article_ids[:3])
         async with self._read() as session:
             inputs = TriageInputRepository(session)
-            snippets = await inputs.article_snippets(sorted(person_ids)) if person_ids else {}
-            refs = await inputs.article_refs(sorted(ref_ids - person_ids)) if ref_ids else {}
+            wanted = sorted(person_ids | ref_ids)
+            articles = await inputs.article_snippets(wanted) if wanted else {}
             authorities = await inputs.authorities_by_event(sorted(event_ids)) if event_ids else {}
-        articles = {**refs, **snippets}
 
         results: dict[str, tuple[RoleAssessment, dict[int, dict[str, Any]]]] = {}
         for key, candidate in candidates.items():
@@ -682,6 +802,14 @@ class EntityResearchService:
                     non_actor=is_non_actor(candidate.name),
                     not_in_network=not_in_network,
                     requested=requested,
+                    has_role=bool(assessment.label),
+                    sport_only=candidate.sport_only,
+                    leisure_only=candidate.leisure_only,
+                    not_a_name=(
+                        not_a_name(candidate.name, list(articles.values()))
+                        if kind == "org" and not assessment.label
+                        else None
+                    ),
                     min_relations=self.settings.entity_research_min_pm_relations,
                     auto_threshold=self.settings.entity_research_auto_threshold,
                 )
@@ -861,6 +989,11 @@ class EntityResearchService:
             for article in list(articles.values())[:5]
             if article.get("url")
         ]
+        published = [
+            moment
+            for article in articles.values()
+            if (moment := _utc(article.get("published_at"))) is not None
+        ]
         prominence: dict[str, Any] = {
             "articles": candidate.articles,
             "outlets": len(candidate.outlets),
@@ -875,8 +1008,15 @@ class EntityResearchService:
                 "artikelen": artikelen,
                 "organisaties": assessment.organisations,
                 "rolzinnen": assessment.evidence,
+                "zinnen": mention_sentences(
+                    list(articles.values()), candidate.name, candidate.aliases
+                ),
             },
         }
+        if published:
+            prominence["newest_article"] = _iso(max(published))
+        if decision.decision == prio.ON_REQUEST and decision.reason:
+            prominence["on_request_reason"] = decision.reason
         if candidate.canonical:
             prominence["canonical"] = candidate.canonical
         kind = candidate.kind if candidate.kind in ("person", "org") else "unknown"
@@ -905,7 +1045,7 @@ class EntityResearchService:
     async def tidy_queue(self) -> dict[str, int]:
         """Queued targets the scout did not pick up yet, against the model as it is now (the
         registers add names every week). Withdrawn when no longer needed: the model has the name
-        with enough relations, or it is no actor ("KIJK OOK", "bond"), a foreign head of state, or
+        with enough relations, or it is no actor ("KIJK OOK", "bond"), or
         an artist or athlete without a place in the network (unless the admin forced it); scout
         rounds are scarce. A name the model has with few relations gets its node on the
         target, so the scout adds to it instead of making a second one."""
@@ -933,13 +1073,7 @@ class EntityResearchService:
                     reason = f"Staat al in het propagandamodel met {info.degree} verbanden"
                 elif is_non_actor(row.name):
                     pm_status, status = "overgeslagen", "overgeslagen"
-                    reason = "Geen actor (fotocredit, naslagwerk of los woord)"
-                elif kind == "person" and (
-                    row.is_foreign
-                    or (row.role_category == POLITICUS and is_foreign_head_label(row.role_label))
-                ):
-                    pm_status, status = "overgeslagen", "overgeslagen"
-                    reason = "Buitenlandse persoon — valt buiten het Nederlandse propagandamodel"
+                    reason = "Geen actor (zinsdeel, opmaakrest, fotocredit of los woord)"
                 elif (
                     kind == "person"
                     and (row.prominence or {}).get("not_in_network")
@@ -947,6 +1081,18 @@ class EntityResearchService:
                 ):
                     pm_status, status = "overgeslagen", "overgeslagen"
                     reason = f"{row.prominence['not_in_network']} — wordt niet uitgezocht"
+                elif (
+                    kind is not None
+                    and row.last_requested_at is None
+                    and not (row.prominence or {}).get("forced")
+                    and (row.prominence or {}).get("triage_version") == TRIAGE_VERSION
+                    and (row.prominence or {}).get("decision") == prio.ON_REQUEST
+                    and (row.prominence or {}).get("on_request_reason") in prio.HELD_REASONS
+                ):
+                    # queued by itself under older rules; now it only goes on request. It waits
+                    # as "nieuw" again: a tap, a second article or a role in the analysis sends it
+                    pm_status, status = "overgeslagen", "nieuw"
+                    reason = row.prominence["on_request_reason"]
                 elif info is not None and row.pm_entity_id != info.id:
                     row.pm_entity_id, row.pm_degree = info.id, info.degree
                     try:
@@ -964,6 +1110,26 @@ class EntityResearchService:
                     counts["linked"] += 1
                     continue
                 else:
+                    # queued before the sentences went along: send the target once more, so the
+                    # scout reads which "Cultureel Centrum" is meant
+                    prominence = row.prominence or {}
+                    if prominence.get("sent_version") != TRIAGE_VERSION and (
+                        prominence.get("context") or {}
+                    ).get("zinnen"):
+                        try:
+                            await self.pm_client.enqueue(doel_payload(row))
+                        except PmApiUnavailableError as exc:
+                            logger.warning("entity_research_pm_unavailable", error=str(exc))
+                            counts["pm_unavailable"] += 1
+                            break
+                        except PmApiError as exc:
+                            logger.info(
+                                "entity_research_context_failed", key=row.entity_key, error=str(exc)
+                            )
+                            counts["refused"] += 1
+                            continue
+                        row.prominence = {**prominence, "sent_version": TRIAGE_VERSION}
+                        counts["context"] += 1
                     continue
                 try:
                     await self.pm_client.withdraw(
@@ -982,6 +1148,10 @@ class EntityResearchService:
                     )
                     counts["refused"] += 1
                     continue
+                if status == "nieuw":
+                    row.status, row.status_reason, row.queued_at = status, None, None
+                    counts["op_verzoek"] += 1
+                    continue
                 row.status, row.status_reason = status, reason
                 if pm_status == "klaar" and info is not None:
                     row.pm_entity_id, row.pm_degree = info.id, info.degree
@@ -990,19 +1160,48 @@ class EntityResearchService:
         return dict(counts)
 
     # ------------------------------------------------------------------ enqueue
+    @staticmethod
+    def _news_age(row: EntityResearch, now: datetime) -> timedelta | None:
+        """How long ago the newest article that names it was published (else when its news item
+        last changed, which maintenance and re-analyses move)."""
+
+        prominence = row.prominence or {}
+        for field_name in ("newest_article", "last_seen"):
+            value = prominence.get(field_name)
+            if not value:
+                continue
+            try:
+                moment = _utc(datetime.fromisoformat(str(value)))
+            except ValueError:
+                continue
+            if moment is not None:
+                return now - moment
+        return None
+
+    def _is_fresh(self, row: EntityResearch, now: datetime) -> bool:
+        age = self._news_age(row, now)
+        return age is not None and age <= FRESH_NEWS
+
     async def enqueue(self, only_key: str | None = None, *, force: bool = False) -> dict[str, Any]:
         """Queue research targets in the propaganda model within the daily budgets."""
 
         now = self._clock().astimezone(timezone.utc)
         today = self._start_of_day(now)
         cooldown = timedelta(days=self.settings.entity_research_cooldown_days)
+        lookback = timedelta(days=self.settings.entity_research_lookback_days)
         queued = 0
         skipped: dict[str, int] = defaultdict(int)
         async with self._write() as session:
             repo = EntityResearchRepository(session)
-            budget_auto = (
+            # By itself: the queue is topped up to a fixed size every cycle, so the scout always
+            # finds the names of the newest news (a day's worth at once went stale in the queue)
+            waiting = sum(
+                1 for row in await repo.by_status(ACTIVE_STATUSES) if row.last_requested_at is None
+            )
+            budget_auto = min(
                 self.settings.entity_research_daily_targets
-                - await repo.count_queued_since(today, requested=False)
+                - await repo.count_queued_since(today, requested=False),
+                self.settings.entity_research_queue_size - waiting,
             )
             budget_requests = (
                 self.settings.entity_research_daily_requests
@@ -1019,7 +1218,8 @@ class EntityResearchService:
                     row.last_requested_at is not None
                     and now - _utc(row.last_requested_at) <= REQUEST_WINDOW
                 )
-                again = row.status != "nieuw"
+                # a target the news app withdrew itself is opened again when it qualifies later
+                again = row.status != "nieuw" or row.pm_doel_id is not None
                 if not force:
                     if (row.prominence or {}).get("pending_in_pm"):
                         skipped["pending_in_pm"] += 1
@@ -1040,11 +1240,21 @@ class EntityResearchService:
                         pass
                     else:
                         continue
+                    if not requested and row.status == "nieuw":
+                        # by itself only what the current rules let through, about recent news
+                        if int((row.prominence or {}).get("triage_version") or 1) < TRIAGE_VERSION:
+                            skipped["old_rules"] += 1
+                            continue
+                        age = self._news_age(row, now)
+                        if age is None or age > lookback:
+                            skipped["old_news"] += 1
+                            continue
                 candidates.append((again, row))
-            # tapped names first, then by priority
+            # tapped names first, then names of today's news, then by priority
             candidates.sort(
                 key=lambda item: (
                     item[1].last_requested_at is None,
+                    not self._is_fresh(item[1], now),
                     -(item[1].priority or 0.0),
                     item[1].entity_key,
                 )
@@ -1084,6 +1294,7 @@ class EntityResearchService:
                 row.status_reason = None
                 row.pm_doel_id = doel.get("id") or row.pm_doel_id
                 row.queued_at = now
+                row.prominence = {**(row.prominence or {}), "sent_version": TRIAGE_VERSION}
                 if force:
                     # the admin's choice: the queue is not tidied of it
                     row.prominence = {**(row.prominence or {}), "forced": now.isoformat()}
@@ -1195,8 +1406,7 @@ class EntityResearchService:
                     or row.status in ("niet_nodig",)
                     or (
                         # the admin may force a name without a known role or an artist/athlete
-                        # (the agent checks the public role first); private and foreign persons
-                        # stay blocked
+                        # (the agent checks the public role first); private persons stay blocked
                         row.status == "overgeslagen"
                         and row.pm_doel_id is None
                         and row.status_reason != NO_PUBLIC_ROLE

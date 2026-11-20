@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { Network } from "lucide-react";
 
 import { storyThread } from "@/lib/explore/chronology";
 import { useFocusStore } from "@/lib/explore/focus";
@@ -34,7 +36,7 @@ const ROW_ORDER: Partial<Record<TabId, Finding["type"][]>> = {
  * what you add yourself.
  */
 export function FindingsTabs() {
-  const { exploration, numbers } = useExplore();
+  const { exploration, numbers, eventId } = useExplore();
   const { input, byTab, speakers } = exploration;
   // What others shared can be the only thing in a tab
   const { groups: others } = useSharedGroups();
@@ -96,6 +98,9 @@ export function FindingsTabs() {
   }, [current]);
 
   if (!current) return null;
+  // "Wie zit erachter?" stands after "Wie praat?" (after the last question without it)
+  const speakersAt = visible.findIndex((tab) => tab.id === "stemmen");
+  const behindAfter = speakersAt >= 0 ? speakersAt : visible.length - 1;
 
   const rows = (tab: TabId) => {
     const list = byTab.get(tab) ?? [];
@@ -116,22 +121,34 @@ export function FindingsTabs() {
     <section aria-label="Bevindingen" className="space-y-2">
       <div className="sticky top-0 z-20 -mx-4 bg-paper-100/95 px-4 py-2 backdrop-blur sm:mx-0 sm:px-0">
         <ScrollRow ref={bar} role="tablist" aria-label="Vragen" className="-mx-1 gap-1.5 px-1">
-          {visible.map((tab) => (
-            <button
-              key={tab.id}
-              data-tab={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={tab.id === current}
-              onClick={() => setPref("findingsTab", tab.id)}
-              className={`flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm font-semibold transition-colors ${
-                tab.id === current ? "border-ink-900 bg-ink-900 text-white" : "border-paper-300 bg-paper-50 text-ink-700 hover:bg-paper-100"
-              }`}
-            >
-              <span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ backgroundColor: tab.color }} />
-              {tab.label}
-              <span className={`text-xs ${tab.id === current ? "text-white/70" : "text-ink-400"}`}>{counts.get(tab.id)}</span>
-            </button>
+          {visible.map((tab, i) => (
+            <Fragment key={tab.id}>
+              <button
+                data-tab={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={tab.id === current}
+                onClick={() => setPref("findingsTab", tab.id)}
+                className={`flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm font-semibold transition-colors ${
+                  tab.id === current ? "border-ink-900 bg-ink-900 text-white" : "border-paper-300 bg-paper-50 text-ink-700 hover:bg-paper-100"
+                }`}
+              >
+                <span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ backgroundColor: tab.color }} />
+                {tab.label}
+                <span className={`text-xs ${tab.id === current ? "text-white/70" : "text-ink-400"}`}>{counts.get(tab.id)}</span>
+              </button>
+              {i === behindAfter ? (
+                // Next to "Wie praat?", for every news item: all its people and organisations in the
+                // network (the block "Wie zit erachter?" below is gone when nobody is behind an outlet)
+                <Link
+                  href={`/event/${encodeURIComponent(input.event.slug ?? String(eventId))}/netwerk`}
+                  className="flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-full border border-paper-300 bg-paper-50 px-3.5 text-sm font-semibold text-ink-700 transition-colors hover:bg-paper-100"
+                >
+                  <Network size={15} aria-hidden="true" />
+                  Wie zit erachter?
+                </Link>
+              ) : null}
+            </Fragment>
           ))}
         </ScrollRow>
       </div>

@@ -56,6 +56,58 @@ Bronnen en artikelen
   LLM gestubd; 5). Vooraf al falend en los hiervan: `test_insight_pipeline`, `test_google_news` (1),
   `test_prompt_builder` (3).
 
+### Aanvulling 2026-11-18: hetzelfde nieuws stond in twee of drie items
+
+Aanleiding: "KNVB-directeur De Jong noemt nederlaag onacceptabel" stond als twee kaarten op de voorpagina (RTL en
+De Telegraaf); NU.nl stond bij de wedstrijd van twee dagen eerder en het AD had nog geen item.
+
+- **Het oordeel**: Haiku kreeg de vraag "antwoord met ALLEEN het oordeel" en zei NEW_EVENT over twee artikelen met
+  dezelfde kop en dezelfde ANP-tekst (Maurice de Hond, 3 van 3 keer). Nu zegt het eerst in één zin wat het ziet en
+  geeft dan zijn oordeel (`VERDICT_FORMAT`, `_parse_verdict`). Gemeten op 81 met de hand gelabelde paren (50 zelfde
+  nieuws, gekozen uit paren die in verschillende items stonden; 31 lijkt-erop): alleen het oordeel 24 van 50 samen;
+  met reden 50 van 50, maar met de oude regel "vervolg van hetzelfde verhaal = zelfde event" ook 12 van de 31
+  lijkt-erop-paren (koning Charles die de nieuwe Bond verwelkomt, de kijkcijfers van een wedstrijd). Met de nieuwe
+  regels (een event is één nieuwsfeit; een latere ontwikkeling of een uitspraak van een ander op een andere dag is
+  ander nieuws): 49 van 50 samen, 3 van 31 ten onrechte samen.
+- **De kandidaten**: een artikel met een korte tekst (RTL bewaart vaak alleen de intro, ±200 tekens) of een verkeerde
+  tekst ligt qua embedding ver van de volledige artikelen over hetzelfde nieuws, en in een druk verhaal (vijftien
+  items over Oranje–Duitsland) zijn de tien dichtstbijzijnde items lijkt-erop-items. Daarom: drie gedeelde
+  titelwoorden zijn genoeg om de LLM te vragen (`LLM_ASK_TITLE_WORDS_ALONE`), een item met zo'n kop van de laatste
+  48 uur is kandidaat, ook buiten de dichtstbijzijnde tien (`_title_candidates`), het item met dezelfde kop gaat mee
+  naar de LLM (`_shortlist`), en de LLM ziet van een item de artikelen waarvan de kop zegt wat het nieuwe artikel
+  zegt (`_sample_articles`; eerst de drie oudste). Een aanhalingsteken hoort niet bij een titelwoord
+  ('onacceptabel' en ’Onacceptabel’).
+- **Herstel met de hand**: `EventService.move_articles` + `POST /admin/trigger/move-articles` zet artikelen in een
+  ander item (een leeg item wordt gearchiveerd, behalve als lezers er iets bij deelden; elk item dat artikelen
+  krijgt of houdt, krijgt een nieuwe analyse). `refresh_centroid` (uit Event Maintenance gehaald) rekent het
+  zwaartepunt opnieuw uit.
+- Tests: `tests/integration/test_event_assignment.py` 36 groen (13 nieuw), `tests/unit/test_parser.py` 17 (6
+  nieuw); de tests kijken niet meer in Supabase (met een gevulde `.env` faalden er twee).
+- **Eén index voor het hele proces** (2026-11-19): na een ophaalronde die te lang duurde maakte de planner een
+  nieuwe ingest-service terwijl de oude nog indeelde, elk met een eigen kopie van de vectorindex. Een item dat de
+  ene begon, was voor de andere geen kandidaat: De Dagelijkse Standaard en het AD kregen 88 seconden na elkaar elk
+  een eigen item over hetzelfde politieonderzoek. Nu delen alle event-services en Event Maintenance één index en
+  één slot (`shared_vector_index`, `assignment_lock` in `backend/app/services/vector_index.py`).
+- **De tekst van NU.nl** (2026-11-19): de tekstlezer (trafilatura) vond het artikel op NU.nl alleen via de gegevens
+  in de pagina, en gaf een blok van de pagina terug zodra daar genoeg tekst in stond: "Stel een vraag" of de
+  lezersreacties. Van 48 artikelen van één dag was bij 14 de bewaarde tekst niet het artikel; bij de helft van de
+  rest stond een geschreven "\n" in plaats van alinea's (namen als "blokkade\nDe"). NU.nl wordt nu gelezen uit de
+  gegevens die de pagina zelf meelevert (JSON-LD `articleBody`; `parser: page_data` in `source_profiles.yaml`,
+  `page_data_text` in `backend/app/ingestion/parser.py`). `scripts/refetch_article_text.py --wrong-text` haalt de
+  NU.nl-teksten van een periode opnieuw op; gedaan voor de laatste 27 uur (38 teksten vervangen, vijf analyses
+  opnieuw gemaakt).
+- **Gemeten op het nieuws na de wijziging** (182 artikelen, 2026-11-19): van de paren van twee titels met vier of
+  meer dezelfde titelwoorden stond eerst 25–42 % in verschillende items, nu 2 van 45 (één terecht: ander nieuws
+  over de nieuwe James Bond; één door de dubbele index hierboven).
+- Open: een item dat leeg raakt door samenvoegen wordt gearchiveerd, maar houdt zijn oude analyse en zijn pagina
+  verwijst niet door naar het item waar de artikelen nu staan (geldt ook voor `merge-split-events`).
+- Open: de AI ziet hoogstens twee kandidaten (`EVENT_LLM_TOP_N=2` in `.env`, sinds 2025). Op 2026-11-19 was het
+  juiste item één keer de derde (het AD over de beursgang van Anthropic; het item van RTL viel af achter een
+  beursbericht met evenveel dezelfde titelwoorden). De backend legt nu vast wanneer een kandidaat afvalt
+  (`llm_candidates_left_out`, met het aantal gedeelde titelwoorden); tel die regels en meet op gelabelde paren
+  voordat de instelling naar 3 gaat. De vier dubbelen van 18 en 19 november zijn met de hand samengevoegd
+  (De Jong 12937, De Hond 12805, appgroep 13006, Anthropic 12981).
+
 ## Story 14.1: Geen spel meer + store v2
 
 **Status**: ✅ Done
@@ -2376,4 +2428,97 @@ controle met een venster tien dagen eerder.
 ### Open
 - Gemeenten, provincies, de EU en sites die alleen een browser toelaten (DNB, KNVB).
 - Bedrijven en het ANP-persportaal: bijna nooit overgenomen, daarom niet gelezen.
+
+
+## Story 14.40: Persberichten over het nieuws
+
+**Status**: ✅ Gebouwd (2026-11-17), nog niet gecommit. Vraag van de eigenaar (2026-11-17): "is het ook iets om
+bronnen te gebruiken voor aanvullen nieuws events?" Antwoord: ja, als primaire bron naast het nieuws, niet als
+artikel; de eigenaar zei "ok".
+
+### Meting (2026-11-17, alleen lezen)
+- Van de 126 persberichten van 13 tot 17 november gingen er 32 over nieuws dat we hadden (tf-idf ≥ 0,30 met een
+  artikel van dat nieuws); maar 15 hingen eraan, omdat een medium eruit citeerde. De rest is herschreven: CBS over
+  de detailhandel, de helmplicht op e-bikes, vogelgriep, ProRail, de kruisboogschutter, de eis tegen Jonathan P.
+- Blind (2026-11-17): 118 paren (persbericht, nieuwsitem) uit 203 persberichten van 28 september tot 21 oktober en
+  13 tot 17 november, met de beste één of twee nieuwsitems per persbericht vanaf tf-idf 0,15. Eén beoordelaar die
+  de scores niet zag, labels hoort / verwant / anders. Paren met een citaat: 33 van 34 "hoort".
+- Nieuwe paren (zonder citaat), zonder Ajax: vanaf 0,25 is 86 % "hoort" (95 % van wat hoort gevonden), vanaf 0,30
+  90 % (70 % gevonden), vanaf 0,35 92 % (60 %). Geen enkel paar vanaf 0,30 was "anders"; de fouten zijn verwant
+  (een andere vogelgriepboerderij die het nieuwsitem niet noemt).
+- Ajax: 6 van de 8 paren vanaf 0,30 verwant (de wedstrijdpagina's van de Legends-wedstrijd bij een nieuwsitem over
+  een vuurwerkgooier bij die wedstrijd). Ajax doet daarom niet mee.
+- Artikelen tot een dag vóór het persbericht horen erbij: het nieuws komt vaak eerder uit dan de pagina
+  (registerplicht makelaars −7 uur, Rotterdamse haven −6 uur).
+- Het persbericht was er bijna altijd vóór de analyse (die uren na het eerste artikel draait); de analyse kan het dus
+  lezen zonder extra run.
+
+### Gebouwd
+- `press_releases.py`: per persbericht de woorden (tf-idf, `topic_vectorizer`) naast die van de Nederlandse
+  artikelen van een dag vóór tot drie dagen ná het; per nieuwsitem het beste artikel. Vanaf `TOPIC_MIN` (0,30)
+  komt het persbericht in het nieuwsitem (`event_documents`, bron `persbericht`, `details.topic` de score, zonder
+  citaten), hoogstens drie nieuwsitems (één nieuws in twee items). De vectorizer leert van de Nederlandse artikelen
+  van 14 dagen en wordt na 6 uur opnieuw gemaakt; een nieuwsitem dat het persbericht al had, houdt het vanaf 0,25
+  (`TOPIC_KEEP`), zodat het niet heen en weer springt. `ReleaseSite.about` (uit voor Ajax).
+- De code zelf op de berichten van 12 tot 17 november, zonder schrijven: 41 paren, waarvan 37 blind "hoort", 2
+  verwant (vogelgriep Hierden), 2 niet in de meting (NVWA-speelgoed bij een nieuwsitem over een Temu-boete;
+  drugsonderzoek met Jan G.).
+- De analyse (`prompt_builder.py`, feiten en kritiek) leest onder de artikelen hoogstens twee persberichten van het
+  nieuws (eerst die met een citaat, dan de hoogste score; dezelfde tekst op twee sites één keer), elk tot 3.000
+  tekens (`RELEASES_IN_PROMPT`, `RELEASE_TEXT_CHARS`), met `RELEASE_NOTE`: geen artikel en geen medium, de versie
+  van de afzender (toeschrijven, niet als feit), leg het naast de artikelen (wat nemen ze over, wat laten ze weg),
+  wie alleen in het persbericht spreekt is in de artikelen niet aan het woord, en wat pas in een later persbericht
+  stond ontbreekt niet in een eerder artikel. Geen extra AI-aanroep.
+- De Tijdlijn toont het persbericht op zijn tijd ("Persbericht · CBS"), ook zonder citaat; de app hoefde niet te
+  veranderen. Een artikel krijgt alleen een merkje als het citeert.
+- Tests: `backend/tests/unit/test_press_releases.py` (venster, beste artikel, houden, hoogstens drie, Ajax, scores),
+  `backend/tests/unit/test_prompt_releases.py` (volgorde, één keer per tekst, blok, inkorten).
+
+### Open
+- Eén beoordelaar; meet opnieuw met meer weken zodra er meer artikelen zijn (de backend stond van 22 oktober tot 13
+  november uit).
+- Een analyse die al liep, leest een persbericht dat later kwam niet; er komt geen extra run voor.
+
+## Story 14.41: Een simpele verdeling van de invalshoeken
+
+**Aanleiding (eigenaar, 2026-11-17, event 12055 coalitiecrisis):** "je wilt gewoon een simpele verdeling van de
+invalshoeken zien". Het beeld had zes groepen voor tien outlets, drie met één ballon, twee die hetzelfde zeiden, een
+lezerspeiling als eigen invalshoek, en De Dagelijkse Standaard stond er drie keer in met telkens dezelfde nummers.
+Op een telefoon was het beeld bijna drie schermen hoog en stonden de nummers over de naam van de outlet.
+
+### Meting (2026-11-17, alleen lezen, laatste analyse per nieuwsitem, 30 dagen)
+- Een outlet in twee of meer groepen: 31 % van het nieuws met 3 outlets, 41 % met 4-5, 62 % met 6 of meer.
+- Meer dan vier groepen: 6 van 1.365 analyses, maar 5 van de 16 nieuwsitems met zes of meer outlets (het grote
+  nieuws).
+- Welke invalshoeken op elkaar lijken kan het embeddingmodel niet zeggen: alle invalshoeken van één nieuws delen
+  dezelfde woorden. Voor event 12055 voegde het het neutrale verslag bij de kritiek van rechts. Woordoverlap in de
+  app was eerder al afgevallen (verschillen van 0,01-0,03 beslisten). Het oordeel blijft dus bij het model dat de
+  invalshoeken schreef.
+- De samenvoegstap op de zes recentste analyses met meer dan vier groepen: zes keer een geldige indeling van vier
+  groepen (prompt van ongeveer 3.000 tekens).
+
+### Gebouwd
+- **Beeld** (`frontend/lib/explore/figure.ts`, `outletHomes`): elke outlet staat één keer in "Wie zegt wat?", bij
+  de invalshoek met de meeste van zijn artikelen (bij gelijk de eerste) en met wat hij dáár zegt. Een invalshoek
+  waarvan alle outlets elders staan, wordt niet getekend; de tab Invalshoeken toont ze allemaal. Geldt meteen voor
+  alle bestaande analyses.
+- **Telefoon** (`NewsFigure.tsx`): een smalle ballon met nummers krijgt bovenaan ruimte, zodat de nummers niet over
+  de naam staan.
+- **Prompt** (`prompt_factual`, database en template gelijk): hoogstens vier clusters, bij meer de gelijkende
+  samenvoegen en benoemen wat ze delen; een lezerspeiling, column, satire of liveblog is een genre en nooit een
+  eigen cluster.
+- **Vangnet** (`backend/app/llm/angle_groups.py`, `InsightService._simple_division`): geeft de analyse toch meer
+  dan `ANGLE_GROUPS_MAX` (4) groepen, dan voegt het model van de feitenanalyse de gelijkende samen in één kleine
+  aanroep (stap `angles` in AI-gebruik). Het antwoord wordt gecontroleerd: elke invalshoek precies één keer,
+  hoogstens vier groepen. Een antwoord dat niet klopt of een aanroep die mislukt laat de groepen zoals ze waren; de
+  analyse mislukt er nooit door. Een groep van één houdt zijn eigen naam.
+- Tests: `backend/tests/unit/test_angle_groups.py`, `frontend/__tests__/explore/figure.test.ts`.
+- Event 12055 opnieuw geanalyseerd met de nieuwe prompt: drie groepen in plaats van zes, tien outlets elk één keer,
+  op een telefoon 1.542 px hoog in plaats van 2.337. Het vangnet was daar niet nodig.
+
+### Open
+- Bestaande analyses met meer dan vier groepen houden die tot ze opnieuw worden gemaakt; het beeld toont ze al met
+  elke outlet één keer.
+- Bij gelijk aantal artikelen kiest het beeld de eerste invalshoek; de lengte of soort van het artikel telt niet mee.
+- Verwante groepen die apart blijven (hoogstens vier) staan naast elkaar, maar zien er niet verwant uit (eigen kleur).
 

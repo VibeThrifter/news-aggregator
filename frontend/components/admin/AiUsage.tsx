@@ -29,6 +29,7 @@ const STEP_LABELS: Record<string, string> = {
   event_assignment: "Koppelen aan nieuws",
   factual: "Analyse: feiten",
   critical: "Analyse: kritisch",
+  angles: "Analyse: invalshoeken samenvoegen",
   keyword_extraction: "Trefwoorden buitenland",
   bias: "Gekleurde zinnen",
   digest: "Wat schreef …?",

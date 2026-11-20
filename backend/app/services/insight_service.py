@@ -27,11 +27,13 @@ from backend.app.llm.client import (
     LLMTimeoutError,
     MistralClient,
 )
+from backend.app.llm.angle_groups import AngleDivision, apply_division, simple_division_prompt
 from backend.app.llm.prompt_builder import FOREIGN_RESERVE, PromptBuilder, PromptGenerationResult
 from backend.app.llm.providers import build_llm_client
 from backend.app.llm.schemas import (
     CriticalPayload,
     FactualPayload,
+    InsightCluster,
     InsightsPayload,
     KeywordExtractionPayload,
 )
@@ -143,6 +145,62 @@ class InsightService:
                 return await fallback_client.generate_json(
                     prompt, schema_class, correlation_id=correlation_id
                 )
+
+    async def _simple_division(
+        self,
+        clusters: list[InsightCluster],
+        client: BaseLLMClient,
+        *,
+        event_id: int,
+        correlation_id: str | None = None,
+    ) -> list[InsightCluster]:
+        """At most `angle_groups_max` angle groups: the model merges the ones that look most alike.
+
+        One small call, only for a news item with more groups than that (6 of 1,365 analyses in
+        30 days, 5 of the 16 with six or more outlets). The answer is checked (every angle once,
+        few enough groups); an answer that fails, or a call that fails, leaves the groups as they
+        were. The analysis never fails on its division (Story 14.41).
+        """
+
+        limit = self.settings.angle_groups_max
+        if limit <= 0 or len(clusters) <= limit:
+            return clusters
+        try:
+            result = await self._call_with_fallback(
+                client,
+                simple_division_prompt(clusters, limit=limit),
+                AngleDivision,
+                phase="angles",
+                correlation_id=correlation_id,
+            )
+            merged = apply_division(clusters, result.payload, limit=limit)
+        except Exception as exc:  # noqa: BLE001 - the division is extra, the analysis goes on
+            logger.warning(
+                "angle_division_failed",
+                event_id=event_id,
+                groups=len(clusters),
+                error=str(exc),
+                error_type=type(exc).__name__,
+                correlation_id=correlation_id,
+            )
+            return clusters
+        if merged is None:
+            logger.warning(
+                "angle_division_invalid",
+                event_id=event_id,
+                groups=len(clusters),
+                answer=[group.members for group in result.payload.groups],
+                correlation_id=correlation_id,
+            )
+            return clusters
+        logger.info(
+            "angle_division_applied",
+            event_id=event_id,
+            groups_before=len(clusters),
+            groups_after=len(merged),
+            correlation_id=correlation_id,
+        )
+        return merged
 
     async def _extract_keywords_and_enrich(
         self,
@@ -291,6 +349,12 @@ class InsightService:
             correlation_id=correlation_id,
         )
         factual_payload: FactualPayload = factual_result.payload
+        factual_payload.clusters = await self._simple_division(
+            factual_payload.clusters,
+            factual_client,
+            event_id=event_id,
+            correlation_id=correlation_id,
+        )
 
         logger.info(
             "insight_generation_phase1_complete",

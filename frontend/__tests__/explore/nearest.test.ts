@@ -27,4 +27,15 @@ describe("the perspective an outlet leans to", () => {
     expect(nearestPerspective(["German developer expands"], perspectives)).toBeNull();
     expect(nearestPerspective(["Vissers"], [])).toBeNull();
   });
+
+  it("gives no estimate with one perspective: the news words say nothing about the angle", () => {
+    const satire = [
+      {
+        index: 0,
+        label: "Kritische, satirische duiding van het bouwproject",
+        text: "De bron benadert de bouw van de moskee met ironie. AFTELLEN. Bouw Turkse moskee start over 32 dagen en Trouw is er erg blij mee",
+      },
+    ];
+    expect(nearestPerspective(["'Enschede mag er trots op zijn', zegt de architect van de moskee die er na jaren gesteggel toch komt"], satire)).toBeNull();
+  });
 });

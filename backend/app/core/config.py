@@ -527,6 +527,15 @@ class Settings(BaseSettings):
         le=20,
         description="Maximum number of articles included in an LLM prompt",
     )
+    angle_groups_max: int = Field(
+        default=4,
+        ge=0,
+        le=8,
+        description=(
+            "A simple division of the angles (Story 14.41): with more angle groups than this the "
+            "model merges the ones that look most alike, in one small call (0 = leave them)"
+        ),
+    )
     llm_prompt_max_characters: int = Field(
         default=20000,
         ge=2000,
@@ -863,10 +872,22 @@ class Settings(BaseSettings):
         description="Minimum priority for automatic research (without a tap in the app)",
     )
     entity_research_daily_targets: int = Field(
-        default=12,
+        default=300,
         ge=0,
+        le=2000,
+        description=(
+            "Ceiling on automatic research targets queued per day (12 until 2026-11-17; the "
+            "queue size and the scout's brakes in the propaganda model now set the pace)"
+        ),
+    )
+    entity_research_queue_size: int = Field(
+        default=15,
+        ge=1,
         le=500,
-        description="Maximum automatic research targets queued per day",
+        description=(
+            "Automatic research targets that may wait in the propaganda model at once: every "
+            "cycle tops the queue up with the names of the newest news (the scout takes 3 a round)"
+        ),
     )
     entity_research_daily_requests: int = Field(
         default=30,

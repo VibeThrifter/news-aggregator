@@ -73,6 +73,14 @@ Voorbeelden eerste zin (=titel):
    - GOED: Bezoekers uiten hun onvrede op Facebook, schrijft De Volkskrant.
    - FOUT: Op sociale media regent het kritiek. (geen publicatie die dit meldt)
 
+   DE JUISTE PUBLICATIE: artikelen over hetzelfde nieuws delen feiten. Controleer vóór je "meldt X" schrijft
+   of dat feit (de datum, het getal, het citaat, de plaats) in de tekst van X zelf staat. Staat het alleen
+   in een ander artikel, noem dan die publicatie. Staan in één zin feiten uit twee artikelen, splits de zin
+   of noem beide publicaties bij hun eigen feit.
+   - FOUT: "De bouw begint op 18 december en het gebouw biedt plaats aan 625 mensen, meldt Trouw." (de datum
+     staat alleen in NieuwRechts)
+   - GOED: "De bouw begint op 18 december, meldt NieuwRechts. Trouw schrijft dat er plaats is voor 625 mensen."
+
    Bruikbare formuleringen:
    - "meldt [publicatie]" / "aldus [publicatie]" / "schrijft [publicatie]"
    - "Volgens [publicatie]..." / "[Publicatie] bericht dat..."
@@ -151,7 +159,7 @@ JSON OUTPUT SCHEMA:
   "summary": "Min 200 woorden: de korte titel, een lege regel, dan het verhaal met een lege regel tussen alinea's en **bold** tussenkopjes. Als er internationale bronnen zijn: vergelijk NL vs internationaal perspectief.",
   "timeline": [{"time": "YYYY | YYYY-MM-DD | ISO-8601 datetime", "headline": "string", "sources": ["url"], "spectrum": "mainstream"}],
   "clusters": [{
-    "label": "the angle, never an outlet name",
+    "label": "the angle, never an outlet name (AT MOST 4 clusters)",
     "spectrum": "mainstream",
     "source_types": ["type"],
     "summary": "1-2 sentences",
@@ -182,6 +190,7 @@ HERINNERING: Gebruik ALLEEN bovenstaande artikelen. VERZIN NIETS. Als er 1 artik
 
 ANALYSIS INSTRUCTIONS:
 1. **SUMMARY**: Combine all articles into coherent narrative, note where sources differ in facts or emphasis. If INTERNATIONAL sources are present (marked with "INTERNATIONAAL"), dedicate a paragraph to comparing how Dutch vs international media cover this story.
+   - A joke, irony or wordplay (often in the headline, intro or last line of a satirical piece) is tone, not content. Never write what a joke says as what the outlet reports, stresses or ties the news to: a jibe about a weatherman on trial ("Hij zag dit onweer niet aankomen") does not tie the case to the weather. Say the piece is satirical and give what it really reports. This holds for the clusters too
 2. **TIMELINE**: Extract key moments from the NEWS STORY ITSELF, not article publication times.
    - ONLY include items from DUTCH sources (not international)
    - Each item MUST have a valid spectrum value from the list above
@@ -204,7 +213,10 @@ ANALYSIS INSTRUCTIONS:
      {"time": "1956", "headline": "Doorbraak met Et Dieu créa la femme"},
      {"time": "2025-12-28", "headline": "Overleden op 91-jarige leeftijd"}
    ]
-3. **CLUSTERS**: Group DUTCH articles by standpoint/perspective. Don't force artificial divisions - if all agree, use one cluster.
+3. **CLUSTERS**: A simple division of the DUTCH articles by standpoint/perspective: AT MOST 4 clusters, fewer when the sources agree. Don't force artificial divisions - if all agree, use one cluster.
+   - With more than 4 angles, merge the ones that look most alike into one cluster and name in "label" what they share
+   - Group by what the sources emphasise and which side they give the weight, NOT by tone or genre. A news report and a satirical or opinion piece that stress the same thing (e.g. both the tie with a foreign state and the political resistance) belong in ONE cluster; put the difference in tone in each source's "stance". A reader poll, a column, a satire or a live blog is a genre, never a cluster of its own: it goes with the sources that stress the same thing. Give an outlet a cluster of its own only when it stresses something else than every other outlet
+   - Order the clusters so that angles that look alike stand next to each other (the page shows them in this order): two critical angles side by side, not with a neutral one between them
    - "label" (Dutch) names the angle itself: what these sources emphasise or how they bring the news, e.g. "Nadruk op onduidelijkheid en de vermoedelijke moord" or "Politiebericht en oproep aan het publiek"
    - NEVER name an outlet or medium in "label" (not "Berichtgeving RTL Nieuws", "Telegraaf: ...", "Recensie van de Volkskrant"), also not when only one source has that angle: "sources" already says who
    - ONLY include DUTCH sources (not international) in clusters

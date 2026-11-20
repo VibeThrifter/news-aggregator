@@ -85,6 +85,8 @@ export type AuthorityAnalysis = {
   authority: string;
   authority_type: string;
   article_url?: string | null;
+  /** "ja": the article lets it speak; "nee": it is only named or discussed (since 2026-11-17) */
+  speaks?: string | null;
   claimed_expertise: string;
   actual_role?: string | null;
   scope_creep?: string | null;

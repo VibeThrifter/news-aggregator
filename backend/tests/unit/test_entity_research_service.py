@@ -39,6 +39,8 @@ from backend.app.services.entity_research.service import (
     key_slug,
     matching_authorities,
     mention_contexts,
+    mention_sentences,
+    not_a_name,
     span_matches,
     status_from_doel,
 )
@@ -211,6 +213,12 @@ async def seed(factory) -> dict[str, int]:
                         "authority": "Nationale Adviesraad Windenergie",
                         "authority_type": "adviesorgaan",
                         "actual_role": "Adviseert ministeries over windenergie",
+                    },
+                    {
+                        # named in one article, but the analysis gives it a role: researched
+                        "authority": "NordVind",
+                        "authority_type": "bedrijf",
+                        "actual_role": "Ontwikkelaar van het windpark",
                     },
                 ],
             )
@@ -553,7 +561,8 @@ async def test_triage_keeps_status_of_research_in_progress(tmp_path: Path) -> No
 
 async def test_tidy_queue_withdraws_and_links(tmp_path: Path) -> None:
     """A queued target the scout did not pick up yet is withdrawn when the model has it by now
-    (e.g. through the registers), or when it is a loose word or a foreign head of state."""
+    (e.g. through the registers), or when it is a loose word. A foreign head of state stays:
+    foreigners are researched since 2026-11-18."""
 
     env = await make_env(tmp_path)
     service, factory, client = env["service"], env["factory"], env["client"]
@@ -563,7 +572,7 @@ async def test_tidy_queue_withdraws_and_links(tmp_path: Path) -> None:
         "org:bond": ("bond", "org", None, None, 3),
         "person:jair-bolsonaro": ("Jair Bolsonaro", "person", "politicus", "ex-president", 4),
         "person:anouk-verbeek": ("Anouk Verbeek", "person", "politicus", "wethouder", 5),
-        "person:claimed": ("Ex Voorbeeld", "person", "politicus", "oud-president", 6),
+        "org:claimed": ("FC", "org", None, None, 6),
         "org:dpg-media": ("DPG Media", "org", None, None, 7),  # in the model, two relations
     }
     async with factory() as session:
@@ -584,7 +593,7 @@ async def test_tidy_queue_withdraws_and_links(tmp_path: Path) -> None:
 
     result = await service.tidy_queue()
 
-    assert result == {"niet_nodig": 1, "overgeslagen": 3, "refused": 1, "linked": 1}
+    assert result == {"niet_nodig": 1, "overgeslagen": 2, "refused": 1, "linked": 1}
     # the target gets the node it can add to
     assert [doel["sleutel"] for doel, _again in client.calls] == ["org:dpg-media"]
     assert client.calls[0][0]["entity_id"] == 1
@@ -592,15 +601,14 @@ async def test_tidy_queue_withdraws_and_links(tmp_path: Path) -> None:
         (1, "klaar", 11),
         (2, "overgeslagen", None),
         (3, "overgeslagen", None),
-        (4, "overgeslagen", None),
         (6, "overgeslagen", None),
     ]
     after = await rows(factory)
     assert after["org:nos"].status == "niet_nodig" and after["org:nos"].pm_entity_id == 11
     assert after["org:kijk-ook"].status == "overgeslagen"
-    assert after["person:jair-bolsonaro"].status_reason.startswith("Buitenlandse persoon")
+    assert after["person:jair-bolsonaro"].status == "wachtrij"  # foreign: researched
     assert after["person:anouk-verbeek"].status == "wachtrij"  # still needed
-    assert after["person:claimed"].status == "wachtrij"  # the scout has it now
+    assert after["org:claimed"].status == "wachtrij"  # the scout has it now
     assert after["org:dpg-media"].status == "wachtrij" and after["org:dpg-media"].pm_entity_id == 1
     assert await service.tidy_queue() == {"refused": 1}  # linked once
 
@@ -1094,3 +1102,331 @@ def test_mention_of_the_last_name_counts_as_the_full_name() -> None:
     }
     [context] = mention_contexts(other, {"kandinsky", "wassily-kandinsky"})
     assert context.span == "Kandinsky" and context.before == "Zei Henk "
+
+
+# ------------------------------------------- context, one mention, sport, queue order (2026-11-17)
+def test_mention_sentences() -> None:
+    text = (
+        "Moskee krijgt groen licht\n"
+        "Het Cultureel Centrum aan de Kuipersdijk in Enschede wordt een moskee met twee "
+        "minaretten. "
+        "De gemeente gaf de vergunning. Volgens het Cultureel Centrum begint de bouw in december."
+    )
+    first = text.index("Cultureel Centrum")
+    article = {
+        "source_name": "Trouw",
+        "content": text,
+        "entities": [{"label": "ORG", "start": first, "end": first + len("Cultureel Centrum")}],
+    }
+    other = {
+        "source_name": "NOS",
+        "content": "Cultureel Centrum\nBuurtbewoners maakten bezwaar tegen het Cultureel Centrum.",
+        "entities": [],
+    }
+    sentences = mention_sentences([article, other], "Cultureel Centrum", {"cultureel-centrum"})
+    # the first mention of every article first; a line with only the name says nothing
+    assert sentences == [
+        {
+            "bron": "Trouw",
+            "zin": "Het Cultureel Centrum aan de Kuipersdijk in Enschede wordt een moskee met "
+            "twee minaretten.",
+        },
+        {"bron": "NOS", "zin": "Buurtbewoners maakten bezwaar tegen het Cultureel Centrum."},
+    ]
+    assert mention_sentences([{"content": ""}], "X", {"x"}) == []
+    long = {"content": "Het Cultureel Centrum " + "en nog meer " * 60 + "einde.", "entities": []}
+    [clipped] = mention_sentences([long], "Cultureel Centrum", {"cultureel-centrum"})
+    assert len(clipped["zin"]) <= 280
+
+
+async def add_org(env, key: str, name: str, text: str, event_type: str | None = None) -> None:
+    """An organisation in the windpark event with one article that names it."""
+
+    async with env["factory"]() as session:
+        article = Article(
+            guid=f"g-{key}",
+            url=f"https://nu.nl/{key}",
+            title="kop",
+            content=text,
+            source_name="NU.nl",
+            published_at=UPDATED,
+            entities=spans(text, [(name, "ORG")]),
+        )
+        session.add(article)
+        await session.flush()
+        session.add(EventArticle(event_id=env["ids"]["event"], article_id=article.id))
+        session.add(
+            EventEntity(
+                event_id=env["ids"]["event"],
+                entity_key=key,
+                name=name,
+                kind="org",
+                aliases=[key.split(":", 1)[1]],
+                mention_count=2,
+                article_count=1,
+                outlet_counts={"NU.nl": 1},
+                article_ids=[article.id],
+                salience=0.05,
+                event_slug="windpark-dijkerhoven",
+                event_title="Windpark",
+                event_type=event_type,
+                event_last_updated_at=UPDATED,
+            )
+        )
+        await session.commit()
+
+
+async def test_triage_sends_the_sentences_and_holds_one_mention(tmp_path: Path) -> None:
+    env = await make_env(tmp_path)
+    await add_org(
+        env,
+        "org:cultureel-centrum",
+        "Cultureel Centrum",
+        "Het Cultureel Centrum in Dijkerhoven wil zonnepanelen van het windpark.",
+    )
+    await add_org(env, "org:talpa-gewoon-zegt", "Talpa gewoon zegt", "Dat Talpa gewoon zegt wat.")
+    await env["service"].triage()
+    found = await rows(env["factory"])
+    centrum = found["org:cultureel-centrum"]
+    # one article, no role in the analysis: on request, and the sentence says which one it is
+    assert centrum.status == "nieuw" and centrum.prominence["decision"] == prio.ON_REQUEST
+    assert centrum.prominence["on_request_reason"] == prio.NAMED_ONCE
+    payload = doel_payload(centrum)
+    assert payload["context"]["zinnen"] == [
+        {
+            "bron": "NU.nl",
+            "zin": "Het Cultureel Centrum in Dijkerhoven wil zonnepanelen van het windpark.",
+        }
+    ]
+    assert centrum.prominence["newest_article"].startswith("2026-09-29")
+    # the analysis names NordVind's role: researched by itself, with its sentence
+    nordvind = found["org:nordvind"]
+    assert nordvind.prominence["decision"] == prio.RESEARCH
+    assert nordvind.prominence["context"]["zinnen"] == [
+        {"bron": "NOS", "zin": "NordVind bouwt het park."}
+    ]
+    # persons get their sentences too
+    anouk = found["person:anouk-verbeek"].prominence["context"]["zinnen"]
+    assert {line["bron"] for line in anouk} == {"NOS", "AD"}
+    # a piece of a sentence is no actor
+    fragment = found["org:talpa-gewoon-zegt"]
+    assert fragment.status == "overgeslagen" and fragment.status_reason.startswith("Geen actor")
+    # a tap sends the organisation that was named once
+    async with env["factory"]() as session:
+        row = await session.get(EntityResearch, "org:cultureel-centrum")
+        row.last_requested_at = NOW - timedelta(minutes=5)
+        await session.commit()
+    await env["service"].triage()
+    await env["service"].enqueue()
+    sent = [doel["sleutel"] for doel, _again in env["client"].calls]
+    assert sent[0] == "org:cultureel-centrum"
+
+
+async def test_triage_holds_an_organisation_only_in_sport_news(tmp_path: Path) -> None:
+    env = await make_env(tmp_path)
+    text = "FC Dijkerhoven wint. Ook in de beker won FC Dijkerhoven."
+    await add_org(env, "org:fc-dijkerhoven", "FC Dijkerhoven", text, event_type="sports")
+    async with env["factory"]() as session:  # a second article: not held for one mention
+        row = (
+            await session.execute(
+                select(EventEntity).where(EventEntity.entity_key == "org:fc-dijkerhoven")
+            )
+        ).scalar_one()
+        row.article_count = 2
+        await session.commit()
+    await env["service"].triage()
+    club = (await rows(env["factory"]))["org:fc-dijkerhoven"]
+    assert club.prominence["decision"] == prio.ON_REQUEST
+    assert club.prominence["on_request_reason"] == prio.ONLY_SPORT
+
+
+def test_not_a_name() -> None:
+    text = "Kom maar op, zei Geert Wilders. Dan kom ik ook. Wilders wil HIERONDER DIRECT meer."
+    article = {
+        "content": text + " Lees hieronder direct verder.",
+        "entities": spans(text, [("Geert Wilders", "PERSON")]),
+    }
+    assert not_a_name("Kom", [article]) == prio.PLAIN_WORD
+    assert not_a_name("HIERONDER DIRECT", [article]) == prio.PLAIN_WORD
+    assert not_a_name("Wilders", [article]) == prio.PERSON_NAME
+    assert not_a_name("Shell", [{"content": "Shell boort. De schelp van Shell."}]) is None
+    # more words in ordinary case are a name ("Cultureel Centrum"), also when the text has them
+    assert not_a_name("Cultureel Centrum", [{"content": "Het cultureel centrum opent."}]) is None
+
+
+async def test_triage_holds_a_plain_word_and_entertainment_news(tmp_path: Path) -> None:
+    env = await make_env(tmp_path)
+    await add_org(env, "org:kom", "Kom", "Kom kijken, zegt de wethouder. Dan kom je verder.")
+    async with env["factory"]() as session:  # two articles: not held for one mention
+        row = (
+            await session.execute(select(EventEntity).where(EventEntity.entity_key == "org:kom"))
+        ).scalar_one()
+        row.article_count = 2
+        await session.commit()
+    await env["service"].triage()
+    word = (await rows(env["factory"]))["org:kom"]
+    assert word.prominence["decision"] == prio.ON_REQUEST
+    assert word.prominence["on_request_reason"] == prio.PLAIN_WORD
+
+    env = await make_env(tmp_path / "amusement")
+    text = "Museum Dijkzicht verlengt de tentoonstelling. Museum Dijkzicht trekt veel bezoekers."
+    await add_org(env, "org:museum-dijkzicht", "Museum Dijkzicht", text, event_type="entertainment")
+    async with env["factory"]() as session:
+        row = (
+            await session.execute(
+                select(EventEntity).where(EventEntity.entity_key == "org:museum-dijkzicht")
+            )
+        ).scalar_one()
+        row.article_count = 2
+        await session.commit()
+    await env["service"].triage()
+    museum = (await rows(env["factory"]))["org:museum-dijkzicht"]
+    assert museum.prominence["decision"] == prio.ON_REQUEST
+    assert museum.prominence["on_request_reason"] == prio.ONLY_LEISURE
+
+
+async def test_enqueue_takes_current_news_under_the_current_rules(tmp_path: Path) -> None:
+    env = await make_env(tmp_path)
+    service, factory, client = env["service"], env["factory"], env["client"]
+    await service.triage()
+
+    async def change(key: str, **prominence: Any) -> None:
+        async with factory() as session:
+            row = await session.get(EntityResearch, key)
+            row.prominence = {**row.prominence, **prominence}
+            await session.commit()
+
+    # Anouk (highest priority) is in news of three days ago, Pomme in today's: Pomme goes first
+    await change("person:anouk-verbeek", newest_article=(NOW - timedelta(days=3)).isoformat())
+    await change("person:pomme-rademaker", newest_article=(NOW - timedelta(hours=2)).isoformat())
+    # news of more than a week ago is not sent by itself, nor a name judged under older rules
+    await change("org:nordvind", newest_article=(NOW - timedelta(days=9)).isoformat())
+    result = await service.enqueue()
+    assert [doel["sleutel"] for doel, _again in client.calls] == [
+        "person:pomme-rademaker",
+        "person:anouk-verbeek",
+    ]
+    assert result["skipped"] == {"old_news": 1}
+
+    client.calls.clear()
+    async with factory() as session:
+        for key in ("person:anouk-verbeek", "person:pomme-rademaker"):
+            row = await session.get(EntityResearch, key)
+            row.status, row.queued_at = "nieuw", None
+            row.prominence = {**row.prominence, "triage_version": TRIAGE_VERSION - 1}
+        await session.commit()
+    result = await service.enqueue()
+    assert client.calls == [] and result["skipped"] == {"old_rules": 2, "old_news": 1}
+
+
+async def test_organisations_triaged_under_older_rules_are_assessed_again(tmp_path: Path) -> None:
+    env = await make_env(tmp_path)
+    service, factory = env["service"], env["factory"]
+    await service.triage()
+    async with factory() as session:
+        session.add(
+            EntityResearch(
+                entity_key="org:voted-against",
+                name="VVD voted against it",
+                kind="org",
+                role_category="organisatie",
+                status="nieuw",
+                priority=61.8,
+                prominence={"decision": prio.RESEARCH, "triage_version": TRIAGE_VERSION - 1},
+            )
+        )
+        session.add(
+            EventEntity(
+                event_id=env["ids"]["event"],
+                entity_key="org:voted-against",
+                name="VVD voted against it",
+                kind="org",
+                aliases=["voted-against"],
+                mention_count=1,
+                article_count=1,
+                outlet_counts={"NOS": 1},
+                article_ids=[env["ids"]["nos"]],
+                salience=0.01,
+                event_slug="windpark-dijkerhoven",
+                event_title="Windpark",
+                event_last_updated_at=UPDATED,
+                computed_at=NOW - timedelta(days=2),
+            )
+        )
+        await session.commit()
+    result = await service.triage()
+    assert result["retriaged"] == 1
+    row = (await rows(factory))["org:voted-against"]
+    assert row.status == "overgeslagen" and row.status_reason.startswith("Geen actor")
+    assert (await service.triage())["retriaged"] == 0
+
+
+async def test_tidy_queue_sends_the_sentences_of_a_target_queued_before(tmp_path: Path) -> None:
+    env = await make_env(tmp_path)
+    service, factory, client = env["service"], env["factory"], env["client"]
+    await service.triage()
+    await service.enqueue()
+    assert await service.tidy_queue() == {}  # sent with its sentences: not again
+    async with factory() as session:  # queued under the older rules, without sentences
+        row = await session.get(EntityResearch, "person:anouk-verbeek")
+        row.prominence = {
+            key: value for key, value in row.prominence.items() if key != "sent_version"
+        }
+        await session.commit()
+    client.calls.clear()
+    assert await service.tidy_queue() == {"context": 1}
+    [(payload, again)] = client.calls
+    assert payload["sleutel"] == "person:anouk-verbeek" and not again
+    assert payload["context"]["zinnen"]
+    assert await service.tidy_queue() == {}  # once
+
+
+async def test_enqueue_tops_the_queue_up(tmp_path: Path) -> None:
+    """The automatic queue holds at most ``entity_research_queue_size`` targets at once."""
+
+    env = await make_env(tmp_path)
+    service, factory, client = env["service"], env["factory"], env["client"]
+    service.settings.entity_research_daily_targets = 50
+    service.settings.entity_research_queue_size = 2
+    await service.triage()
+    result = await service.enqueue()
+    # three qualify (Anouk, Pomme, NordVind): two fill the queue, the third waits its turn
+    assert result["queued"] == 2 and result["skipped"] == {"budget_auto": 1}
+    assert (await service.enqueue())["queued"] == 0
+    async with factory() as session:  # the scout finished one
+        row = await session.get(EntityResearch, "person:anouk-verbeek")
+        row.status = "klaar"
+        row.researched_at = NOW
+        await session.commit()
+    client.calls.clear()
+    assert (await service.enqueue())["queued"] == 1
+    assert [doel["sleutel"] for doel, _again in client.calls] == ["org:nordvind"]
+
+
+async def test_tidy_queue_takes_back_an_organisation_that_now_goes_on_request(
+    tmp_path: Path,
+) -> None:
+    env = await make_env(tmp_path)
+    service, factory, client = env["service"], env["factory"], env["client"]
+    await add_org(env, "org:fc-dijkerhoven", "FC Dijkerhoven", "FC Dijkerhoven wint weer.")
+    await service.triage()
+    async with factory() as session:  # queued by itself under the older rules
+        row = await session.get(EntityResearch, "org:fc-dijkerhoven")
+        assert row.prominence["on_request_reason"] == prio.NAMED_ONCE
+        row.status, row.pm_doel_id, row.queued_at = "wachtrij", 77, NOW - timedelta(days=1)
+        await session.commit()
+    assert await service.tidy_queue() == {"op_verzoek": 1}
+    assert client.withdrawn == [(77, "overgeslagen", None)]
+    row = (await rows(factory))["org:fc-dijkerhoven"]
+    assert row.status == "nieuw" and row.queued_at is None and row.pm_doel_id == 77
+    # a tap sends it after all, and opens the withdrawn target again
+    async with factory() as session:
+        row = await session.get(EntityResearch, "org:fc-dijkerhoven")
+        row.last_requested_at = NOW - timedelta(minutes=5)
+        await session.commit()
+    await service.triage()
+    await service.enqueue()
+    payload, again = client.calls[0]
+    assert payload["sleutel"] == "org:fc-dijkerhoven" and again
+    # a tapped or forced one stays in the queue
+    assert await service.tidy_queue() == {}

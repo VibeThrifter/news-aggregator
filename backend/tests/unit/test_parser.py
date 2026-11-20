@@ -5,7 +5,14 @@ from pathlib import Path
 import pytest
 
 from backend.app.ingestion import ArticleParseError
-from backend.app.ingestion.parser import clean_link, extract_links, looks_like_code, parse_article_html, site_of
+from backend.app.ingestion.parser import (
+    clean_link,
+    extract_links,
+    looks_like_code,
+    page_data_text,
+    parse_article_html,
+    site_of,
+)
 
 PAYWALL_JSON = (
     '","textAlignment":"center","textColor":{"light":"#000000","dark":"#000000"},'
@@ -92,3 +99,80 @@ def test_follow_us_links_are_no_source():
         ' <a href="https://www.google.com/preferences/source?q=rtl.nl">Voeg RTL toe in Google</a></p></article>',
     )
     assert not any("google" in link or "whatsapp" in link for link in extract_links(html, url="https://www.ad.nl/a~a1/"))
+
+
+# Page furniture and page data (NU.nl, 2026-11-19): pages in NU.nl's shape, with own text
+FIXTURES = Path("backend/tests/fixtures/html")
+
+
+def test_a_question_block_inside_the_article_is_not_the_article():
+    """With "Stel een vraag" in the article, the stored text was that block (265 characters)."""
+    html = (FIXTURES / "nunl_question_widget.html").read_text(encoding="utf-8")
+
+    text = parse_article_html(html, url="https://www.nu.nl/binnenland/1/watertoren.html").text
+
+    assert text.startswith("De gemeente Waterdorp wil de oude watertoren")
+    assert "ruim drie miljoen euro" in text
+    assert "Stel een vraag" not in text and "in te loggen" not in text
+
+
+def test_text_from_the_page_data_gets_its_line_breaks_back():
+    """The extraction takes this text from the page's JSON-LD without decoding it."""
+    html = (FIXTURES / "nunl_page_data.html").read_text(encoding="utf-8")
+
+    text = parse_article_html(html, url="https://www.nu.nl/binnenland/1/watertoren.html").text
+
+    assert "\\n" not in text
+    paragraphs = text.split("\n")
+    assert len(paragraphs) == 6
+    assert paragraphs[0] == "Watertoren van Waterdorp blijft staan"
+    assert paragraphs[1].startswith("De gemeente Waterdorp wil de oude watertoren")
+    assert paragraphs[1].endswith("de komende jaren veel geld gaat kosten.")
+    assert paragraphs[5].startswith("Wethouder De Wit is tegen het besluit.")
+
+
+def test_a_text_with_line_breaks_keeps_a_written_out_backslash():
+    """Only a text without any line break is page data; a backslash-n in a normal text stays."""
+    from backend.app.ingestion.parser import _line_breaks
+
+    assert _line_breaks("De map C:\\nieuws staat op de schijf.\nTweede alinea.") == (
+        "De map C:\\nieuws staat op de schijf.\nTweede alinea."
+    )
+    written_out = "Kop\\nEerste alinea.\\nTweede alinea."
+    assert _line_breaks(written_out) == "Kop\nEerste alinea.\nTweede alinea."
+
+
+def test_a_source_with_page_data_gets_the_text_the_page_gives():
+    """NU.nl: the article stands in the page's data; readers' comments under it are no article."""
+    html = (FIXTURES / "nunl_comments.html").read_text(encoding="utf-8")
+
+    url = "https://www.nu.nl/binnenland/1/watertoren.html"
+    text = parse_article_html(html, url=url, page_data=True).text
+
+    paragraphs = text.split("\n")
+    assert paragraphs[0] == "Watertoren van Waterdorp blijft staan"
+    assert paragraphs[1].startswith("De gemeente Waterdorp wil de oude watertoren")
+    assert paragraphs[3].endswith('"Dat geld hebben we niet", zegt ze.')
+    assert len(paragraphs) == 4
+    assert "Uitgelichte reacties" not in text and "Mijn opa" not in text
+
+
+def test_page_data_is_only_read_for_a_source_that_asks_for_it():
+    html = (FIXTURES / "nunl_comments.html").read_text(encoding="utf-8")
+
+    assert page_data_text(html).startswith("Watertoren van Waterdorp blijft staan\nDe gemeente")
+    # Another source keeps the extraction, whatever that page's data says
+    assert "Uitgelichte reacties" in parse_article_html(html, url="https://example.com/1").text
+
+
+def test_a_teaser_or_broken_page_data_is_no_article():
+    teaser = '<script type="application/ld+json">{"@type":"NewsArticle","articleBody":"Kort."}</script>'
+    broken = '<script type="application/ld+json">{"articleBody": "x" * </script>'
+    html = Path("backend/tests/fixtures/html/article_simple.html").read_text(encoding="utf-8")
+
+    assert page_data_text(teaser) is None
+    assert page_data_text(broken) is None
+    with_teaser = html.replace("</head>", teaser + "</head>")
+    assert parse_article_html(with_teaser, url="https://example.com/1", page_data=True).text == (
+        parse_article_html(html, url="https://example.com/1").text
+    )

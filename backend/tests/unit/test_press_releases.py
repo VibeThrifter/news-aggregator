@@ -96,3 +96,83 @@ def test_a_page_without_text_is_no_release():
         )
         is None
     )
+
+
+# --- Story 14.40: a release in news it is about -------------------------------------------------
+
+from types import SimpleNamespace  # noqa: E402
+
+from backend.app.services.press_releases import (  # noqa: E402
+    TOPIC_MAX_EVENTS,
+    releases_about,
+    topic_events,
+    topic_text,
+    topic_vectorizer,
+)
+
+AT = datetime(2026, 11, 16, 6, 30, tzinfo=timezone.utc)
+
+
+def _article(event_id, hours):
+    from datetime import timedelta
+
+    return SimpleNamespace(event_id=event_id, published_at=AT + timedelta(hours=hours))
+
+
+def test_topic_events_takes_the_best_article_per_news_item():
+    articles = [_article(1, 0), _article(1, 2), _article(2, 5), _article(3, 1)]
+    assert topic_events(AT, [0.31, 0.55, 0.29, 0.10], articles) == {1: 0.55}
+
+
+def test_topic_events_window_from_a_day_before_to_three_days_after():
+    articles = [_article(1, -23), _article(2, -25), _article(3, 71), _article(4, 73)]
+    assert topic_events(AT, [0.5, 0.5, 0.5, 0.5], articles) == {1: 0.5, 3: 0.5}
+
+
+def test_topic_events_keeps_a_news_item_it_had_with_a_little_less():
+    articles = [_article(1, 0), _article(2, 0)]
+    assert topic_events(AT, [0.27, 0.27], articles, kept=[2]) == {2: 0.27}
+    assert topic_events(AT, [0.24, 0.24], articles, kept=[1, 2]) == {}
+
+
+def test_topic_events_at_most_a_few_news_items():
+    articles = [_article(n, 0) for n in range(6)]
+    found = topic_events(AT, [0.40, 0.50, 0.60, 0.70, 0.35, 0.45], articles)
+    assert list(found) == [3, 2, 1][:TOPIC_MAX_EVENTS]
+
+
+def test_a_club_s_match_pages_go_into_no_news_by_topic():
+    assert releases_about("cbs")
+    assert releases_about("politie")
+    assert not releases_about("ajax")
+    assert releases_about("onbekend")
+
+
+def test_topic_scores_find_the_same_news_and_not_other_news():
+    filler = [
+        f"Het weer wordt morgen {w} met kans op regen in het {d} van het land en wind uit het westen."
+        for w, d in [
+            ("zonnig", "noorden"),
+            ("bewolkt", "zuiden"),
+            ("koud", "oosten"),
+            ("zacht", "westen"),
+        ]
+    ] * 3
+    release = topic_text(
+        "Detailhandel zet 3,1 procent meer om in derde kwartaal",
+        "De omzet van de detailhandel was in het derde kwartaal 3,1 procent hoger dan een jaar eerder, "
+        "meldt het CBS. Vooral webwinkels en supermarkten verkochten meer.",
+    )
+    same = topic_text(
+        "Ruim 3 procent meer omzet voor detailhandel",
+        "Winkels hebben in het derde kwartaal ruim 3 procent meer omgezet. Webwinkels en "
+        "supermarkten deden het het best, zegt het CBS.",
+    )
+    other = topic_text(
+        "Kabinet wil telefoons weren uit scholen",
+        "Het kabinet wil dat leerlingen de hele schooldag geen telefoon gebruiken, schrijft de minister.",
+    )
+    vectorizer = topic_vectorizer().fit([release, same, other, *filler])
+    r, a = vectorizer.transform([release]), vectorizer.transform([same, other])
+    scores = (r @ a.T).toarray()[0]
+    assert scores[0] > 0.3 > scores[1]

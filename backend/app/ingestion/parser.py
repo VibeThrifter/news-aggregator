@@ -53,12 +53,81 @@ def looks_like_code(text: str) -> bool:
     return sum(1 for char in sample if char in _CODE_CHARS) / len(sample) > _CODE_SHARE
 
 
-def parse_article_html(html: str, *, url: Optional[str] = None) -> ArticleParseResult:
-    """Parse raw HTML into normalized text and summary using Trafilatura."""
+# Blocks inside an article that are no article text, and that the extraction returned instead of
+# the article: NU.nl's "Stel een vraag" (log in to ask a question). With that block on the page
+# the stored text of 38 of 228 NU.nl articles in a week was the block (2026-11-19).
+_FURNITURE_XPATH = '//*[contains(@class, "qa-block-login-wall")]'
+
+
+def _line_breaks(text: str) -> str:
+    """Give a text its line breaks back when they come written out as backslash-n.
+
+    The extraction takes the text of some pages from the page's data (JSON-LD ``articleBody``)
+    without decoding it: half of the NU.nl texts since October 2026 had a written-out
+    backslash-n between their paragraphs and no line break at all, so the end of one paragraph
+    and the start of the next came out as one name ("blokkade\\nDe", "eindigen.\\nMaandag").
+    """
+
+    if "\\n" in text and "\n" not in text:
+        return text.replace("\\n", "\n")
+    return text
+
+
+_LD_JSON = re.compile(
+    r"<script[^>]*type=[\"']application/ld\+json[\"'][^>]*>(.*?)</script>",
+    re.IGNORECASE | re.DOTALL,
+)
+# A text the page's data gives is the article from this length on (a teaser is shorter)
+PAGE_DATA_MIN_CHARS = 200
+
+
+def page_data_text(html: str) -> Optional[str]:
+    """The article text as the page's own data gives it (JSON-LD ``articleBody``), or None.
+
+    The publisher writes it for search engines: the whole article, without the blocks around
+    and inside it.
+    """
+
+    def bodies(node: object):
+        if isinstance(node, dict):
+            body = node.get("articleBody")
+            if isinstance(body, str):
+                yield body
+            for value in node.values():
+                yield from bodies(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from bodies(value)
+
+    best = ""
+    for block in _LD_JSON.findall(html):
+        try:
+            data = json.loads(block)
+        except json.JSONDecodeError:
+            continue
+        for body in bodies(data):
+            lines = [" ".join(line.split()) for line in body.splitlines()]
+            body = "\n".join(line for line in lines if line)
+            if len(body) > len(best):
+                best = body
+    return best if len(best) >= PAGE_DATA_MIN_CHARS else None
+
+
+def parse_article_html(
+    html: str, *, url: Optional[str] = None, page_data: bool = False
+) -> ArticleParseResult:
+    """Parse raw HTML into normalized text and summary using Trafilatura.
+
+    ``page_data``: take the text from the page's own data when it has it (a source whose profile
+    says ``parser: page_data``). On NU.nl the extraction finds the article only through that
+    data, and returned a block of the page instead whenever one held enough text: "Stel een
+    vraag", or the readers' comments that come under an article later (2026-11-19).
+    """
 
     if not html or not html.strip():
         raise ArticleParseError("Empty HTML payload received")
 
+    own_text = page_data_text(html) if page_data else None
     extraction = trafilatura.extract(
         html,
         include_comments=False,
@@ -66,19 +135,20 @@ def parse_article_html(html: str, *, url: Optional[str] = None) -> ArticleParseR
         include_images=False,
         favor_recall=True,
         output_format="json",
+        prune_xpath=_FURNITURE_XPATH,
     )
 
-    if not extraction:
+    if not extraction and own_text is None:
         logger.warning("article_parse_failed", url=url, reason="empty_extraction")
         raise ArticleParseError("Trafilatura returned no content")
 
     try:
-        data = json.loads(extraction)
+        data = json.loads(extraction) if extraction else {}
     except json.JSONDecodeError as exc:
         logger.warning("article_parse_failed", url=url, reason="invalid_json", error=str(exc))
         raise ArticleParseError("Failed to decode trafilatura JSON output") from exc
 
-    text = (data.get("text") or data.get("raw_text") or "").strip()
+    text = own_text or _line_breaks((data.get("text") or data.get("raw_text") or "").strip())
     if not text:
         logger.warning("article_parse_failed", url=url, reason="no_text")
         raise ArticleParseError("Article contains no readable text")

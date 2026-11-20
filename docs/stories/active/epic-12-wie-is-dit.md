@@ -235,6 +235,60 @@ ertussen) en de stap stopt na `ENTITY_RESEARCH_WIKIDATA_SECONDS_PER_CYCLE` (60 s
 alleen de achternaam ("schilder Wassily [Kandinsky]"), dan telt de vermelding als de volledige naam, en de triage leest
 8 artikelen per persoon (was 4; Kandinsky's "schilder" stond in het zesde).
 
+Bijgesteld 2026-11-17 (versie 4; de namen bij een moskee in Enschede bleven grijs): er wachtten 5.311 namen op
+automatisch onderzoek, er kwamen er ongeveer 370 per dag bij en er gaan er 12 per dag uit. 88 % was een organisatie,
+82 % stond in één artikel: een organisatie haalde met één vermelding de drempel al (85 × 0,727 = 61,8 ≥ 60).
+- **Geen naam** (`name_defect` in `roles.py`, telt als geen actor): een opmaakrest (`&rdquo`, een regeleinde of
+  aanhalingsteken in de naam), tekst van de pagina ("Google-favorietAjax"), een uitslag ("2-4-zege") of een zinsdeel
+  (meer dan 7 woorden, een werkwoord of voornaamwoord in kleine letters, of meer dan twee andere woorden in kleine
+  letters: "VVD voted against it", "Turnsters gaan de afgelopen"). Lidwoorden en voorzetsels tellen niet ("Raad voor de
+  rechtspraak"). Op de wachtrij: 462 van 5.311.
+- **Eén keer genoemd**: een organisatie gaat alleen vanzelf als de analyse haar rol noemt of twee artikelen haar
+  noemen; anders op verzoek ("Eén keer genoemd, zonder rol in de analyse"). **Alleen in sportnieuws** (clubs, bonden):
+  ook op verzoek. Een tik in de app stuurt ze wel.
+- **Actueel nieuws eerst**: vanzelf gaan alleen namen waarvan het nieuwste artikel hoogstens
+  `ENTITY_RESEARCH_LOOKBACK_DAYS` (7) oud is; namen uit nieuws van de laatste 24 uur gaan voor, daarna op prioriteit
+  (`newest_article` in `prominence`; aangetikte namen blijven eerst).
+- **Zinnen mee** (`context.zinnen`): hoogstens drie zinnen uit de artikelen die de naam noemen, met het medium, de
+  eerste vermelding van elk artikel eerst ("De nieuwe moskee heet Turks Cultureel Centrum."). De scout had "Cultureel
+  Centrum" zonder die zinnen overgeslagen als "verminkte, generieke naam". De triage leest daarvoor ook van
+  organisaties het begin van de tekst (3 artikelen). Doelen die al in de wachtrij stonden, krijgen hun zinnen één keer
+  nagestuurd (`tidy_queue`, `sent_version`); de brief van `nieuws-scout` legt uit hoe hij ze leest.
+- **Zoveel rondes als nodig** (eigenaar 2026-11-17): het nieuws noemt 100–175 nieuwe namen per dag die onderzoek
+  verdienen. De nieuws-app zet niet meer 12 per dag klaar maar vult de wachtrij elke cyclus aan tot
+  `ENTITY_RESEARCH_QUEUE_SIZE` (15) automatische doelen (plafond `ENTITY_RESEARCH_DAILY_TARGETS` 300), zodat de scout
+  steeds de namen uit het nieuwste nieuws vindt. In het propagandamodel draait `nieuws-scout` elke 10 minuten (max 90
+  rondes per dag, 3 doelen per ronde). De 18 mislukte rondes van oktober strandden allemaal op de limiet van het
+  Claude-abonnement; de runner start nu geen ronde als het venster van vijf uur boven 70 % staat, de week meer dan 10
+  punten voorloopt op een gelijkmatig verbruik of boven 80 % staat (`--abonnement-rem`, de stand komt van
+  `/admin/llm-usage` van de nieuws-app; zonder meting 6 rondes per dag), of als meer dan 150 voorstellen op de
+  automatische beoordeling wachten. Een organisatie die onder de oude regels vanzelf was klaargezet en nu alleen op
+  verzoek gaat, trekt `tidy_queue` terug naar "nieuw".
+- **LinkedIn voor wie ertoe doet** (eigenaar 2026-11-17): LinkedIn mag 2 keer per uur en 10 keer per dag.
+  `claim_volgende?linkedin=1` geeft de eerste plek aan het vervolgdoel met de hoogste prioriteit (met een volle
+  wachtrij kwamen vervolgdoelen nooit aan de beurt), en de scout zoekt een nieuwe persoon met prioriteit onder 80
+  niet meteen op maar zet hem in die rij.
+- **Mediafiguren tellen even zwaar als politici** (eigenaar 2026-11-17, versie 5 en 6): de basis van de categorie
+  journalist (journalisten, presentatoren, columnisten, hoofdredacteuren) ging van 95 naar 100, en opiniemakers,
+  talkshowhosts en tv- en radiomakers horen erbij. Influencers, vloggers en podcastmakers blijven op verzoek: toen ze
+  als mediafiguur telden, stonden realitysterren en showbizz-influencers boven politici (6 van de 8 hoogste).
+- **Model van de scout** (eigenaar 2026-11-18: "niet hoge inspanning, gebruik sonnet met medium"): `nieuws-scout`
+  draait op Sonnet met effort medium (eigen `model`/`effort` in `agent_schedule.py` van het propagandamodel); de
+  andere agents blijven op Opus high.
+- **Minder werk dat de agent toch afwijst** (2026-11-18, versie 7): van de 57 doelen die de agent op 18 november
+  afhandelde, wees hij er 29 zelf af.
+  - **Buitenlanders gaan mee** (eigenaar: "buitenlanders kunnen ook politiek verbonden zijn met wat er in Nederland
+    gebeurt"). De nieuws-app slaat een buitenlandse persoon niet meer over; hij komt na de Nederlandse namen
+    (`FOREIGN_FACTOR` 0.8: vanzelf bij drie titels, anders op verzoek). De agent wijst buitenland alleen nog af als het
+    nieuws nergens aan Nederland raakt (`nieuws_scout_brief.md`, § Wie wel, wie nooit).
+  - **Alleen amusement- of sportnieuws** (`leisure_only`): op verzoek, behalve politici. Dat zijn presentatoren van
+    spelshows, musea, festivals, prijzen en clubs.
+  - **Geen naam** (`not_a_name`): een organisatienaam van één woord (of in hoofdletters) die de tekst ook als gewoon
+    woord in kleine letters gebruikt ("Kom", "HIERONDER DIRECT"), of die de achternaam is van een persoon in hetzelfde
+    artikel ("Wilders"), gaat op verzoek. Niet als de analyse de naam een rol geeft.
+- De herbeoordeling (`TRIAGE_VERSION` 4) geldt nu ook voor organisaties. Na afloop: 2.124 namen komen nog vanzelf in
+  aanmerking, 547 daarvan uit nieuws van de laatste week (313 van de laatste 24 uur).
+
 `PM_API_BASE_URL` is `http://127.0.0.1:5000`: op macOS hangt httpx op `localhost:5000` (IPv6, AirPlay-ontvanger).
 
 ## Story 12.8: Frontend — klikbare namen overal

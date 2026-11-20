@@ -124,6 +124,18 @@ _LEXICON_WORDS: dict[str, tuple[str, ...]] = {
         "radiopresentatrice",
         "publicist",
         "reporter",
+        # media figures outside a newsroom (2026-11-17). Influencers, vloggers and podcast makers
+        # stay on request: counted as media figures, reality stars and showbiz influencers came
+        # out on top, above politicians (6 of the 8 highest)
+        "opiniemaker",
+        "talkshowhost",
+        "talkshowpresentator",
+        "talkshowpresentatrice",
+        "tv-presentator",
+        "tv-presentatrice",
+        "tv-maker",
+        "televisiemaker",
+        "radiomaker",
     ),
     WOORDVOERDER: (
         "woordvoerder",
@@ -248,6 +260,8 @@ _LEXICON_WORDS: dict[str, tuple[str, ...]] = {
         "hockeyer",
         "hockeyster",
         "influencer",
+        "youtuber",
+        "vlogger",
         "kunstenaar",
         "schilder",
         "kunstschilder",
@@ -272,6 +286,7 @@ _LEXICON_WORDS: dict[str, tuple[str, ...]] = {
         "eigenaar",
         "blogger",
         "podcastmaker",
+        "podcaster",
     ),
     PRIVE: (
         "bewoner",
@@ -941,6 +956,7 @@ NON_ACTOR_NAMES: frozenset[str] = frozenset(
         "google-maps",
         "google-street-view",
         "openstreetmap",
+        "fc",  # the first word of a club, cut off
     }
 )
 # Ministries/departments that NER glues onto a name ("Heinen van Financiën", "Defensie Katz")
@@ -995,14 +1011,78 @@ LOOSE_WORDS: frozenset[str] = frozenset(
 )
 
 
+# Words that stand in running text, never in a name: with one of them NER marked a piece of a
+# sentence ("VVD voted against it", "Turnsters gaan de afgelopen"). Only counted in lower case
+# ("Die Linke" and "Het Parool" are names); articles and prepositions are not in it
+# ("Raad voor de rechtspraak", "Artsen zonder Grenzen").
+FRAGMENT_WORDS: frozenset[str] = frozenset(
+    """
+    gaat gaan ging gingen is zijn was waren heeft hebben had hadden wordt worden werd werden
+    kan kunnen kon konden wil willen wilde wilden moet moeten moest moesten zal zullen zou zouden
+    mag mogen mocht komt komen kwam kwamen zegt zeggen zei zeiden maakt maken maakte doet doen
+    deed deden staat staan stond krijgt krijgen kreeg geeft geven gaf neemt nemen nam ziet zien
+    zag blijft blijven bleef vindt vinden vond noemt noemen noemde brengt brengen bracht laat
+    laten liet
+    niet ook nog wel toch dus maar want omdat terwijl als toen nu hier daar er je jij we wij ze
+    hij zij ik dat dit deze wat wie waar hoe waarom zich hun haar hem mijn jouw afgelopen actief
+    volgens
+    voted against it its are were has have will would could should not this that these those
+    they their he she you says said
+    """.split()
+)
+# Lower-case words a name may hold; three other lower-case words make it a piece of a sentence
+# ("Artsen waarschuwen voor groene knolamani"; "Raad voor de leefomgeving en infrastructuur" has
+# two)
+NAME_CONNECTORS: frozenset[str] = frozenset(
+    """
+    van de het der den des voor en in op te ter ten tot aan bij met zonder tegen over naar uit of
+    om the and for on at to a an du la le les el al di da del von und für zu im am e y et sur
+    """.split()
+)
+MAX_LOWER_WORDS = 2
+# A name of more words than this is a piece of a sentence ("Ministerie van Volksgezondheid, Welzijn
+# en Sport" has six)
+MAX_NAME_WORDS = 7
+# Leftovers of markup and of the page around the text: an HTML entity ("&rdquo", "bdquo;"), a
+# line break, tab, backslash or quotation mark inside the name
+_MARKUP = re.compile(r"&[a-z]+;?|\b[a-z]{2,6};|[\n\r\t\\\"“”„«»]")
+# A score ("2-4-zege")
+_SCORE = re.compile(r"(?<![\w-])\d{1,2}-\d{1,2}(?![\d])")
+# Sentences of the page around the article that end up glued to a name ("Google-favorietAjax")
+_PAGE_PHRASES: tuple[str, ...] = ("google-favoriet",)
+
+
+def name_defect(name: str) -> str | None:
+    """Why a NER span is no name: a leftover of markup, a score, a piece of the page or a piece
+    of a sentence. ``None`` for a name."""
+
+    if _MARKUP.search(name):
+        return "opmaakrest"
+    folded = fold(name)
+    if any(phrase in folded for phrase in _PAGE_PHRASES):
+        return "tekst van de pagina"
+    if _SCORE.search(name):
+        return "uitslag"
+    tokens = _TOKEN.findall(name)
+    if len(tokens) > MAX_NAME_WORDS:
+        return "zinsdeel"
+    lower = [token for token in tokens if token.islower() and token not in NAME_CONNECTORS]
+    if len(lower) > MAX_LOWER_WORDS or any(token in FRAGMENT_WORDS for token in lower):
+        return "zinsdeel"
+    return None
+
+
 def is_non_actor(name: str) -> bool:
     """A photo credit or reference site ("Wikimedia Commons"), or no name at all: a loose
-    word ("KIJK OOK", "Gisteren") or a name without a capital ("bond", "senaat")."""
+    word ("KIJK OOK", "Gisteren"), a name without a capital ("bond", "senaat"), a leftover of
+    markup or a piece of a sentence (``name_defect``)."""
 
     slug = re.sub(r"[^a-z0-9]+", "-", fold(name)).strip("-")
     if not slug or slug in NON_ACTOR_NAMES:
         return True
     if not any(ch.isupper() for ch in name):
+        return True
+    if name_defect(name) is not None:
         return True
     return all(word in LOOSE_WORDS for word in slug.split("-"))
 

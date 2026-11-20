@@ -210,6 +210,30 @@ async def trigger_merge_split_events(
     )
 
 
+@router.post("/trigger/move-articles")
+async def trigger_move_articles(
+    to_event: int, article_ids: str = "", from_event: int | None = None
+):
+    """Put articles in another news item: the repair for news that stands in two items, or for an
+    article in the wrong one. `article_ids` is a comma-separated list; `from_event` moves all
+    articles of that item. An item left without articles is archived (unless readers worked on
+    it), and the item the articles go to is analysed again."""
+    try:
+        ids = [int(part) for part in article_ids.split(",") if part.strip()]
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400, detail="article_ids: numbers separated by commas"
+        ) from exc
+    if not ids and from_event is None:
+        raise HTTPException(status_code=400, detail="Give article_ids or from_event")
+    try:
+        return await get_scheduler().move_articles_now(
+            article_ids=ids, to_event=to_event, from_event=from_event
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/trigger/classify-pending")
 async def trigger_classify_pending(limit: int = 50, max_age_hours: float | None = 24):
     """Ask again the type of enriched Dutch articles whose classification failed (newest first;
@@ -223,6 +247,23 @@ async def scheduler_status():
     """Get current scheduler status and job information."""
     scheduler = get_scheduler()
     return scheduler.get_job_status()
+
+
+class PauseRequest(BaseModel):
+    paused: bool
+
+
+@router.get("/pause")
+async def pause_status() -> dict[str, Any]:
+    """Pauze: whether the admin switched off everything that looks for something new."""
+    return get_scheduler().pause_state()
+
+
+@router.post("/pause")
+async def set_pause(request: PauseRequest) -> dict[str, Any]:
+    """Pause or resume the news, its analyses and the research (the website keeps working: the
+    backend still publishes and does what a reader or the admin asks for with a button)."""
+    return get_scheduler().set_paused(request.paused)
 
 
 def _build_links(event_id: int) -> dict[str, str]:

@@ -656,6 +656,43 @@ export async function getLlmUsage(): Promise<LlmUsageSummary> {
   return response.json();
 }
 
+/** Pauze: the backend fetches no news and makes no analyses; the website and the pm research keep working. */
+export interface BackendPause {
+  paused: boolean;
+  since: string | null;
+  paused_jobs: string[];
+}
+
+export async function getBackendPause(): Promise<BackendPause> {
+  const response = await fetch(buildUrl('/admin/pause'), {
+    method: 'GET',
+    headers: { 'Accept': 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new ApiClientError('Failed to load the pause', response.status);
+  }
+
+  return response.json();
+}
+
+export async function setBackendPause(paused: boolean): Promise<BackendPause> {
+  const response = await fetch(buildUrl('/admin/pause'), {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ paused }),
+  });
+
+  if (!response.ok) {
+    throw new ApiClientError('Failed to change the pause', response.status);
+  }
+
+  return response.json();
+}
+
 // Bias Analysis API functions (Epic 10)
 //
 // Epic 11 Story 11.1: read article_bias_analyses directly from Supabase. The previous

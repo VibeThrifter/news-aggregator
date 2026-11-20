@@ -59,6 +59,14 @@ Maak strikt onderscheid tussen:
 Een medium dat kritiek CITEERT ("'Dit is intimidatie', zei X") gebruikt NIET ZELF die framing.
 Alleen attributeren aan een bron als HET MEDIUM ZELF die taal/perspectief hanteert, niet als het rapporteert wat anderen zeggen.
 
+**SATIRE, IRONIE EN WOORDGRAPPEN**
+Een grap, ironie of woordspeling (vaak in de kop, onderkop of slotzin van een satirisch stuk) is toon, geen bewering.
+Lees hem nooit letterlijk: hij is geen claim, geen frame dat het nieuws aan iets koppelt, geen ontbrekende context en
+geen vraag die niet gesteld is. Een grap speelt vaak op het beroep of de naam van wie het nieuws over gaat.
+Voorbeeld: een spotstuk over een weerman die terechtstaat, met "Hij zag dit onweer niet aankomen", koppelt de zaak niet
+aan het weer; vraag dus ook niet "welk onweer wordt bedoeld?". Noem de spottende toon (tone, of één frame over de spot
+zelf) en beoordeel verder alleen wat het stuk werkelijk meldt.
+
 **MEDIA BEHAVIOR** - How is the story being told?
 - Copy-paste journalism: Do all outlets use the same angle, quotes, framing?
   (Indicates reliance on press releases or wire services)
@@ -100,6 +108,7 @@ JSON OUTPUT SCHEMA:
     "authority": "name",
     "authority_type": "describe accurately - avoid generic labels",
     "article_url": "REQUIRED - exact URL of the article where this authority is cited",
+    "speaks": "ja|nee - ja: the article lets this authority speak (a quote, or what it says, confirms or argues, also paraphrased or from its own website or statement); nee: the article only names, describes or discusses it (the organisation the news is about, a ruling or decision summed up)",
     "claimed_expertise": "domain they claim authority in",
     "actual_role": "what they actually are/do",
     "scope_creep": "string or empty - ALLEEN voor instituties/adviesorganen die buiten hun formele mandaat adviseren (bijv. gezondheidsraad over milieu, klimaatpanel over economie). NIET voor politici of individuen die claims maken.",
@@ -150,6 +159,7 @@ ANALYSIS INSTRUCTIONS:
    Good: "De Gezondheidsraad wordt geciteerd als definitieve bron zonder dat hun redenering wordt uitgelegd of bekritiseerd"
 
 3. **AUTHORITY_ANALYSIS** - For each authority/expert/institution cited:
+   - SPEAKS: does it speak itself, or do others speak about it? When the mosque board's website says the mosque belongs to Diyanet, the board speaks ("ja") and Diyanet does not ("nee")
    - What is their ACTUAL mandate vs what are they advising on?
    - Who appointed them? Who funds them?
    - What did they advise before, and was it correct?
@@ -160,6 +170,9 @@ ANALYSIS INSTRUCTIONS:
    - What questions SHOULD a skeptical journalist have asked?
    - Who is NOT quoted that should be?
    - Does the coverage feel like independent journalism or reliance on press releases?
+   - An article cannot report what happened after it was published (see "Gepubliceerd" of every article).
+     Never count that as omitted, not asked or left out: an interview published on 15 November cannot
+     mention a motion of 16 November.
 
 5. **STATISTICAL_ISSUES and TIMING_ANALYSIS** - Only include if genuinely relevant to this story.
    Many stories don't have statistical claims or suspicious timing. That's fine - leave these null.
@@ -174,6 +187,10 @@ ANALYSIS INSTRUCTIONS:
    Consider: affected parties, critics, independent experts, historical context, international comparison.
    Give every gap a kind: "stem" when a person, group or organisation does not get the word, "context" when
    facts, figures, background or an explanation are missing. Never mix both in one gap: split them.
+   Something is missing only when NO article has it. Check every article first: a voice that one article
+   quotes or paraphrases ("volgens het bestuur", its website, its chairman) has the word, and a fact that
+   one article gives (who pays, which permit) is not missing. Say then at most what that voice was not
+   asked.
 
 8. **FRAMES - STRIKTE BRONATTRIBUTIE**
    Voordat je een bron toevoegt aan een frame, vraag jezelf af:
@@ -185,6 +202,11 @@ ANALYSIS INSTRUCTIONS:
    → Nieuwrechts NIET toevoegen als bron voor "moraliteit" frame
 
    Kijk naar: titel, intro-alinea, eigen woordkeuze journalist (niet tussen aanhalingstekens)
+
+9. **THE RIGHT ARTICLE** - The articles are about the same news and share facts. Before you write that an
+   outlet reports, quotes, opens with or leaves out something, check it in the text of THAT article (its
+   number and URL), not in another article or the factual summary. The same for article_url: the article
+   where it really stands.
 
 IMPORTANT: Be thorough but precise. Each observation should be sharp and well-argued.
 The goal is to help readers think critically, not to find fault with everything.

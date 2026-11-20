@@ -94,6 +94,7 @@ class UnsubstantiatedClaim(BaseModel):
 class AuthorityAnalysis(BaseModel):
     authority: str
     authority_type: str
+    speaks: Optional[str] = None
     claimed_expertise: str
     actual_role: Optional[str] = None
     scope_creep: Optional[str] = None

@@ -1,7 +1,7 @@
 import { buildExploration } from "@/lib/explore/exploration";
 import { DEMO_EVENT } from "@/lib/explore/fixtures/demo-event";
 import type { RawExploration } from "@/lib/explore/input";
-import { initials, parseSourcePart } from "@/lib/explore/speakers";
+import { initials, parseSourcePart, speaksItself } from "@/lib/explore/speakers";
 
 describe("speaker roles", () => {
   it("take the title before the name, never the article the entity is named without", () => {
@@ -13,6 +13,31 @@ describe("speaker roles", () => {
     expect(pbl).toBeDefined();
     expect(pbl?.role).toBeNull();
     expect(speakers.speakers.find((speaker) => speaker.name === "Anouk Verbeek")?.role).toBe("wethouder");
+  });
+});
+
+describe("who speaks", () => {
+  it("is not an authority the article only names or discusses", () => {
+    const raw: RawExploration = JSON.parse(JSON.stringify(DEMO_EVENT));
+    const authorities = raw.insight!.authority_analysis!;
+    const names = (exploration: ReturnType<typeof buildExploration>) => exploration.speakers.speakers.map((speaker) => speaker.name);
+    expect(names(buildExploration(raw))).toEqual(expect.arrayContaining(["RIVM", "Stichting Stille Polder"]));
+
+    authorities.find((item) => item.authority === "RIVM")!.speaks = "nee";
+    // An analysis of before the field: in its own words
+    authorities.find((item) => item.authority === "Stichting Stille Polder")!.actual_role = "Wordt in de artikelen niet zelf geciteerd.";
+    const after = names(buildExploration(raw));
+    expect(after).not.toContain("RIVM");
+    expect(after).not.toContain("Stichting Stille Polder");
+  });
+
+  it("reads the field first, the analysis' own words without it", () => {
+    expect(speaksItself({ speaks: "ja", actual_role: "Wordt niet geciteerd" })).toBe(true);
+    expect(speaksItself({ speaks: "Nee" })).toBe(false);
+    expect(speaksItself({ actual_role: "Diyanet wordt in de artikelen niet zelf geciteerd; de kritiek komt van de PVV." })).toBe(false);
+    expect(speaksItself({ actual_role: "De gemeente wordt in de actuele berichtgeving niet geciteerd." })).toBe(false);
+    expect(speaksItself({ actual_role: "Ontwerper van het gebouw, geciteerd door Trouw." })).toBe(true);
+    expect(speaksItself({})).toBe(true);
   });
 });
 

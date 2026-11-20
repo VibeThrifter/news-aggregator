@@ -184,6 +184,54 @@ def test_a_long_text_stops_at_a_sentence_end() -> None:
     assert _clip_text("Kort.") == "Kort."
 
 
+def test_texts_share_the_room_of_the_prompt() -> None:
+    from backend.app.llm.prompt_builder import _text_level
+
+    # Event 11671: three articles, one of 5,366 characters: all read whole
+    assert _text_level([1535, 3302, 5366], budget=64000) == 12000
+    # Sixteen long ones: 4,000 each, as before
+    assert _text_level([9000] * 16, budget=64000) == 4000
+    # Short ones leave their room to the long ones
+    assert _text_level([1000] * 8 + [20000] * 8, budget=64000) == 7000
+    assert _text_level([], budget=64000) == 12000
+
+
+def test_a_news_item_with_few_articles_is_read_whole() -> None:
+    """Event 11671: the chairman of the mosque board spoke after the 4,000th character, so the
+    analysis called the board "niet aan het woord"."""
+    from backend.app.llm.prompt_builder import CLIP_NOTE
+
+    builder = PromptBuilder(settings=Settings())
+    long = _capsule(1, "NieuwRechts", hours_ago=1)
+    long.body = "De moskee is aangesloten bij Diyanet. " * 130 + "Voorzitter Çelik zegt dat de gemeenschap blij is."
+    short = _capsule(2, "Trouw", hours_ago=2)
+    short.body = "De architect vertelt over zijn ontwerp."
+
+    block = builder._format_article_capsules(builder._select_balanced_subset([long, short], limit=16))
+
+    assert len(long.body) > 4000
+    assert "Voorzitter Çelik" in block
+    assert "Tekst (ingekort)" not in block
+    assert CLIP_NOTE not in block
+
+
+def test_a_clipped_text_says_so() -> None:
+    from backend.app.llm.prompt_builder import ARTICLE_TEXT_MAX_CHARS, CLIP_NOTE
+
+    builder = PromptBuilder(settings=Settings())
+    longread = _capsule(1, "De Groene", hours_ago=1)
+    longread.body = "Dit is een zin van het lange verhaal. " * 500 + "De wethouder reageert aan het slot."
+    short = _capsule(2, "Trouw", hours_ago=2)
+    short.body = "Een kort bericht."
+
+    block = builder._format_article_capsules(builder._select_balanced_subset([longread, short], limit=16))
+
+    assert len(longread.text) <= ARTICLE_TEXT_MAX_CHARS + 4
+    assert "De wethouder reageert" not in block
+    assert "   Tekst (ingekort):\n" in block and "   Tekst:\n    Een kort bericht." in block
+    assert block.startswith(CLIP_NOTE)
+
+
 def test_a_find_without_text_does_not_stop_the_analysis() -> None:
     """A find of Zoek met AI counts with its digest; an article without any text is left out
     (event 8786 stayed at 5 of 17 articles because one find had no text)."""
@@ -433,7 +481,8 @@ def test_a_copy_of_a_passage_the_prompt_does_not_show_is_read_whole() -> None:
 
     builder = PromptBuilder(settings=Settings())
     blog = _copy_capsule(1, "De Telegraaf", "", hours_ago=1, source="persbureau", share=0.1)
-    blog.body = "De politie zette in de nacht traangas in bij de rellen in Parijs. " * 80 + SHARED
+    # Longer than the room of this prompt: the ANP text at its end is not shown
+    blog.body = "De politie zette in de nacht traangas in bij de rellen in Parijs. " * 250 + SHARED
     blog.text = _clip_text(blog.body)
     capsules = [blog, _copy_capsule(2, "RTL Nieuws", SHARED, hours_ago=2, source="persbureau", share=0.9)]
 

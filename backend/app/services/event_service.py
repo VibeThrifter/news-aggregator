@@ -7,7 +7,7 @@ import asyncio
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Iterable, List, Mapping, Optional, TYPE_CHECKING
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, TYPE_CHECKING
 
 from sqlalchemy import exists, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -25,13 +25,14 @@ from backend.app.events.scoring import (
     ScoreParameters,
     compute_hybrid_score,
 )
+from backend.app.events.maintenance import refresh_centroid
 from backend.app.repositories import EventRepository, InsightRepository
 from backend.app.services.insight_service import INSIGHT_REFRESH_TTL, InsightService
 from backend.app.llm.client import BaseLLMClient, LLMResponse
 from backend.app.llm.providers import NEWS_PIPELINE_PRIORITY, StepLLMClient
 
 if TYPE_CHECKING:
-    from backend.app.services.vector_index import VectorIndexService
+    from backend.app.services.vector_index import VectorCandidate, VectorIndexService
 
 logger = get_logger(__name__)
 
@@ -53,6 +54,19 @@ LLM_ASK_ENTITY_TFIDF = 0.10
 # shared words of the text low
 LLM_ASK_TITLE_EMBEDDING = 0.55
 LLM_ASK_MIN_TITLE_WORDS = 2
+# ... or titles that share three distinctive words, whatever the embeddings say. An article whose
+# text is short (RTL often stores only its lead, about 200 characters) or wrong (page furniture of
+# NU.nl) lies far from the full articles on the same news: on 2026-11-18 the embeddings of "KNVB-
+# directeur De Jong vindt optreden Oranje 'onacceptabel'" (RTL, 193 characters) and of the Telegraaf
+# article on it were 0.5 apart from every item, so nobody asked. In three days 391 pairs of articles
+# of different outlets, published within a day of each other, shared three title words and stood in
+# different items: the 84 with five or more were nearly all the same news, those with three or
+# four the same news and look-alikes both. The LLM decides
+LLM_ASK_TITLE_WORDS_ALONE = 3
+# An item that holds such an article of the last two days is a candidate, also when it is not among
+# the nearest items by embedding (a week with fifteen items on Oranje-Duitsland fills those)
+TITLE_CANDIDATE_WINDOW = timedelta(hours=48)
+TITLE_CANDIDATE_LIMIT = 5
 TITLE_STOPWORDS = frozenset(
     """voor naar door over zijn deze niet meer weer toch maar want omdat zoals tegen onder tussen
     tijdens sinds zonder bijna veel heel alle alles iets niets moet moeten kunnen wordt worden werd
@@ -260,11 +274,70 @@ def _are_different_sports(article: Article, event_articles: List[Article]) -> bo
     return False
 
 
+# The answer the LLM gives on an event assignment: first what it sees, then its verdict. Asked for
+# the verdict alone ("Respond with ONLY ..."), Haiku on medium effort said NEW_EVENT about articles
+# with the same headline and the same ANP text ("OM eist twee maanden cel tegen Maurice de Hond
+# voor smaad", three times out of three; with one sentence of reason first: the same event).
+# Measured 2026-11-18 on 81 pairs of articles labelled by hand (50 on the same news, picked from
+# pairs that stood in different items, and 31 look-alikes: other news in the same story):
+# - the verdict alone joined 24 of the 50;
+# - the reason first joined all 50, but with the rules of then ("direct continuation of the same
+#   story" is the same event) also 12 of the 31 look-alikes (a king who welcomes the new James
+#   Bond, the viewing figures of a match);
+# - the reason first with the rules in the prompt below (an event is one piece of news; a later
+#   development or someone else's statement on another day is other news): 49 of 50, and 3 of 31.
+# Measure again before changing the prompt or the model
+VERDICT_FORMAT = (
+    "Answer in exactly two lines:\n"
+    "REASON: one short sentence: what the new article reports, and whether a candidate event "
+    "reports that same news.\n"
+    'VERDICT: "EVENT_1" or "EVENT_2" or "EVENT_3" or "NEW_EVENT"'
+)
+_VERDICT = r"NEW[_ ]EVENT|EVENT[_ ](\d+)"
+
+
+def _parse_verdict(answer: str) -> int | None:
+    """The verdict in an (upper-cased) answer: 0 for a new event, else the candidate's number.
+
+    The verdict after "VERDICT:" counts (the reason before it names the candidates). An answer
+    without that word is a bare verdict, perhaps with an explanation after it that names the other
+    candidates ("NEW_EVENT ... EVENT 1 is about ..."): there the first one counts.
+    """
+
+    labelled = re.findall(r"VERDICT\W{0,6}(" + _VERDICT + ")", answer)
+    found = re.search(_VERDICT, labelled[-1][0]) if labelled else re.search(_VERDICT, answer)
+    if found is None:
+        return None
+    if found.group(1) is None:
+        return 0
+    return int(found.group(1)) or None  # "EVENT_0" is no candidate
+
+
 def _title_words(title: str | None) -> set[str]:
     """The distinctive words of a title: four letters or more, no common words."""
 
-    words = re.findall(r"[0-9a-zà-ÿ][0-9a-zà-ÿ'-]+", (title or "").lower())
+    # A quote mark that closes a word is no part of it: RTL writes 'onacceptabel', the Telegraaf
+    # ’Onacceptabel’
+    found = re.findall(r"[0-9a-zà-ÿ][0-9a-zà-ÿ'-]+", (title or "").lower())
+    words = (word.strip("'-") for word in found)
     return {word for word in words if len(word) >= 4 and word not in TITLE_STOPWORDS}
+
+
+def _sample_articles(
+    article: Article, event_articles: Sequence[Article], limit: int = 3
+) -> list[Article]:
+    """The articles of an item the LLM sees next to a new article: those whose titles share most
+    words with it first, then the newest. An item that runs for days holds more than three, and
+    the first three were its oldest: not the ones this article is about."""
+
+    words = _title_words(article.title)
+
+    def order(candidate: Article) -> tuple[int, float]:
+        moment = candidate.published_at or candidate.fetched_at
+        shared = len(words & _title_words(candidate.title))
+        return (-shared, -(moment.timestamp() if moment else 0.0))
+
+    return sorted(event_articles, key=order)[:limit]
 
 
 def _article_to_features(article: Article) -> tuple[ArticleFeatures, List[Dict[str, Optional[str]]]]:
@@ -330,11 +403,10 @@ class EventService:
         self.settings = get_settings()
         self.session_factory = session_factory or get_sessionmaker()
         if vector_index is None:
-            from backend.app.services.vector_index import VectorIndexService as _VectorIndexService
+            from backend.app.services.vector_index import shared_vector_index
 
-            self.vector_index = _VectorIndexService()
-        else:
-            self.vector_index = vector_index
+            vector_index = shared_vector_index()
+        self.vector_index = vector_index
         self.log = logger.bind(component="EventService")
         self.auto_generate_insights = auto_generate_insights
         self.insight_service = insight_service or (InsightService() if auto_generate_insights else None)
@@ -342,7 +414,12 @@ class EventService:
         self._pending_insight_events: set[int] = set()
         self._insight_tasks: dict[int, asyncio.Task[None]] = {}
         self._insight_semaphore = asyncio.Semaphore(MAX_CONCURRENT_INSIGHT_TASKS)
-        self._assignment_lock = asyncio.Lock()
+        # One article at a time, also when two event services are alive (the poll's, one that a
+        # timed-out poll left working, an admin trigger): they share the index and its lock
+        shared_lock = getattr(self.vector_index, "assignment_lock", None)
+        self._assignment_lock = (
+            shared_lock if isinstance(shared_lock, asyncio.Lock) else asyncio.Lock()
+        )
         # The provider comes from llm_config (provider_event_assignment, else that of the factual analysis)
         self.llm_client = llm_client or (
             StepLLMClient(
@@ -525,15 +602,14 @@ class EventService:
         """
 
         repo = EventRepository(session)
-        params = ScoreParameters(
-            weight_embedding=self.settings.event_score_weight_embedding,
-            weight_tfidf=self.settings.event_score_weight_tfidf,
-            weight_entities=self.settings.event_score_weight_entities,
-            time_decay_half_life_hours=self.settings.event_score_time_decay_half_life_hours,
-            time_decay_floor=self.settings.event_score_time_decay_floor,
-        )
+        params = self._score_parameters()
 
         candidates = await self.vector_index.query_candidates(features.embedding)
+        candidates.extend(
+            await self._title_candidates(
+                session, article, known={candidate.event_id for candidate in candidates}, now=now
+            )
+        )
 
         # ENTITY-BASED CANDIDATE EXPANSION for @eenblikopdenos media commentary
         # Add NOS events that share entities with the tweet (may not appear in embedding candidates)
@@ -921,10 +997,26 @@ class EventService:
         threshold = self.settings.event_score_threshold
 
         # The LLM judges every candidate that may be the same news, and its verdict decides
-        llm_candidates = [c for c in scored if self._worth_asking(c)][: self.settings.event_llm_top_n]
+        worth_asking = [c for c in scored if self._worth_asking(c)]
+        llm_candidates = self._shortlist(worth_asking)
         decision = LLMEventDecision()
         if self.llm_client is not None and llm_candidates:
             correlation_log.debug("using_llm_for_decision", candidates_count=len(llm_candidates))
+            if len(worth_asking) > len(llm_candidates):
+                # The LLM sees EVENT_LLM_TOP_N items. On 2026-11-19 the item with the same news
+                # was the third of three (the AD on a stock market debut, RTL's item left out):
+                # count how often an item with the same headline is left out before raising it
+                shown = {c.event.id for c in llm_candidates}
+                correlation_log.info(
+                    "llm_candidates_left_out",
+                    article_id=article.id,
+                    shown=sorted(shown),
+                    left_out=[
+                        {"event_id": c.event.id, "title_words": c.shared_title_words}
+                        for c in worth_asking
+                        if c.event.id not in shown
+                    ],
+                )
             decision = await self._llm_select_best_event(
                 article=article,
                 candidates=[(c.event, c.score) for c in llm_candidates],
@@ -977,6 +1069,15 @@ class EventService:
         young = news_time is None or now - news_time <= DEFER_MAX_AGE
         return _Decision(threshold=threshold, defer=llm_failed and young)
 
+    def _score_parameters(self) -> ScoreParameters:
+        return ScoreParameters(
+            weight_embedding=self.settings.event_score_weight_embedding,
+            weight_tfidf=self.settings.event_score_weight_tfidf,
+            weight_entities=self.settings.event_score_weight_entities,
+            time_decay_half_life_hours=self.settings.event_score_time_decay_half_life_hours,
+            time_decay_floor=self.settings.event_score_time_decay_floor,
+        )
+
     def _worth_asking(self, candidate: _Scored) -> bool:
         """Whether the LLM should judge if the article belongs to this candidate (see LLM_ASK_*)."""
 
@@ -993,10 +1094,75 @@ class EventService:
             and breakdown.tfidf >= LLM_ASK_ENTITY_TFIDF
         ):
             return True
+        if candidate.shared_title_words >= LLM_ASK_TITLE_WORDS_ALONE:
+            return True
         return (
             breakdown.embedding >= LLM_ASK_TITLE_EMBEDDING
             and candidate.shared_title_words >= LLM_ASK_MIN_TITLE_WORDS
         )
+
+    def _shortlist(self, asked: list[_Scored]) -> list[_Scored]:
+        """The candidates the LLM sees, of those worth asking (highest score first).
+
+        The best score goes first, then the candidates whose titles say the same (most shared
+        words first), then the rest by score: in a busy story the nearest items are look-alikes,
+        and the item with the same headline came last.
+        """
+
+        limit = self.settings.event_llm_top_n
+        if len(asked) <= limit:
+            return asked
+        same_title = sorted(
+            (c for c in asked[1:] if c.shared_title_words >= LLM_ASK_TITLE_WORDS_ALONE),
+            key=lambda c: (-c.shared_title_words, -c.score),
+        )
+        others = [c for c in asked[1:] if c.shared_title_words < LLM_ASK_TITLE_WORDS_ALONE]
+        return ([asked[0]] + same_title + others)[:limit]
+
+    async def _title_candidates(
+        self,
+        session: AsyncSession,
+        article: Article,
+        *,
+        known: set[int],
+        now: datetime,
+    ) -> list[VectorCandidate]:
+        """Items that hold a recent article whose title shares words with this one's (see
+        LLM_ASK_TITLE_WORDS_ALONE), and that the embeddings did not bring up."""
+
+        from backend.app.services.vector_index import VectorCandidate
+
+        words = _title_words(article.title)
+        if len(words) < LLM_ASK_TITLE_WORDS_ALONE:
+            return []
+        news_time = article.published_at or article.fetched_at or now
+        if news_time.tzinfo is None:
+            news_time = news_time.replace(tzinfo=timezone.utc)
+        rows = await session.execute(
+            select(EventArticle.event_id, Article.title, Event.last_updated_at)
+            .join(Article, Article.id == EventArticle.article_id)
+            .join(Event, Event.id == EventArticle.event_id)
+            .where(Event.archived_at.is_(None))
+            .where(Article.id != article.id)
+            .where(
+                func.coalesce(Article.published_at, Article.fetched_at)
+                >= min(news_time, now) - TITLE_CANDIDATE_WINDOW
+            )
+        )
+        best: dict[int, tuple[int, datetime]] = {}
+        for event_id, title, last_updated_at in rows:
+            if event_id in known:
+                continue
+            shared = len(words & _title_words(title))
+            if shared >= LLM_ASK_TITLE_WORDS_ALONE and shared > best.get(event_id, (0, now))[0]:
+                best[event_id] = (shared, last_updated_at or now)
+        ranked = sorted(best.items(), key=lambda item: -item[1][0])[:TITLE_CANDIDATE_LIMIT]
+        return [
+            VectorCandidate(
+                event_id=event_id, similarity=0.0, distance=1.0, last_updated_at=updated
+            )
+            for event_id, (_, updated) in ranked
+        ]
 
     def _join_on_scores(
         self,
@@ -1261,6 +1427,144 @@ class EventService:
             correlation_log.info("split_event_merged", to_event=target.id)
             return "merged", move
 
+    async def move_articles(
+        self,
+        article_ids: Sequence[int],
+        to_event_id: int,
+        *,
+        from_event_id: int | None = None,
+        correlation_id: str | None = None,
+    ) -> dict[str, object]:
+        """Put articles in another news item (admin): the repair for news that stands in two
+        items, or for an article that stands in the wrong one. ``from_event_id`` adds all
+        articles of that item.
+
+        An item that loses its last article is archived, unless readers searched or shared
+        something on it: then its articles stay where they are. An item that keeps articles gets
+        its centroids from those. The item the articles go to and every item that keeps articles
+        are analysed again: an analysis describes the articles of its item. Raises ValueError
+        when the item the articles go to does not exist.
+        """
+
+        log = self.log.bind(correlation_id=correlation_id, to_event=to_event_id)
+        wanted = list(dict.fromkeys(article_ids))
+        async with self._assignment_lock:
+            async with self.session_factory() as session:
+                target = await session.get(Event, to_event_id)
+                if target is None:
+                    raise ValueError(f"News item {to_event_id} does not exist")
+                await self.vector_index.ensure_ready(session)
+                repo = EventRepository(session)
+                now = datetime.now(timezone.utc)
+                if from_event_id is not None:
+                    of_event = await session.execute(
+                        select(EventArticle.article_id).where(
+                            EventArticle.event_id == from_event_id
+                        )
+                    )
+                    wanted = list(dict.fromkeys(wanted + list(of_event.scalars())))
+                links = {
+                    link.article_id: link
+                    for link in (
+                        await session.execute(
+                            select(EventArticle).where(EventArticle.article_id.in_(wanted))
+                        )
+                    ).scalars()
+                }
+                sources = {link.event_id for link in links.values()} - {to_event_id}
+
+                async def remaining(event_id: int) -> list[Article]:
+                    rows = await session.execute(
+                        select(Article)
+                        .join(EventArticle, EventArticle.article_id == Article.id)
+                        .where(EventArticle.event_id == event_id)
+                    )
+                    return list(rows.scalars().all())
+
+                kept_for_readers: set[int] = set()
+                for event_id in sources:
+                    emptied = all(article.id in wanted for article in await remaining(event_id))
+                    if emptied and await self._has_reader_content(event_id):
+                        kept_for_readers.add(event_id)
+
+                moved: list[int] = []
+                skipped: list[int] = []
+                for article_id in wanted:
+                    article = await session.get(Article, article_id)
+                    link = links.get(article_id)
+                    stays = link is not None and link.event_id in kept_for_readers | {to_event_id}
+                    if article is None or stays:
+                        skipped.append(article_id)
+                        continue
+                    features, entity_payload = _article_to_features(article)
+                    if link is not None:
+                        await session.delete(link)
+                        await session.flush()
+                    breakdown = compute_hybrid_score(
+                        features, _event_to_features(target), self._score_parameters(), now=now
+                    )
+                    scoring = breakdown.as_dict()
+                    scoring["decision"] = "moved"
+                    await repo.append_article_to_event(
+                        event=target,
+                        article=article,
+                        embedding=features.embedding,
+                        tfidf_vector=features.tfidf,
+                        entities=entity_payload,
+                        similarity_score=breakdown.final,
+                        scoring_breakdown=scoring,
+                        timestamp=now,
+                    )
+                    moved.append(article_id)
+
+                if moved:
+                    target.archived_at = None
+                    # The news started with its earliest article (the front page sorts on this)
+                    refreshed_at = target.last_updated_at
+                    refresh_centroid(target, await remaining(to_event_id))
+                    target.last_updated_at = refreshed_at
+
+                archived: list[int] = []
+                left: list[Event] = []
+                for event_id in sorted(sources - kept_for_readers):
+                    event = await session.get(Event, event_id)
+                    if event is None:
+                        continue
+                    rest = await remaining(event_id)
+                    if rest:
+                        refresh_centroid(event, rest)
+                        left.append(event)
+                    else:
+                        event.archived_at = now
+                        event.article_count = 0
+                        archived.append(event_id)
+                await session.commit()
+
+                for event_id in archived:
+                    await self.vector_index.remove(event_id)
+                for event in left + ([target] if moved else []):
+                    if event.centroid_embedding:
+                        await self.vector_index.upsert(
+                            event.id,
+                            event.centroid_embedding,
+                            event.last_updated_at,
+                            session=session,
+                        )
+                changed = ([to_event_id] if moved else []) + [event.id for event in left]
+
+        for event_id in changed:
+            await self._maybe_schedule_insight_generation(
+                event_id, None, correlation_id, changed=True
+            )
+        log.info("articles_moved", moved=moved, skipped=skipped, archived=archived)
+        return {
+            "to_event": to_event_id,
+            "moved": moved,
+            "skipped": skipped,
+            "archived_events": archived,
+            "kept_for_readers": sorted(kept_for_readers),
+        }
+
     async def _has_reader_content(self, event_id: int) -> bool:
         """Whether readers searched or shared something on this event (then it is never merged)."""
 
@@ -1394,14 +1698,22 @@ class EventService:
         event_id: int,
         last_updated_at: datetime | None,
         correlation_id: str | None,
+        *,
+        changed: bool = False,
     ) -> None:
+        """Start a new analysis when the last one is older than the item's last article.
+
+        ``changed``: the item's articles were changed by hand, so its analysis describes articles
+        it no longer has or misses the ones it got: analyse again, however new that analysis is.
+        """
+
         if not self.auto_generate_insights or self.insight_service is None:
             return
 
         if event_id in self._pending_insight_events:
             return
 
-        if not await self._insight_needs_refresh(event_id, last_updated_at):
+        if not changed and not await self._insight_needs_refresh(event_id, last_updated_at):
             return
 
         self._pending_insight_events.add(event_id)
@@ -1460,7 +1772,7 @@ class EventService:
             event_articles = event_articles_map.get(event.id, [])
             if event_articles:
                 sample_articles = []
-                for a in event_articles[:3]:
+                for a in _sample_articles(article, event_articles):
                     if a.title:
                         # Include first 150 chars of content to help distinguish similar topics
                         snippet = ""
@@ -1506,11 +1818,9 @@ VOORBEELD:
 • Bericht over "Pim van Galen gedrag" + NOS artikel "Lale Gül beveiliging" → NEW_EVENT (andere hoofdpersoon!)
 • Bericht met algemene NOS kritiek + willekeurig NOS artikel → NEW_EVENT (geen specifieke link)
 
-Antwoord met ALLEEN: "EVENT_1" of "EVENT_2" of "EVENT_3" of "NEW_EVENT"
-
-Antwoord:"""
+{VERDICT_FORMAT}"""
         else:
-            prompt = f"""You cluster Dutch news articles into events. Decide: does this article belong to an existing event, or is it NEW_EVENT?
+            prompt = f"""You cluster Dutch news articles into events. An event is ONE piece of news that several outlets report. Decide: does this article report the news of an existing event, or is it NEW_EVENT?
 
 NEW ARTICLE:
 Type: {article.event_type or 'unknown'}
@@ -1523,55 +1833,55 @@ CANDIDATE EVENTS:
 
 DECISION RULES:
 
-SAME EVENT = exact same real-world incident:
-• Same specific people, victims, or organizations
-• Same location AND same incident type
-• Direct continuation of the same story
+SAME EVENT = the same news:
+• Another outlet on the same occurrence: the same statement, decision, verdict, match, accident, study or announcement (often the same press agency text under another headline)
+• The same occurrence from another angle or with more details (a plan and the criticism it gets that day; a higher toll; a live blog)
 
-DIFFERENT EVENT (= NEW_EVENT):
+NEW_EVENT = other news, also inside the same larger story:
+• A new occurrence in that story: a later development, a side story, or a new statement of someone else on another day (the crash ≠ the minister's visit a day later; the election result ≠ a column about it)
 • Different people/victims (even if same crime type)
 • Different cities (even if same topic)
 • Different sport (voetbal ≠ schaatsen ≠ wielrennen ≠ F1 ≠ tennis)
-• Different competition (WK voetbal ≠ World Cup schaatsen)
+• Different competition or match (WK voetbal ≠ World Cup schaatsen)
 • Same topic but separate incidents
 
 EXAMPLES:
+• "Rechter legt X taakstraf op" vs "Taakstraf voor X na mishandeling" → SAME EVENT (the same verdict)
 • "WK voetbal loting" vs "World Cup schaatsen Heerenveen" → NEW_EVENT (different sports!)
 • "Ajax wint van PSV" vs "Feyenoord verliest" → NEW_EVENT (different matches)
 • "Steekpartij Amsterdam" vs "Steekpartij Rotterdam" → NEW_EVENT (different cities)
-• "Kabinet valt" vs "Formatie update" → SAME EVENT (same political crisis)
 
 WARNING: "World Cup" / "WK" appears in MANY different sports. Always check WHICH sport by reading the article content snippets!
 
 IMPORTANT: Read the sample article content snippets carefully - they reveal the actual topic (e.g., "schaatsen", "voetbal", "wielrennen").
 
-Respond with ONLY: "EVENT_1" or "EVENT_2" or "EVENT_3" or "NEW_EVENT"
-
-Response:"""
+{VERDICT_FORMAT}"""
 
         try:
             response: LLMResponse = await self.llm_client.generate_text(
                 prompt=prompt,
                 temperature=0.1,
-                max_tokens=50,
+                max_tokens=200,
             )
 
             decision = response.content.strip().upper()
+            choice = _parse_verdict(decision)
             self.log.info(
                 "llm_event_decision",
                 article_id=article.id,
-                decision=decision[:80],
+                decision=(
+                    decision[:80] if choice is None else f"EVENT_{choice}" if choice else "NEW_EVENT"
+                ),
+                reason=response.content.strip()[:200],
+                candidates=[event.id for event, _ in candidates],
                 candidates_count=len(candidates),
                 correlation_id=correlation_id,
             )
 
-            # Parse LLM decision: the first verdict in the answer. The model may explain itself
-            # after it, and that explanation names the other candidates ("EVENT 1 is about ...")
-            verdict = re.search(r"NEW[_ ]EVENT|EVENT[_ ](\d+)", decision)
-            if verdict is not None and verdict.group(1) is None:
+            if choice == 0:
                 return LLMEventDecision(new_event=True)
-            if verdict is not None and 1 <= int(verdict.group(1)) <= len(candidates):
-                return LLMEventDecision(event_id=candidates[int(verdict.group(1)) - 1][0].id)
+            if choice is not None and choice <= len(candidates):
+                return LLMEventDecision(event_id=candidates[choice - 1][0].id)
 
             # Default to None if unclear
             self.log.warning(

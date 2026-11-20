@@ -638,9 +638,19 @@ class IngestService:
                     else:
                         # Only parse HTML if fetch succeeded
                         try:
-                            parsed = parse_article_html(html, url=item.url)
+                            parsed = parse_article_html(
+                                html,
+                                url=item.url,
+                                page_data=bool(profile and profile.parser == "page_data"),
+                            )
                         except ArticleParseError:
-                            if profile and profile.parser and profile.parser != "trafilatura":
+                            # "page_data" reads the article like trafilatura does: no page dump
+                            own_parser = profile and profile.parser not in (
+                                "",
+                                "trafilatura",
+                                "page_data",
+                            )
+                            if own_parser:
                                 fallback_text = naive_extract_text(html)
                                 if fallback_text:
                                     summary = fallback_text[:320] or (item.summary or "")

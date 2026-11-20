@@ -149,8 +149,8 @@ const ABOUT_SOURCES =
 
 /**
  * What each Dutch outlet reported, in the words of the analysis: per outlet the first sentence of
- * the summary that names it, leaving out what the teaser already says and sentences about the
- * sources themselves. Outlets the summary does not name are left out.
+ * the summary in its own voice (no other outlet named before it), leaving out what the teaser
+ * already says and sentences about the sources themselves. Outlets without one are left out.
  */
 export function outletQuotes(
   event: Pick<EventListItem, "summary" | "source_breakdown">,
@@ -159,7 +159,7 @@ export function outletQuotes(
   const names = dutchOutletNames(event);
   if (!event.summary || names.length === 0) return [];
   const outlets = names.map((name) => ({ key: name, name, profile: { aliases: findOutletByName(name)?.aliases ?? [] } }));
-  const sentences = outletSentencesIn(splitLlmSummary(event.summary).body, outlets);
+  const sentences = outletSentencesIn(splitLlmSummary(event.summary).body, outlets, { ownVoice: true });
   const teaser = options.teaser?.replace(/…$/, "") ?? "";
   const quotes: OutletQuote[] = [];
   for (const name of names) {

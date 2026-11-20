@@ -1,8 +1,7 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import Link from "next/link";
-import { ChevronRight, ExternalLink, Network, Pin, Scale } from "lucide-react";
+import { ChevronRight, ExternalLink, Pin, Scale } from "lucide-react";
 
 import { TAB_BY_ID } from "@/lib/explore/labels";
 import { outletIndex, type IndexLine } from "@/lib/explore/lens-index";
@@ -98,9 +97,6 @@ export function OutletCard({ outletKey, onNavigate }: { outletKey: string; onNav
     .filter((article): article is NonNullable<typeof article> => Boolean(article))
     .sort((a, b) => String(a.publishedAt ?? "").localeCompare(String(b.publishedAt ?? "")));
   const ownership = outlet.profile?.ownershipType;
-  const networkHref = `/event/${encodeURIComponent(exploration.input.event.slug ?? String(eventId))}/netwerk${
-    outlet.profile?.pmEntityId ? `?focus=${encodeURIComponent(`pm:${outlet.profile.pmEntityId}`)}` : ""
-  }`;
   const canCompare = exploration.input.outlets.length >= 2;
   const pinId = dossierIds.outlet(outletKey);
   // Straight to the original article (the first, when there are more); demo articles do not exist
@@ -252,14 +248,6 @@ export function OutletCard({ outletKey, onNavigate }: { outletKey: string; onNav
         >
           {isPinned(pinId) ? "Bewaard" : "Bewaar"}
         </Chip>
-        {outlet.profile?.pmEntityId ? (
-          <Link
-            href={networkHref}
-            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-paper-300 bg-paper-100 px-3 py-1 text-xs font-medium text-ink-700 hover:bg-paper-200"
-          >
-            <Network size={14} /> Wie zit erachter?
-          </Link>
-        ) : null}
       </div>
     </div>
   );

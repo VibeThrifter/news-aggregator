@@ -56,6 +56,9 @@ class ReleaseSite:
     # The page names the organisation (rijksoverheid.nl: the ministry). On om.nl and
     # koninklijkhuis.nl ``DCTERMS.creator`` is the ministry above it, so those keep their own name
     use_creator: bool = False
+    # Story 14.40: also put the release in news it is about when no outlet quotes it. Off for a
+    # club's match pages (Ajax): about the same match, rarely the news (6 of 8 pairs "verwant")
+    about: bool = True
 
 
 SITES: tuple[ReleaseSite, ...] = (
@@ -173,6 +176,7 @@ SITES: tuple[ReleaseSite, ...] = (
         news=r"^https://www\.ajax\.nl/artikelen/[^/]+/?$",
         every_minutes=60,
         quiet_days=5,
+        about=False,
     ),
 )
 SITE_BY_KEY = {site.key: site for site in SITES}
